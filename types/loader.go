@@ -1,0 +1,453 @@
+package types
+
+import (
+	"cmp"
+	"context"
+	"errors"
+	"fmt"
+	"go/types"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+
+	"github.com/seeruk/morph/internal"
+	"golang.org/x/tools/go/packages"
+)
+
+// Loader is responsible for loading Go packages, including symbols within the packages.
+type Loader struct {
+	dir      string
+	packages []Package
+}
+
+// NewLoader returns a new Loader instance rooted at the given directory. Packages are resolved from
+// this directory (i.e. if it's a Go Module, from this module).
+func NewLoader(dir string) *Loader {
+	if dir == "" {
+		dir = "."
+	}
+
+	return &Loader{
+		dir: dir,
+	}
+}
+
+// Load attempts to load Go packages matching the given pattern(s). If no patterns are provided, it
+// defaults to loading all packages in the loader's configured directory (i.e. using "./...").
+//
+// Package patterns can be specified in the same way as with the "go list" command, e.g.
+// "github.com/my/module/..." or "./cmd/...". The loader will resolve these patterns relative to the
+// loader's configured directory.
+func (l *Loader) Load(ctx context.Context, patterns ...string) error {
+	if len(patterns) == 0 {
+		patterns = []string{"./..."}
+	}
+
+	cfg := &packages.Config{
+		Context: ctx,
+		Dir:     l.dir,
+		// TODO: Figure out the minimal set of modes we need for Morph.
+		Mode: packages.NeedName |
+			packages.NeedFiles |
+			packages.NeedImports |
+			packages.NeedTypes |
+			packages.NeedTypesInfo,
+		Tests: false,
+	}
+
+	pkgs, err := packages.Load(cfg, patterns...)
+	if err != nil {
+		return fmt.Errorf("types: load packages: %w", err)
+	}
+
+	if err := packageErrors(pkgs); err != nil {
+		return fmt.Errorf("types: loaded packages: %w", err)
+	}
+
+	if len(pkgs) == 0 {
+		return errors.New("expected to load at least one package, but found none")
+	}
+
+	loaded := make([]Package, 0, len(pkgs))
+	for _, pkg := range pkgs {
+		loaded = append(loaded, l.loadPackage(pkg))
+	}
+
+	slices.SortFunc(loaded, func(a, b Package) int {
+		return cmp.Compare(a.ImportPath, b.ImportPath)
+	})
+
+	l.packages = loaded
+
+	return nil
+}
+
+func (l *Loader) Packages() []Package {
+	return l.packages
+}
+
+func (l *Loader) loadPackage(pkg *packages.Package) Package {
+	morphFiles := identifyMorphGeneratedFiles(pkg.GoFiles)
+
+	var out Package
+
+	out.Name = pkg.Name
+	out.ImportPath = pkg.PkgPath
+	out.Dir = packageDir(pkg)
+
+	scope := pkg.Types.Scope()
+	for _, name := range scope.Names() {
+		obj := scope.Lookup(name)
+		switch obj := obj.(type) {
+		case *types.Const:
+			out.Constants = append(out.Constants, l.loadConstant(obj, out.AsRef()))
+		case *types.Func:
+			out.Functions = append(out.Functions, l.loadFunction(obj, out.AsRef(), pkg, morphFiles))
+		case *types.TypeName:
+			out.Types = append(out.Types, l.loadType(obj, out.AsRef()))
+		}
+	}
+
+	return out
+}
+
+func (l *Loader) loadConstant(obj *types.Const, pkg PackageRef) ConstantDecl {
+	value := ""
+	if obj.Val() != nil {
+		value = obj.Val().String()
+	}
+
+	return ConstantDecl{
+		Name:     obj.Name(),
+		Package:  pkg,
+		Exported: obj.Exported(),
+		Type:     loadType(obj.Type()),
+		Value:    value,
+	}
+}
+
+func (l *Loader) loadFunction(obj *types.Func, pkgRef PackageRef, pkg *packages.Package, morphFiles map[string]bool) FunctionDecl {
+	sig := obj.Type().(*types.Signature)
+
+	decl := FunctionDecl{
+		Name:       obj.Name(),
+		Package:    pkgRef,
+		Exported:   obj.Exported(),
+		Params:     loadParameters(sig.Params()),
+		Results:    loadParameters(sig.Results()),
+		TypeParams: loadTypeParams(sig.TypeParams()),
+		Variadic:   sig.Variadic(),
+	}
+
+	if filename, ok := filenameForObject(pkg, obj); ok {
+		decl.SourceFile = filename
+		decl.IsMorphFile = morphFiles[filename]
+	}
+
+	return decl
+}
+
+func (l *Loader) loadType(obj *types.TypeName, pkg PackageRef) TypeDecl {
+	typ := obj.Type()
+
+	out := TypeDecl{
+		Name:       obj.Name(),
+		Package:    pkg,
+		Alias:      obj.IsAlias(),
+		Type:       loadType(typ),
+		Underlying: loadType(typ.Underlying()),
+		Fields:     loadStructFields(typeAsStruct(typ)),
+		Methods:    loadTypeMethods(typ),
+		// NOTE: Constants are assigned after, because we have to load them all first
+	}
+
+	return out
+}
+
+func packageDir(pkg *packages.Package) string {
+	if len(pkg.GoFiles) > 0 {
+		return filepath.Dir(pkg.GoFiles[0])
+	}
+	return ""
+}
+
+func packageErrors(pkgs []*packages.Package) error {
+	var errs []error
+	for _, pkg := range pkgs {
+		for _, err := range pkg.Errors {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func loadType(typ types.Type) Type {
+	if typ == nil {
+		return Type{Kind: TypeKindInvalid}
+	}
+
+	switch typ := typ.(type) {
+	case *types.Basic:
+		return Type{
+			Kind:   TypeKindBasic,
+			Name:   typ.Name(),
+			String: typ.String(),
+		}
+	case *types.Named:
+		return Type{
+			Kind:       TypeKindNamed,
+			Name:       typ.Obj().Name(),
+			Package:    packageRefFromObject(typ.Obj()),
+			String:     typ.String(),
+			TypeParams: loadTypeParams(typ.TypeParams()),
+			TypeArgs:   loadTypeArgs(typ.TypeArgs()),
+			Elem:       new(loadType(typ.Underlying())),
+		}
+	case *types.Alias:
+		return Type{
+			Kind:       TypeKindAlias,
+			Name:       typ.Obj().Name(),
+			Package:    packageRefFromObject(typ.Obj()),
+			String:     typ.String(),
+			Elem:       new(loadType(typ.Rhs())),
+			TypeParams: loadTypeParams(typ.TypeParams()),
+			TypeArgs:   loadTypeArgs(typ.TypeArgs()),
+		}
+	case *types.Pointer:
+		return Type{
+			Kind:   TypeKindPointer,
+			String: typ.String(),
+			Elem:   new(loadType(typ.Elem())),
+		}
+	case *types.Slice:
+		return Type{
+			Kind:   TypeKindSlice,
+			String: typ.String(),
+			Elem:   new(loadType(typ.Elem())),
+		}
+	case *types.Array:
+		return Type{
+			Kind:   TypeKindArray,
+			String: typ.String(),
+			Len:    typ.Len(),
+			Elem:   new(loadType(typ.Elem())),
+		}
+	case *types.Map:
+		return Type{
+			Kind:   TypeKindMap,
+			String: typ.String(),
+			Key:    new(loadType(typ.Key())),
+			Value:  new(loadType(typ.Elem())),
+		}
+	case *types.Struct:
+		return Type{
+			Kind:   TypeKindStruct,
+			String: typ.String(),
+			Fields: loadStructFields(typ),
+		}
+	case *types.Interface:
+		return Type{
+			Kind:    TypeKindInterface,
+			String:  typ.String(),
+			Methods: loadInterfaceMethods(typ),
+		}
+	case *types.Signature:
+		return Type{
+			Kind:       TypeKindSignature,
+			String:     typ.String(),
+			TypeParams: loadTypeParams(typ.TypeParams()),
+			Params:     loadParameters(typ.Params()),
+			Results:    loadParameters(typ.Results()),
+			Variadic:   typ.Variadic(),
+		}
+	case *types.TypeParam:
+		return Type{
+			Kind:   TypeKindTypeParam,
+			Name:   typ.Obj().Name(),
+			String: typ.String(),
+		}
+	case *types.Chan:
+		return Type{
+			Kind:    TypeKindChan,
+			String:  typ.String(),
+			ChanDir: typ.Dir(),
+			Elem:    new(loadType(typ.Elem())),
+		}
+	default:
+		return Type{
+			Kind:   TypeKindInvalid,
+			String: typ.String(),
+		}
+	}
+}
+
+func loadInterfaceMethods(iface *types.Interface) []Method {
+	methods := make([]Method, 0, iface.NumMethods())
+	for i := 0; i < iface.NumMethods(); i++ {
+		fn := iface.Method(i)
+		sig, ok := fn.Type().(*types.Signature)
+		if !ok {
+			// TODO: Should this be handled in some way?
+			continue
+		}
+		methods = append(methods, Method{
+			Name:       fn.Name(),
+			Exported:   fn.Exported(),
+			TypeParams: loadTypeParams(sig.TypeParams()),
+			Params:     loadParameters(sig.Params()),
+			Results:    loadParameters(sig.Results()),
+			Variadic:   sig.Variadic(),
+		})
+	}
+	return methods
+}
+
+func loadParameters(tuple *types.Tuple) []Parameter {
+	if tuple == nil {
+		return nil
+	}
+
+	params := make([]Parameter, 0, tuple.Len())
+	for i := 0; i < tuple.Len(); i++ {
+		params = append(params, loadParameter(tuple.At(i)))
+	}
+
+	return params
+}
+
+func loadParameter(param *types.Var) Parameter {
+	if param == nil {
+		return Parameter{}
+	}
+
+	return Parameter{
+		Name: param.Name(),
+		Type: loadType(param.Type()),
+	}
+}
+
+func loadTypeMethods(typ types.Type) []Method {
+	named, ok := types.Unalias(typ).(*types.Named)
+	if !ok {
+		return nil
+	}
+
+	methods := make([]Method, 0, named.NumMethods())
+	for i := 0; i < named.NumMethods(); i++ {
+		fn := named.Method(i)
+		sig := fn.Type().(*types.Signature)
+		methods = append(methods, Method{
+			Name:       fn.Name(),
+			Exported:   fn.Exported(),
+			Receiver:   new(loadParameter(sig.Recv())),
+			TypeParams: loadTypeParams(sig.TypeParams()),
+			Params:     loadParameters(sig.Params()),
+			Results:    loadParameters(sig.Results()),
+			Variadic:   sig.Variadic(),
+		})
+	}
+
+	slices.SortFunc(methods, func(a, b Method) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
+
+	return methods
+}
+
+func typeAsStruct(typ types.Type) *types.Struct {
+	if typ == nil {
+		return nil
+	}
+
+	if s, ok := types.Unalias(typ).(*types.Struct); ok {
+		return s
+	}
+
+	// TODO: Do we need to handle underlying types here too?
+	return nil
+}
+
+func loadStructFields(s *types.Struct) []Field {
+	if s == nil {
+		return nil
+	}
+
+	fields := make([]Field, 0, s.NumFields())
+	for i := 0; i < s.NumFields(); i++ {
+		field := s.Field(i)
+		fields = append(fields, Field{
+			Name:     field.Name(),
+			Exported: field.Exported(),
+			Embedded: field.Embedded(),
+			Tag:      s.Tag(i),
+			Type:     loadType(field.Type()),
+		})
+	}
+	return fields
+}
+
+func loadTypeParams(params *types.TypeParamList) []TypeParam {
+	if params == nil {
+		return nil
+	}
+
+	out := make([]TypeParam, 0, params.Len())
+	for i := 0; i < params.Len(); i++ {
+		param := params.At(i)
+		out = append(out, TypeParam{
+			Name:       param.Obj().Name(),
+			Constraint: loadType(param.Constraint()),
+		})
+	}
+
+	return out
+}
+
+func loadTypeArgs(list *types.TypeList) []Type {
+	if list == nil {
+		return nil
+	}
+
+	args := make([]Type, 0, list.Len())
+	for i := 0; i < list.Len(); i++ {
+		args = append(args, loadType(list.At(i)))
+	}
+
+	return args
+}
+
+// filenameForObject returns the clean filesystem path to the file where the given object is
+// declared, along with a boolean to indicate success.
+func filenameForObject(pkg *packages.Package, obj types.Object) (string, bool) {
+	if pkg == nil || pkg.Fset == nil || obj == nil || !obj.Pos().IsValid() {
+		return "", false
+	}
+	return filepath.Clean(pkg.Fset.Position(obj.Pos()).Filename), true
+}
+
+// identifyMorphGeneratedFiles returns a map containing file paths and whether Morph generated that
+// file. This is used to exclude Morph-generated files from discovery (e.g. so we don't end up
+// discovering generated code and attempting to use it in newly generated mapping functions, thus
+// creating invalid code that references functions that won't exist once we actually write new code
+// to disk).
+func identifyMorphGeneratedFiles(paths []string) map[string]bool {
+	files := make(map[string]bool, len(paths))
+	for _, path := range paths {
+		cleanPath := filepath.Clean(path)
+		files[cleanPath] = isMorphGeneratedFile(cleanPath)
+	}
+	return files
+}
+
+// isMorphGeneratedFile checks whether a file at the given location was generated by Morph by
+// reading the first line of that file which should be the header we always generate.
+func isMorphGeneratedFile(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	line, _, _ := strings.Cut(string(data), "\n")
+	line = strings.TrimSuffix(line, "\r")
+	return line == internal.MorphFileHeader
+}
