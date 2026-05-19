@@ -420,11 +420,15 @@ func typeAsStruct(typ types.Type) *types.Struct {
 		return nil
 	}
 
-	if s, ok := types.Unalias(typ).(*types.Struct); ok {
+	typ = types.Unalias(typ)
+	if s, ok := typ.(*types.Struct); ok {
 		return s
 	}
 
-	// TODO: Do we need to handle underlying types here too?
+	if s, ok := typ.Underlying().(*types.Struct); ok {
+		return s
+	}
+
 	return nil
 }
 
