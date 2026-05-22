@@ -4,7 +4,7 @@ defaults:
   packages:
     types:
       enum:
-        fallback: error
+        failureMode: error
       bidirectional: true
     output:
       strategy: target_package    # Or source_package, or single_package
@@ -35,17 +35,17 @@ conversions:
 packages:
 - source: github.com/seeruk/nextmealplease/internal/nmppb
   target: github.com/seeruk/nextmealplease/internal/nmp
-  style: protobuf
+  preset: protobuf
   types:
   - source: Toughness
     target: Difficulty
     enum:
-      fallback: zero
+      failureMode: zero
       values:
         Toughness_TOUGHNESS_UNSPECIFIED: DifficultyUnknown # TODO: Can this be alleviated?
   - name: Unit
     enum:
-      fallback: error
+      failureMode: error
       values:
         Unit_UNIT_UNSPECIFIED: UnitUnknown
   - name: Ingredient
@@ -60,13 +60,13 @@ packages:
   types:
   - name: Difficulty
 
-# Styles are used to avoid repetition and noise in package definitions. They can be applied to
+# Presets are used to reduce repetition and noise elsewhere in the config. They can be applied to
 # packages, or individual type-pairs. All options available here are available at the package and
-# type level, and will be overridden by any options specified there.
-styles:
+# type level and will be overridden by any options specified there.
+presets:
 - name: protobuf
   bidirectional: true
-  mapper:
+  mappers:
     forward:
       name: Map<TargetPackage><TargetType>FromProto
       signature:
@@ -78,4 +78,4 @@ styles:
         accepts: value
         returns: pointer
   enum:
-    fallback: error
+    failureMode: error
