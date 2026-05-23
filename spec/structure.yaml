@@ -8,7 +8,7 @@ defaults:
       bidirectional: true
     output:
       strategy: target_package    # Or source_package, or single_package
-      location: internal/mapping  # Only relevant for single_package strategy
+      path: internal/mapping      # Only relevant for single_package strategy
       package: mapping            # Only relevant for single_package strategy
       filename: mapping.morph.go  # Could also support formatting strings? e.g. <pkg>.morph.go
 
@@ -22,7 +22,7 @@ defaults:
 discovery:
   packages:
   - import: github.com/seeruk/nextmealplease/internal/optional
-    exclude:
+    exclusions:
     - github.com/seeruk/nextmealplease/internal/optional.OptionalPtr
 
 # Conversions are used to define custom mapping functions for specific type-pairs, explicitly.

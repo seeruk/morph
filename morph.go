@@ -1,6 +1,8 @@
 package morph
 
-import "github.com/seeruk/morph/spec"
+import (
+	"github.com/seeruk/morph/spec"
+)
 
 // Plan is the output of the planning process, providing an abstract representation of what to
 // generate and how. The plan can be particularly useful for consumers of Morph as a library, where
@@ -10,5 +12,9 @@ type Plan struct{}
 
 // Spec is a description of what Morph should do, and how it should do it.
 type Spec struct {
-	Presets []spec.Preset `json:"presets"`
+	Defaults    spec.Defaults      `json:"defaults"`
+	Discovery   spec.Discovery     `json:"discovery"`
+	Conversions []spec.CallableRef `json:"conversions"`
+	Packages    []spec.Package     `json:"packages"`
+	Presets     []spec.Preset      `json:"presets"`
 }
