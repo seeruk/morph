@@ -6,7 +6,7 @@ import (
 
 type Discovery struct{}
 
-type Presets struct {
+type Preset struct {
 	Name          string     `json:"name"`
 	Enum          PresetEnum `json:"enum"`
 	Mappers       Mappers    `json:"mappers"`

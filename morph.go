@@ -10,5 +10,5 @@ type Plan struct{}
 
 // Spec is a description of what Morph should do, and how it should do it.
 type Spec struct {
-	Presets []spec.Presets `json:"presets"`
+	Presets []spec.Preset `json:"presets"`
 }
