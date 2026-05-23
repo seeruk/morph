@@ -1,13 +1,8 @@
-package config
+package spec
 
 import (
 	"github.com/seeruk/morph/types"
 )
-
-// Config represents the overall structure of the configuration for Morph.
-type Config struct {
-	Presets []Presets `json:"presets"`
-}
 
 type Discovery struct{}
 
