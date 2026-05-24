@@ -1,0 +1,180 @@
+{
+  "defaults": {
+    "packages": {
+      "types": {
+        "enum": {
+          "failureMode": "error"
+        },
+        "mappers": {
+          "forward": {
+            "name": "Map\u003cSourceType\u003eTo\u003cTargetType\u003e",
+            "signature": {
+              "accepts": 0,
+              "returns": 1
+            }
+          },
+          "inverse": {
+            "name": "Map\u003cTargetType\u003eTo\u003cSourceType\u003e",
+            "signature": {
+              "accepts": 1,
+              "returns": 0
+            }
+          }
+        },
+        "bidirectional": true
+      },
+      "output": {
+        "strategy": 0,
+        "path": "internal/mapping",
+        "package": "mapping",
+        "filename": "mapping.morph.go"
+      }
+    }
+  },
+  "discovery": {
+    "packages": [
+      {
+        "import": "module.test/shared/conversions",
+        "exclusions": [
+          {
+            "ImportPath": "module.test/shared/conversions",
+            "TypeName": "",
+            "Name": "LegacyUserToUser"
+          },
+          {
+            "ImportPath": "module.test/shared/conversions",
+            "TypeName": "LegacyStatus",
+            "Name": "ToStatus"
+          }
+        ]
+      }
+    ]
+  },
+  "conversions": [
+    {
+      "ImportPath": "module.test/shared/conversions",
+      "TypeName": "",
+      "Name": "CheckedIntToSmallInt"
+    },
+    {
+      "ImportPath": "module.test/shared/conversions",
+      "TypeName": "UserID",
+      "Name": "String"
+    }
+  ],
+  "packages": [
+    {
+      "source": "module.test/source",
+      "target": "module.test/target",
+      "preset": "api",
+      "types": [
+        {
+          "name": "User",
+          "source": "",
+          "target": "",
+          "preset": "",
+          "enum": null,
+          "struct": {
+            "fields": {
+              "DisplayName": "Name",
+              "ID": "UserID"
+            }
+          },
+          "mappers": {
+            "forward": {
+              "name": "MapSourceUserToTargetUser",
+              "signature": {
+                "accepts": 1,
+                "returns": 0
+              }
+            },
+            "inverse": {
+              "name": "MapTargetUserToSourceUser",
+              "signature": {
+                "accepts": 0,
+                "returns": 1
+              }
+            }
+          }
+        },
+        {
+          "name": "",
+          "source": "SourceStatus",
+          "target": "TargetStatus",
+          "preset": "",
+          "enum": {
+            "failureMode": "zero",
+            "patterns": {
+              "Source": "SourceStatus_\u003cSCREAMING_VALUE\u003e",
+              "Target": "TargetStatus\u003cPascalValue\u003e"
+            },
+            "values": {
+              "SourceStatus_ACTIVE": "TargetStatusActive",
+              "SourceStatus_UNKNOWN": "TargetStatusUnknown"
+            }
+          },
+          "struct": null,
+          "mappers": null
+        }
+      ],
+      "bidirectional": true
+    },
+    {
+      "source": "module.test/database",
+      "target": "module.test/domain",
+      "preset": "",
+      "types": [
+        {
+          "name": "AuditLog",
+          "source": "",
+          "target": "",
+          "preset": "",
+          "enum": null,
+          "struct": null,
+          "mappers": null
+        },
+        {
+          "name": "",
+          "source": "DBRole",
+          "target": "Role",
+          "preset": "",
+          "enum": {
+            "failureMode": "error",
+            "patterns": null,
+            "values": {
+              "DBRoleAdmin": "RoleAdmin"
+            }
+          },
+          "struct": null,
+          "mappers": null
+        }
+      ],
+      "bidirectional": null
+    }
+  ],
+  "presets": [
+    {
+      "name": "api",
+      "enum": {
+        "failureMode": "error"
+      },
+      "mappers": {
+        "forward": {
+          "name": "Map\u003cTargetPackage\u003e\u003cTargetType\u003eFromAPI",
+          "signature": {
+            "accepts": 1,
+            "returns": 0
+          }
+        },
+        "inverse": {
+          "name": "Map\u003cTargetPackage\u003e\u003cTargetType\u003eToAPI",
+          "signature": {
+            "accepts": 0,
+            "returns": 1
+          }
+        }
+      },
+      "bidirectional": true
+    }
+  ]
+}

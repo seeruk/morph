@@ -30,8 +30,7 @@ type Type struct {
 // planner may not be able to resolve on its own.
 type Enum struct {
 	FailureMode *EnumFailureMode `json:"failureMode"`
-	// Patterns *EnumPattners
-	Patterns map[string]string `json:"patterns"`
+	Patterns    *EnumPatterns    `json:"patterns"`
 	// Values is an explicit mapping from source enum value name to target enum value name. Only
 	// explicit mappings need be placed in this map, as the planner will attempt to infer mappings
 	// for values with similar names.

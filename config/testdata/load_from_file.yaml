@@ -1,0 +1,94 @@
+defaults:
+  packages:
+    types:
+      enum:
+        failureMode: error
+      mappers:
+        forward:
+          name: Map<SourceType>To<TargetType>
+          signature:
+            accepts: value
+            returns: pointer
+        inverse:
+          name: Map<TargetType>To<SourceType>
+          signature:
+            accepts: pointer
+            returns: value
+      bidirectional: true
+    output:
+      strategy: single_package
+      path: internal/mapping
+      package: mapping
+      filename: mapping.morph.go
+
+discovery:
+  packages:
+  - import: module.test/shared/conversions
+    exclusions:
+    - module.test/shared/conversions.LegacyUserToUser
+    - module.test/shared/conversions.LegacyStatus.ToStatus
+
+conversions:
+- module.test/shared/conversions.CheckedIntToSmallInt
+- module.test/shared/conversions.UserID.String
+
+packages:
+- source: module.test/source
+  target: module.test/target
+  preset: api
+  bidirectional: true
+  types:
+  - name: User
+    struct:
+      fields:
+        ID: UserID
+        DisplayName: Name
+    mappers:
+      forward:
+        name: MapSourceUserToTargetUser
+        signature:
+          accepts: pointer
+          returns: value
+      inverse:
+        name: MapTargetUserToSourceUser
+        signature:
+          accepts: value
+          returns: pointer
+  - source: SourceStatus
+    target: TargetStatus
+    enum:
+      failureMode: zero
+      patterns:
+        Source: SourceStatus_<SCREAMING_VALUE>
+        Target: TargetStatus<PascalValue>
+      values:
+        SourceStatus_UNKNOWN: TargetStatusUnknown
+        SourceStatus_ACTIVE: TargetStatusActive
+
+- source: module.test/database
+  target: module.test/domain
+  types:
+  - name: AuditLog
+  - source: DBRole
+    target: Role
+    enum:
+      failureMode: error
+      values:
+        DBRoleAdmin: RoleAdmin
+
+presets:
+- name: api
+  bidirectional: true
+  enum:
+    failureMode: error
+  mappers:
+    forward:
+      name: Map<TargetPackage><TargetType>FromAPI
+      signature:
+        accepts: pointer
+        returns: value
+    inverse:
+      name: Map<TargetPackage><TargetType>ToAPI
+      signature:
+        accepts: value
+        returns: pointer

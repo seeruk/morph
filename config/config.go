@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/ghodss/yaml"
 	"github.com/seeruk/morph"
-	"gopkg.in/yaml.v2"
 )
 
 // LoadFromFile attempts to load Morph config from a file.
@@ -13,12 +13,12 @@ import (
 func LoadFromFile(filename string) (morph.Spec, error) {
 	var spec morph.Spec
 
-	file, err := os.Open(filename)
+	data, err := os.ReadFile(filename)
 	if err != nil {
 		return spec, fmt.Errorf("failed to open file %s: %w", filename, err)
 	}
 
-	if err := yaml.NewDecoder(file).Decode(&spec); err != nil {
+	if err := yaml.Unmarshal(data, &spec); err != nil {
 		return spec, fmt.Errorf("failed to parse file %s: %w", filename, err)
 	}
 
