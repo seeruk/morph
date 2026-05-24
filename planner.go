@@ -1,6 +1,12 @@
 package morph
 
-type Planner struct{}
+import (
+	"github.com/seeruk/morph/plan"
+)
+
+type Planner struct {
+	types map[string]*plan.Type
+}
 
 func NewPlanner() *Planner {
 	return &Planner{}
