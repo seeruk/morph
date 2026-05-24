@@ -30,6 +30,8 @@ type Type struct {
 // planner may not be able to resolve on its own.
 type Enum struct {
 	FailureMode *EnumFailureMode `json:"failureMode"`
+	// Patterns *EnumPattners
+	Patterns map[string]string `json:"patterns"`
 	// Values is an explicit mapping from source enum value name to target enum value name. Only
 	// explicit mappings need be placed in this map, as the planner will attempt to infer mappings
 	// for values with similar names.
@@ -50,6 +52,26 @@ const (
 	EnumFailureModeZero  EnumFailureMode = "zero"
 )
 
+// EnumPatterns allows patterns to be configured for matching enums, this can be used to explicitly
+// handle difficult to infer mappings.
+//
+// The format supported is similar how mapping function names can be configured. Available template
+// placeholders are based around different casing options for possible elements of the name:
+// - <SCREAMING_TYPE>
+// - <SCREAMING_VALUE>
+// - <PascalType>
+// - <PascalValue>
+// - <camelValue>
+// - <camelValue>
+// - <snake_value>
+// - <snake_value>
+//
+// TODO: Do we need more template options? Or something more custom, or lenient?
+type EnumPatterns struct {
+	Source string
+	Target string
+}
+
 type Struct struct {
 	// Fields is a map from source field name to target field name. Only explicit mappings need to
 	// be placed in this map, the planner will attempt to infer mappings for similarly named fields.
@@ -69,7 +91,13 @@ type Mappers struct {
 type Mapper struct {
 	// Name can be used to provide an exact name, but also supports pattern-based naming using
 	// predefined placeholders. Available placeholders are:
-	// TODO: Define and list placeholders...
+	// - <SourcePkg>, <SourcePackage>
+	// - <TargetPkg>, <TargetPackage>
+	// - <SourceType>
+	// - <TargetType>
+	//
+	// So for example, you can do `Map<SourcePkg><SourceType>To<TargetPkg><TargetType>` (which is
+	// the default that Morph will use...).
 	Name string `json:"name"`
 
 	// Signature allows the signature of a generated mapper function to be customized.

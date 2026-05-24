@@ -68,7 +68,7 @@ type ValuePlan struct {
 	Kind          OperationKind
 	Source        types.Type
 	Target        types.Type
-	Callable      *Callable
+	Callable      *CallableRef
 	Plan          *Type
 	Elem          *ValuePlan
 	Key           *ValuePlan
@@ -94,35 +94,6 @@ const (
 	OperationSlice       OperationKind = "slice"
 	OperationArray       OperationKind = "array"
 	OperationMap         OperationKind = "map"
-)
-
-// Callable is a structured description of a callable used by a mapping.
-type Callable struct {
-	SourceType   TypeRef
-	TargetType   TypeRef
-	Kind         CallableKind
-	Source       CallableSource
-	Package      types.PackageRef
-	Name         string
-	ReturnsError bool
-}
-
-// CallableKind describes how a callable is invoked.
-type CallableKind string
-
-const (
-	CallableKindFunction CallableKind = "function"
-	CallableKindMethod   CallableKind = "method"
-)
-
-// CallableSource describes where a callable came from, this is used to determine the priority that
-// callables have (e.g. explicit user-provided conversions should be preferred over discovered
-// conversions).
-type CallableSource int
-
-const (
-	CallableSourceUser CallableSource = iota
-	CallableSourceDiscovered
 )
 
 // MapperSignature represents the planned signature of a mapping function, it differs from the type
