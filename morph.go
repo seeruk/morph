@@ -22,3 +22,11 @@ type Spec struct {
 	Packages    []spec.Package     `json:"packages"`
 	Presets     []spec.Preset      `json:"presets"`
 }
+
+// OutputFile is an in-memory representation of a generated file, ready to be written, detailing
+// where the file should be written to, and it's contents.
+type OutputFile struct {
+	LogicalPath string
+	PackageName string // Used for debugging
+	Source      []byte
+}

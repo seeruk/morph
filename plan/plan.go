@@ -5,13 +5,6 @@ import (
 	"github.com/seeruk/morph/types"
 )
 
-// Diagnostic is a generalized type used for presenting helpful messages to Morph consumers to help
-// them find and fix issues found during planning.
-type Diagnostic struct {
-	Path    string
-	Message string
-}
-
 // OutputGroup contains information about one logical file to generate.
 type OutputGroup struct {
 	Location OutputLocation
@@ -69,9 +62,68 @@ type FieldPlan struct {
 	Mapping     ValuePlan
 }
 
+// ValuePlan describes how to map one value to another. Compound mappings point to child mappings
+// for elements, keys, or values (i.e. for nested types).
 type ValuePlan struct {
-	// TODO: Fill in...
+	Kind          OperationKind
+	Source        types.Type
+	Target        types.Type
+	Callable      *Callable
+	Plan          *Type
+	Elem          *ValuePlan
+	Key           *ValuePlan
+	Value         *ValuePlan
+	SourcePointer bool
+	TargetPointer bool
+	CanError      bool
+	Diagnostics   []Diagnostic
 }
+
+// OperationKind describes the operation used for a mapping node.
+type OperationKind string
+
+const (
+	OperationUnsupported OperationKind = "unsupported"
+	OperationAssign      OperationKind = "assign"
+	OperationConversion  OperationKind = "conversion"
+	OperationMethod      OperationKind = "method"
+	OperationConvert     OperationKind = "convert"
+	OperationStruct      OperationKind = "struct"
+	OperationEnum        OperationKind = "enum"
+	OperationPointer     OperationKind = "pointer"
+	OperationSlice       OperationKind = "slice"
+	OperationArray       OperationKind = "array"
+	OperationMap         OperationKind = "map"
+)
+
+// Callable is a structured description of a callable used by a mapping.
+type Callable struct {
+	SourceType   TypeRef
+	TargetType   TypeRef
+	Kind         CallableKind
+	Source       CallableSource
+	Package      types.PackageRef
+	Name         string
+	ReturnsError bool
+}
+
+// CallableKind describes how a callable is invoked.
+type CallableKind string
+
+const (
+	CallableKindFunction CallableKind = "function"
+	CallableKindMethod   CallableKind = "method"
+)
+
+// CallableSource describes where a callable came from, this is used to determine the priority that
+// callables have (e.g. explicit user-provided conversions should be preferred over discovered
+// conversions).
+type CallableSource int
+
+const (
+	CallableSourceUser CallableSource = iota
+	CallableSourceDiscovered
+)
 
 // MapperSignature represents the planned signature of a mapping function, it differs from the type
 // found in the spec package in that values here are explicit and always defined (i.e. not nil).
@@ -80,8 +132,9 @@ type MapperSignature struct {
 	Returns spec.ParameterKind
 }
 
-type TypeRef struct {
-	ImportPath string
-	Name       string
-	Key        string
+// Diagnostic is a generalized type used for presenting helpful messages to Morph consumers to help
+// them find and fix issues found during planning.
+type Diagnostic struct {
+	Path    string
+	Message string
 }
