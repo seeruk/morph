@@ -12,6 +12,13 @@ type Output struct {
 	Filename string         `json:"filename"`
 }
 
+var DefaultOutput = Output{
+	Strategy: OutputStrategySinglePackage,
+	Package:  "morph",
+	Path:     "morph",
+	Filename: "morph.gen.go",
+}
+
 type OutputStrategy uint
 
 const (

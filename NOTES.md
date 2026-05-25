@@ -1,6 +1,5 @@
 # Notes
 
-
 ## How can Morph avoid using functions that it will generate code for?
 
 Morph files are generated with a specific file header, and we pick up on this in the type loader. We

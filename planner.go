@@ -2,10 +2,14 @@ package morph
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
+	"path/filepath"
 	"slices"
+	"strings"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/seeruk/morph/internal/slicesx"
 	"github.com/seeruk/morph/plan"
 	"github.com/seeruk/morph/spec"
@@ -15,12 +19,16 @@ import (
 type Planner struct {
 	// spec is the spec that this planner is planning for
 	spec Spec
+	// workingDir is the working directory of this Planner
+	workingDir string
 
 	// loader is the initialized type loader for this planner
 	loader *types.Loader
 	// registry is the callableRegistry used by this planner to find callables that could be used
 	// for the purposes of mapping between types
 	registry *callableRegistry
+	// workspace contains the module and filesystem environment Morph is planning within
+	workspace *Workspace
 
 	// explicitRoots is a map of the planned mapping of explicitly requested types
 	explicitRoots map[string]*plan.Type // plan.TypeMapperKey -> *plan.Type
@@ -37,9 +45,10 @@ type Planner struct {
 }
 
 // NewPlanner returns a new Planner, set to plan the given Spec.
-func NewPlanner(spec Spec) *Planner {
+func NewPlanner(spec Spec, workingDir string) *Planner {
 	return &Planner{
-		spec: spec,
+		spec:       spec,
+		workingDir: workingDir,
 	}
 }
 
@@ -54,10 +63,7 @@ func (p *Planner) Plan() (Plan, error) {
 
 	// Bail early if there's nothing to do...
 	if len(p.spec.Packages) == 0 {
-		out.Diagnostics = appendDiagnostic(out.Diagnostics, plan.Diagnostic{
-			Message: "no mappings specified; only found empty packages and/or types",
-		})
-		return out, nil
+		return out, errors.New("no mappings specified; only found empty packages and/or types")
 	}
 
 	// Set up the type loader, primed with all the packages specified at any point in the spec
@@ -65,9 +71,27 @@ func (p *Planner) Plan() (Plan, error) {
 		return out, fmt.Errorf("failed to prepare type loader: %w", err)
 	}
 
+	// Figure out what environment we're operating within
+	if err := p.prepareWorkspace(); err != nil {
+		return out, fmt.Errorf("failed to prepare workspace: %w", err)
+	}
+
 	// Set up the registry, with all available and compatible conversions added
 	if err := p.prepareRegistry(); err != nil {
 		return out, fmt.Errorf("failed to prepare registry: %w", err)
+	}
+
+	// We determine all output locations upfront as part of our strategy for avoiding discovering
+	// mapping functions we're about to generate. If we know which files we're going to generate,
+	// then we know we can't pull in functions from those files.
+	// TODO: Probably should be associated with something that lets us re-use this information
+	outputLocations, err := p.determineOutputLocations()
+	if err != nil {
+		return out, fmt.Errorf("failed to determine output locations: %w", err)
+	}
+
+	for _, location := range outputLocations {
+		spew.Dump(location)
 	}
 
 	return out, nil
@@ -108,7 +132,30 @@ func (p *Planner) prepareTypeLoader() error {
 		return fmt.Errorf("preparing primary type loader: loading types: %w", err)
 	}
 
+	p.loader = loader
 	return nil
+}
+
+func (p *Planner) prepareWorkspace() error {
+	workDir, err := filepath.Abs(p.workingDir)
+	if err != nil {
+		return fmt.Errorf("failed to determine working directory: %w", err)
+	}
+
+	for _, pkg := range p.loader.Packages() {
+		if !pkg.Module.Main {
+			continue
+		}
+
+		p.workspace = &Workspace{
+			WorkingDir: workDir,
+			ModuleDir:  pkg.Module.Dir,
+			ModulePath: pkg.Module.Path,
+		}
+		return nil
+	}
+
+	return fmt.Errorf("failed to determine working directory: couldn't find main module")
 }
 
 func (p *Planner) prepareRegistry() error {
@@ -189,6 +236,72 @@ func (p *Planner) registerDiscovery(registry *callableRegistry, pkgs map[string]
 	}
 
 	return nil
+}
+
+func (p *Planner) determineOutputLocations() ([]plan.OutputLocation, error) {
+	defaultOutput := outputWithDefaults(p.spec.Defaults.Packages.Output, spec.DefaultOutput)
+
+	pkgs := p.loader.Packages()
+
+	var locs []plan.OutputLocation
+	for _, pkg := range p.spec.Packages {
+		output := outputWithDefaults(pkg.Output, defaultOutput)
+
+		switch output.Strategy {
+		case spec.OutputStrategySinglePackage:
+			loc, err := p.outputLocationForPackage(pkgs, output)
+			if err != nil {
+				return nil, fmt.Errorf("failed to determine location for package %q: %w", pkg, err)
+			}
+			locs = append(locs, loc)
+		case spec.OutputStrategySourcePackage:
+			locs = append(locs, p.outputLocationForExistingPackage(pkgs[pkg.Source], output))
+		case spec.OutputStrategyTargetPackage:
+			locs = append(locs, p.outputLocationForExistingPackage(pkgs[pkg.Target], output))
+		}
+	}
+
+	return locs, nil
+}
+
+func (p *Planner) outputLocationForPackage(pkgs map[string]types.Package, output spec.Output) (plan.OutputLocation, error) {
+	logicalDir := filepath.ToSlash(filepath.Clean(filepath.Join(p.workspace.WorkingDir, output.Path)))
+
+	// Check if the package already exists, and is already loaded
+	for _, pkg := range pkgs {
+		if pkg.Dir == logicalDir {
+			return p.outputLocationForExistingPackage(pkg, output), nil
+		}
+	}
+
+	// Otherwise, we build up the module information ourselves...
+	relativeToModule, err := filepath.Rel(p.workspace.ModuleDir, logicalDir)
+	if err != nil {
+		return plan.OutputLocation{}, fmt.Errorf("failed to determine output path relative to module root: %w", err)
+	}
+
+	if strings.HasPrefix(relativeToModule, "..") {
+		return plan.OutputLocation{}, fmt.Errorf("output path %q is outside of the module root %q", logicalDir, p.workspace.ModuleDir)
+	}
+
+	importPath := p.workspace.ModulePath
+	if relativeToModule != "." {
+		importPath += string(filepath.Separator) + relativeToModule
+	}
+
+	return plan.OutputLocation{
+		LogicalPath: filepath.ToSlash(filepath.Join(logicalDir, output.Filename)),
+		ImportPath:  importPath,
+		PackageName: output.Package,
+	}, nil
+}
+
+func (p *Planner) outputLocationForExistingPackage(pkg types.Package, output spec.Output) plan.OutputLocation {
+	return plan.OutputLocation{
+		LogicalPath: filepath.ToSlash(filepath.Join(pkg.Dir, output.Filename)),
+		ImportPath:  pkg.ImportPath,
+		PackageName: pkg.Name,
+	}
 }
 
 type outputGroupState struct {

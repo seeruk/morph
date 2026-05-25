@@ -11,6 +11,7 @@ type Package struct {
 	Target        string `json:"target"`
 	Preset        string `json:"preset"`
 	Types         []Type `json:"types"`
+	Output        Output `json:"output"`
 	Bidirectional *bool  `json:"bidirectional"`
 }
 

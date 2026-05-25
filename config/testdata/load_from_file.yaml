@@ -1,5 +1,10 @@
 defaults:
   packages:
+    output:
+      strategy: single_package
+      path: internal/mapping
+      package: mapping
+      filename: mapping.morph.go
     types:
       enum:
         failureMode: error
@@ -15,11 +20,6 @@ defaults:
             accepts: pointer
             returns: value
       bidirectional: true
-    output:
-      strategy: single_package
-      path: internal/mapping
-      package: mapping
-      filename: mapping.morph.go
 
 discovery:
   packages:

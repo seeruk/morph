@@ -1,0 +1,24 @@
+defaults:
+  packages:
+    output:
+      strategy: single_package
+
+packages:
+- source: github.com/seeruk/morph/lab/planner/from
+  target: github.com/seeruk/morph/lab/planner/to
+  types:
+  - name: Single
+
+- source: github.com/seeruk/morph/lab/planner/from
+  target: github.com/seeruk/morph/lab/planner/to
+  output:
+    strategy: target_package
+  types:
+  - name: Single
+
+- source: github.com/seeruk/morph/lab/planner/from
+  target: github.com/seeruk/morph/lab/planner/to
+  output:
+    strategy: source_package
+  types:
+  - name: Single

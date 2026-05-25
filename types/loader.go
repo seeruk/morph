@@ -18,6 +18,7 @@ import (
 type Loader struct {
 	dir      string
 	packages map[string]Package // import path -> Package
+	loaded   bool
 }
 
 // NewLoader returns a new Loader instance rooted at the given directory. Packages are resolved from
@@ -50,6 +51,7 @@ func (l *Loader) Load(ctx context.Context, patterns ...string) error {
 		Mode: packages.NeedName |
 			packages.NeedFiles |
 			packages.NeedImports |
+			packages.NeedModule |
 			packages.NeedTypes |
 			packages.NeedTypesInfo,
 		Tests: false,
@@ -75,6 +77,7 @@ func (l *Loader) Load(ctx context.Context, patterns ...string) error {
 	}
 
 	l.packages = loaded
+	l.loaded = true
 
 	return nil
 }
@@ -99,6 +102,14 @@ func (l *Loader) loadPackage(pkg *packages.Package) Package {
 	out.Constants = make(map[string]ConstantDecl)
 	out.Functions = make(map[string]FunctionDecl)
 	out.Types = make(map[string]TypeDecl)
+
+	if pkg.Module != nil {
+		out.Module = &ModuleRef{
+			Path: pkg.Module.Path,
+			Dir:  pkg.Module.Dir,
+			Main: pkg.Module.Main,
+		}
+	}
 
 	scope := pkg.Types.Scope()
 	for _, name := range scope.Names() {

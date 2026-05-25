@@ -15,11 +15,12 @@ import (
 // NameInput is a type used to collect information used for templating a mapper function name.
 // TODO: Is it possible to have all of this when we need it?
 type NameInput struct {
-	Source     types.Type
-	Target     types.Type
-	TypeParams []types.TypeParam
-	Signature  plan.MapperSignature
-	CanError   bool
+	Source      types.Type
+	Target      types.Type
+	TypeParams  []types.TypeParam
+	Signature   plan.MapperSignature
+	CanError    bool
+	Initialisms []string
 }
 
 type nameTemplateData struct {

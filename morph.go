@@ -30,3 +30,15 @@ type OutputFile struct {
 	PackageName string // Used for debugging
 	Source      []byte
 }
+
+// Workspace is a representation of the filesystem state that Morph is operating within. This is
+// used to resolve file paths for things like output locations.
+type Workspace struct {
+	// ModuleDir is the logical filesystem location of the current main module
+	ModuleDir string
+	// ModulePath is the root "import path" of the current main module
+	ModulePath string
+	// WorkingDir is the current "working directory" of Morph, this is the directory Morph is told
+	// it is running in, and is not the same as the process's working directory.
+	WorkingDir string
+}

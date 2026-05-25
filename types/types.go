@@ -2,11 +2,19 @@ package types
 
 import "go/types"
 
+// ModuleRef is a minimal reference to the loaded module.
+type ModuleRef struct {
+	Path string
+	Dir  string
+	Main bool
+}
+
 // Package is a fully loaded Go package, containing everything Morph needs to know about it.
 type Package struct {
 	Name       string
 	ImportPath string
 	Dir        string
+	Module     *ModuleRef
 	Constants  map[string]ConstantDecl // constant name -> ConstantDecl
 	Functions  map[string]FunctionDecl // function name -> FunctionDecl
 	Types      map[string]TypeDecl     // type name -> TypeDecl
