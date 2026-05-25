@@ -23,9 +23,9 @@ type Planner struct {
 	registry *callableRegistry
 
 	// explicitRoots is a map of the planned mapping of explicitly requested types
-	explicitRoots map[string]*plan.Type
+	explicitRoots map[string]*plan.Type // plan.TypeMapperKey -> *plan.Type
 	// mappings contains all planned mappings, and is built as the planner processes the plan
-	mappings map[string]*plan.Type
+	mappings map[string]*plan.Type // plan.TypeMapperKey -> *plan.Type
 	// outputGroups contains output group specific state, things that are useful to keep track of
 	// so that packages are generated correctly and efficiently
 	outputGroups map[plan.OutputLocation]outputGroupState
