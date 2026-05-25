@@ -1,17 +1,208 @@
 package morph
 
 import (
+	"context"
+	"fmt"
+	"maps"
+	"slices"
+
+	"github.com/seeruk/morph/internal/slicesx"
 	"github.com/seeruk/morph/plan"
+	"github.com/seeruk/morph/spec"
+	"github.com/seeruk/morph/types"
 )
 
 type Planner struct {
-	types map[string]*plan.Type
+	// spec is the spec that this planner is planning for
+	spec Spec
+
+	// loader is the initialized type loader for this planner
+	loader *types.Loader
+	// registry is the callableRegistry used by this planner to find callables that could be used
+	// for the purposes of mapping between types
+	registry *callableRegistry
+
+	// explicitRoots is a map of the planned mapping of explicitly requested types
+	explicitRoots map[string]*plan.Type
+	// mappings contains all planned mappings, and is built as the planner processes the plan
+	mappings map[string]*plan.Type
+	// outputGroups contains output group specific state, things that are useful to keep track of
+	// so that packages are generated correctly and efficiently
+	outputGroups map[plan.OutputLocation]outputGroupState
 }
 
-func NewPlanner() *Planner {
-	return &Planner{}
+// NewPlanner returns a new Planner, set to plan the given Spec.
+func NewPlanner(spec Spec) *Planner {
+	return &Planner{
+		spec: spec,
+	}
 }
 
-func (planner *Planner) Plan(spec Spec) (Plan, error) {
-	return Plan{}, nil
+// Plan attempts to produce a Plan for the Spec assigned to this Planner.
+func (p *Planner) Plan() (Plan, error) {
+	// Filter out empty packages
+	p.spec.Packages = slicesx.Filter(p.spec.Packages, func(pkg spec.Package) bool {
+		return len(pkg.Types) > 0
+	})
+
+	var out Plan
+
+	// Bail early if there's nothing to do...
+	if len(p.spec.Packages) == 0 {
+		out.Diagnostics = appendDiagnostic(out.Diagnostics, plan.Diagnostic{
+			Message: "no mappings specified; only found empty packages and/or types",
+		})
+		return out, nil
+	}
+
+	// Set up the type loader, primed with all the packages specified at any point in the spec
+	if err := p.prepareTypeLoader(); err != nil {
+		return out, fmt.Errorf("failed to prepare type loader: %w", err)
+	}
+
+	// Set up the registry, with all available and compatible conversions added
+	if err := p.prepareRegistry(); err != nil {
+		return out, fmt.Errorf("failed to prepare registry: %w", err)
+	}
+
+	return out, nil
+}
+
+func (p *Planner) prepareTypeLoader() error {
+	loader := types.NewLoader(".") // TODO: Should this be smarter?
+
+	distinct := map[string]struct{}{}
+
+	add := func(pattern string) {
+		// TODO: Do the package names used herein need to be validated more than this?
+		if pattern == "" {
+			return
+		}
+		if _, ok := distinct[pattern]; ok {
+			return
+		}
+		distinct[pattern] = struct{}{}
+	}
+
+	// Pull the various import paths from the spec, from basically everywhere they can be referenced
+	for _, pkg := range p.spec.Packages {
+		add(pkg.Source)
+		add(pkg.Target)
+	}
+
+	for _, pkg := range p.spec.Discovery.Packages {
+		add(pkg.ImportPath)
+	}
+
+	for _, conversion := range p.spec.Conversions {
+		add(conversion.ImportPath)
+	}
+
+	// TODO: Context?
+	if err := loader.Load(context.Background(), slices.Collect(maps.Keys(distinct))...); err != nil {
+		return fmt.Errorf("preparing primary type loader: loading types: %w", err)
+	}
+
+	return nil
+}
+
+func (p *Planner) prepareRegistry() error {
+	pkgs := p.loader.Packages()
+
+	registry := newCallableRegistry()
+	if err := p.registerConversions(registry, pkgs); err != nil {
+		return fmt.Errorf("failed to register conversions: %w", err)
+	}
+
+	if err := p.registerDiscovery(registry, pkgs); err != nil {
+		return fmt.Errorf("failed to register discovered functions: %w", err)
+	}
+
+	p.registry = registry
+	return nil
+}
+
+func (p *Planner) registerConversions(registry *callableRegistry, pkgs map[string]types.Package) error {
+	for _, conversion := range p.spec.Conversions {
+		pkg, ok := pkgs[conversion.ImportPath]
+		if !ok {
+			return fmt.Errorf("package not found for conversion %q", conversion.Name)
+		}
+
+		if conversion.TypeName != "" {
+			// Looking for a method
+			typ, ok := pkg.Types[conversion.TypeName]
+			if !ok {
+				return fmt.Errorf("type not found for conversion '%s.%s' ", conversion.ImportPath, conversion.Name)
+			}
+
+			method, ok := typ.Methods[conversion.Name]
+			if !ok {
+				return fmt.Errorf("method not found for conversion '%s.%s.%s' ", conversion.ImportPath, conversion.TypeName, conversion.Name)
+			}
+
+			// TODO: Could offer "debug" logging of failures
+			registry.RegisterMethod(method, plan.CallableSourceUser)
+		} else {
+			// Looking for a function
+			fn, ok := pkg.Functions[conversion.Name]
+			if !ok {
+				return fmt.Errorf("function not found for conversion '%s.%s' ", conversion.ImportPath, conversion.Name)
+			}
+
+			// TODO: Could offer "debug" logging of failures
+			registry.RegisterFunction(fn, plan.CallableSourceUser)
+		}
+	}
+
+	return nil
+}
+
+func (p *Planner) registerDiscovery(registry *callableRegistry, pkgs map[string]types.Package) error {
+	// NOTE: Functions added to the registry here are based on code that already exists. In other
+	// words, functions previously generated by Morph can be added here, i.e. ones that could be
+	// removed by this run of Morph. Therefore, when deciding whether to use a discovered function
+	// we must check that these functions would not otherwise be generated by this run of Morph.
+	// Otherwise, we can pick one of these functions, and then it would no longer exist after Morph
+	// has finished running, resulting in invalid generated code.
+	//
+	// It's also worth noting, many of these discovered functions may never be used!
+	for _, discovery := range p.spec.Discovery.Packages {
+		pkg, ok := pkgs[discovery.ImportPath]
+		if !ok {
+			return fmt.Errorf("package not found for discovery %q", discovery.ImportPath)
+		}
+
+		for _, fn := range pkg.Functions {
+			// Skip unexported or explicitly excluded function declarations.
+			// NOTE: Methods aren't discovered here, their exclusion is handled elsewhere.
+			if !fn.IsExported || slices.Contains(p.spec.Discovery.Exclusions, spec.CallableRefFromFunctionDecl(fn)) {
+				continue
+			}
+			registry.RegisterFunction(fn, plan.CallableSourceDiscovered)
+		}
+	}
+
+	return nil
+}
+
+type outputGroupState struct {
+	functionNames map[string]string // typeKey -> name
+}
+
+// appendDiagnostic appends only distinct diagnostics to the given slice of diagnostics.
+func appendDiagnostic(dd []plan.Diagnostic, diagnostics ...plan.Diagnostic) []plan.Diagnostic {
+	distinct := make(map[plan.Diagnostic]struct{}, len(dd))
+	for _, d := range dd {
+		distinct[d] = struct{}{}
+	}
+
+	for _, diagnostic := range diagnostics {
+		if _, ok := distinct[diagnostic]; !ok {
+			dd = append(dd, diagnostic)
+			distinct[diagnostic] = struct{}{}
+		}
+	}
+
+	return dd
 }

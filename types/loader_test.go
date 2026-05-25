@@ -2,6 +2,7 @@ package types_test
 
 import (
 	"context"
+	"maps"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -27,19 +28,19 @@ func TestLoaderLoad_LoadsPackages(t *testing.T) {
 	pkgs := loader.Packages()
 
 	require.Len(t, pkgs, 2)
-	assert.Equal(t, []string{
+	assert.ElementsMatch(t, []string{
 		"github.com/seeruk/morph/types/testdata/alpha",
 		"github.com/seeruk/morph/types/testdata/beta",
-	}, []string{pkgs[0].ImportPath, pkgs[1].ImportPath})
+	}, slices.Collect(maps.Keys(pkgs)))
 
-	alpha := findPackage(t, pkgs, "alpha")
+	alpha := findPackage(t, pkgs, "github.com/seeruk/morph/types/testdata/alpha")
 	assert.Equal(t, "alpha", alpha.Name)
 	assert.NotEmpty(t, alpha.Dir)
 	assert.NotEmpty(t, alpha.Constants)
 	assert.NotEmpty(t, alpha.Functions)
 	assert.NotEmpty(t, alpha.Types)
 
-	beta := findPackage(t, pkgs, "beta")
+	beta := findPackage(t, pkgs, "github.com/seeruk/morph/types/testdata/beta")
 	assert.Equal(t, "beta", beta.Name)
 	assert.NotEmpty(t, beta.Dir)
 	assert.NotEmpty(t, beta.Types)
@@ -93,7 +94,7 @@ func TestLoaderLoad_LoadsConstants(t *testing.T) {
 			constant := findConstant(t, pkg, tt.name)
 
 			assert.Equal(t, tt.name, constant.Name)
-			assert.Equal(t, tt.exported, constant.Exported)
+			assert.Equal(t, tt.exported, constant.IsExported)
 			assert.Equal(t, tt.value, constant.Value)
 			assert.Equal(t, tt.typeKind, constant.Type.Kind)
 			assert.Equal(t, tt.typeName, constant.Type.Name)
@@ -140,13 +141,13 @@ func TestLoaderLoad_LoadsFunctions(t *testing.T) {
 			fn := findFunction(t, pkg, tt.name)
 
 			assert.Equal(t, tt.name, fn.Name)
-			assert.Equal(t, tt.exported, fn.Exported)
-			assert.Equal(t, tt.variadic, fn.Variadic)
+			assert.Equal(t, tt.exported, fn.IsExported)
+			assert.Equal(t, tt.variadic, fn.IsVariadic)
 			assert.Equal(t, tt.paramKinds, parameterKinds(fn.Params))
 			assert.Equal(t, tt.resultKinds, parameterKinds(fn.Results))
 			assert.Equal(t, pkg.AsRef(), fn.Package)
 			assert.Contains(t, filepath.ToSlash(fn.SourceFile), "/types/testdata/alpha/")
-			assert.False(t, fn.IsMorphFile)
+			assert.False(t, fn.IsInMorphFile)
 
 			if tt.typeParamName != "" {
 				require.Len(t, fn.TypeParams, 1)
@@ -212,7 +213,7 @@ func TestLoaderLoad_LoadsTypes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			decl := findType(t, pkg, tt.name)
 
-			assert.Equal(t, tt.alias, decl.Alias)
+			assert.Equal(t, tt.alias, decl.IsAlias)
 			assert.Equal(t, tt.typeKind, decl.Type.Kind)
 			assert.Equal(t, tt.underlyingKind, decl.Underlying.Kind)
 			assert.Equal(t, tt.name, decl.Type.Name)
@@ -234,30 +235,32 @@ func TestLoaderLoad_LoadsStructFieldsAndMethods(t *testing.T) {
 	pair := findType(t, pkg, "Pair")
 
 	require.Len(t, pair.Fields, 3)
-	assert.Equal(t, "Embedded", pair.Fields[0].Name)
-	assert.True(t, pair.Fields[0].Embedded)
-	assert.Equal(t, types.TypeKindPointer, pair.Fields[0].Type.Kind)
-	require.NotNil(t, pair.Fields[0].Type.Elem)
-	assert.Equal(t, "Embedded", pair.Fields[0].Type.Elem.Name)
+	embedded := findField(t, pair, "Embedded")
+	assert.Equal(t, "Embedded", embedded.Name)
+	assert.True(t, embedded.IsEmbedded)
+	assert.Equal(t, types.TypeKindPointer, embedded.Type.Kind)
+	require.NotNil(t, embedded.Type.Elem)
+	assert.Equal(t, "Embedded", embedded.Type.Elem.Name)
 
-	assert.Equal(t, "Source", pair.Fields[1].Name)
-	assert.True(t, pair.Fields[1].Exported)
-	assert.False(t, pair.Fields[1].Embedded)
-	assert.Equal(t, `json:"source"`, pair.Fields[1].Tag)
-	assert.Equal(t, types.TypeKindTypeParam, pair.Fields[1].Type.Kind)
+	source := findField(t, pair, "Source")
+	assert.Equal(t, "Source", source.Name)
+	assert.True(t, source.IsExported)
+	assert.False(t, source.IsEmbedded)
+	assert.Equal(t, `json:"source"`, source.Tag)
+	assert.Equal(t, types.TypeKindTypeParam, source.Type.Kind)
 
 	require.Len(t, pair.Methods, 2)
-	assert.Equal(t, []string{"Invert", "Set"}, []string{pair.Methods[0].Name, pair.Methods[1].Name})
+	assert.ElementsMatch(t, []string{"Invert", "Set"}, slices.Collect(maps.Keys(pair.Methods)))
 
-	invert := pair.Methods[0]
-	assert.True(t, invert.Exported)
+	invert := findMethod(t, pair, "Invert")
+	assert.True(t, invert.IsExported)
 	require.NotNil(t, invert.Receiver)
 	assert.Equal(t, types.TypeKindNamed, invert.Receiver.Type.Kind)
 	assert.Empty(t, invert.Params)
 	assert.Equal(t, []types.TypeKind{types.TypeKindNamed}, parameterKinds(invert.Results))
 
-	set := pair.Methods[1]
-	assert.True(t, set.Exported)
+	set := findMethod(t, pair, "Set")
+	assert.True(t, set.IsExported)
 	require.NotNil(t, set.Receiver)
 	assert.Equal(t, types.TypeKindPointer, set.Receiver.Type.Kind)
 	assert.Equal(t, []types.TypeKind{types.TypeKindTypeParam, types.TypeKindTypeParam}, parameterKinds(set.Params))
@@ -321,10 +324,10 @@ func TestLoaderLoad_MarksMorphGeneratedFunctions(t *testing.T) {
 	generated := findFunction(t, pkg, "GeneratedMapper")
 	normal := findFunction(t, pkg, "Exported")
 
-	assert.True(t, generated.IsMorphFile)
+	assert.True(t, generated.IsInMorphFile)
 	assert.Contains(t, filepath.Base(generated.SourceFile), "generated_morph.go")
 
-	assert.False(t, normal.IsMorphFile)
+	assert.False(t, normal.IsInMorphFile)
 	assert.Contains(t, filepath.Base(normal.SourceFile), "alpha.go")
 }
 
@@ -340,81 +343,55 @@ func loadFixture(t *testing.T, patterns ...string) *types.Loader {
 func loadAlphaPackage(t *testing.T) types.Package {
 	t.Helper()
 
-	return findPackage(t, loadFixture(t, "./alpha").Packages(), "alpha")
+	return findPackage(t, loadFixture(t, "./alpha").Packages(), "github.com/seeruk/morph/types/testdata/alpha")
 }
 
-func findPackage(t *testing.T, pkgs []types.Package, name string) types.Package {
+func findPackage(t *testing.T, pkgs map[string]types.Package, importPath string) types.Package {
 	t.Helper()
 
-	for _, pkg := range pkgs {
-		if pkg.Name == name {
-			return pkg
-		}
-	}
-
-	require.Failf(t, "package not found", "package %q not found in %v", name, packageNames(pkgs))
-	return types.Package{}
+	pkg, ok := pkgs[importPath]
+	require.True(t, ok, "package %s not found", importPath)
+	return pkg
 }
 
 func findConstant(t *testing.T, pkg types.Package, name string) types.ConstantDecl {
 	t.Helper()
 
-	for _, constant := range pkg.Constants {
-		if constant.Name == name {
-			return constant
-		}
-	}
-
-	require.Failf(t, "constant not found", "constant %q not found", name)
-	return types.ConstantDecl{}
+	constant, ok := pkg.Constants[name]
+	require.True(t, ok, "constant %s not found", name)
+	return constant
 }
 
 func findFunction(t *testing.T, pkg types.Package, name string) types.FunctionDecl {
 	t.Helper()
 
-	for _, fn := range pkg.Functions {
-		if fn.Name == name {
-			return fn
-		}
-	}
-
-	require.Failf(t, "function not found", "function %q not found", name)
-	return types.FunctionDecl{}
+	fn, ok := pkg.Functions[name]
+	require.True(t, ok, "function %s not found", name)
+	return fn
 }
 
 func findType(t *testing.T, pkg types.Package, name string) types.TypeDecl {
 	t.Helper()
 
-	for _, typ := range pkg.Types {
-		if typ.Name == name {
-			return typ
-		}
-	}
-
-	require.Failf(t, "type not found", "type %q not found", name)
-	return types.TypeDecl{}
+	typ, ok := pkg.Types[name]
+	require.True(t, ok, "type %s not found", name)
+	return typ
 }
 
 func findField(t *testing.T, typ types.TypeDecl, name string) types.Field {
 	t.Helper()
 
-	for _, field := range typ.Fields {
-		if field.Name == name {
-			return field
-		}
-	}
-
-	require.Failf(t, "field not found", "field %q not found", name)
-	return types.Field{}
+	field, ok := typ.Fields[name]
+	require.True(t, ok, "field %s not found", name)
+	return field
 }
 
-func packageNames(pkgs []types.Package) []string {
-	names := make([]string, len(pkgs))
-	for i, pkg := range pkgs {
-		names[i] = pkg.Name
-	}
-	slices.Sort(names)
-	return names
+func findMethod(t *testing.T, typ types.TypeDecl, name string) types.Method {
+	t.Helper()
+
+	method, ok := typ.Methods[name]
+	require.True(t, ok, "method %s not found", name)
+	return method
 }
 
 func parameterKinds(params []types.Parameter) []types.TypeKind {

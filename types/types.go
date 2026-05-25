@@ -7,9 +7,9 @@ type Package struct {
 	Name       string
 	ImportPath string
 	Dir        string
-	Constants  []ConstantDecl
-	Functions  []FunctionDecl
-	Types      []TypeDecl
+	Constants  map[string]ConstantDecl // constant name -> ConstantDecl
+	Functions  map[string]FunctionDecl // function name -> FunctionDecl
+	Types      map[string]TypeDecl     // type name -> TypeDecl
 }
 
 // AsRef returns this Package as a PackageRef.
@@ -54,11 +54,11 @@ func packageRefFromObject(obj types.Object, fallbacks ...PackageRef) PackageRef 
 
 // ConstantDecl represents a constant declaration in a Go package.
 type ConstantDecl struct {
-	Package  PackageRef
-	Name     string
-	Exported bool
-	Type     Type
-	Value    string
+	Package    PackageRef
+	Name       string
+	Type       Type
+	Value      string
+	IsExported bool
 }
 
 // FunctionDecl represents a function declaration in a Go package. Its structure is very similar to
@@ -67,46 +67,46 @@ type ConstantDecl struct {
 type FunctionDecl struct {
 	Package    PackageRef
 	Name       string
-	Exported   bool
 	TypeParams []TypeParam
 	Params     []Parameter
 	Results    []Parameter
-	Variadic   bool
+	IsExported bool
+	IsVariadic bool
 
-	SourceFile  string
-	IsMorphFile bool
+	SourceFile    string
+	IsInMorphFile bool
 }
 
 // TypeDecl represents a type declaration in a Go package.
 type TypeDecl struct {
 	Name       string
 	Package    PackageRef
-	Alias      bool
+	IsAlias    bool
 	Type       Type
 	Underlying Type
-	Fields     []Field
-	Methods    []Method
-	Constants  []ConstantDecl // For convenience when working with enums
+	Fields     map[string]Field
+	Methods    map[string]Method
+	Constants  map[string]ConstantDecl // For convenience when working with enums
 }
 
 // Field describes a struct field.
 type Field struct {
-	Name     string
-	Exported bool
-	Embedded bool
-	Tag      string
-	Type     Type
+	Name       string
+	Tag        string
+	Type       Type
+	IsExported bool
+	IsEmbedded bool
 }
 
 // Method describes a method declared against a type.
 type Method struct {
 	Receiver   *Parameter // Can be nil, for example, for interface methods
 	Name       string
-	Exported   bool
 	TypeParams []TypeParam
 	Params     []Parameter
 	Results    []Parameter
-	Variadic   bool
+	IsExported bool
+	IsVariadic bool
 }
 
 // Parameter describes a function parameter, result, or method receiver.
@@ -146,13 +146,13 @@ type Type struct {
 	Elem       *Type
 	Key        *Type
 	Value      *Type
-	Fields     []Field
-	Methods    []Method
+	Fields     map[string]Field
+	Methods    map[string]Method
 	TypeParams []TypeParam
 	TypeArgs   []Type
 	Params     []Parameter
 	Results    []Parameter
-	Variadic   bool
+	IsVariadic bool
 }
 
 // TypeParam describes a generic type parameter.

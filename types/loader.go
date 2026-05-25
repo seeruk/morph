@@ -1,14 +1,13 @@
 package types
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"go/types"
+	"maps"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/seeruk/morph/internal"
@@ -18,7 +17,7 @@ import (
 // Loader is responsible for loading Go packages, including symbols within the packages.
 type Loader struct {
 	dir      string
-	packages []Package
+	packages map[string]Package // import path -> Package
 }
 
 // NewLoader returns a new Loader instance rooted at the given directory. Packages are resolved from
@@ -69,14 +68,11 @@ func (l *Loader) Load(ctx context.Context, patterns ...string) error {
 		return errors.New("expected to load at least one package, but found none")
 	}
 
-	loaded := make([]Package, 0, len(pkgs))
+	loaded := make(map[string]Package, len(pkgs))
 	for _, pkg := range pkgs {
-		loaded = append(loaded, l.loadPackage(pkg))
+		p := l.loadPackage(pkg)
+		loaded[p.ImportPath] = p
 	}
-
-	slices.SortFunc(loaded, func(a, b Package) int {
-		return cmp.Compare(a.ImportPath, b.ImportPath)
-	})
 
 	l.packages = loaded
 
@@ -85,8 +81,8 @@ func (l *Loader) Load(ctx context.Context, patterns ...string) error {
 
 // Packages returns the loaded packages. Load must have been called successfully for this to return
 // anything meaningful.
-func (l *Loader) Packages() []Package {
-	return l.packages
+func (l *Loader) Packages() map[string]Package {
+	return maps.Clone(l.packages)
 }
 
 // loadPackage kicks off the process of loading a single package. We focus on specific declarations
@@ -100,17 +96,23 @@ func (l *Loader) loadPackage(pkg *packages.Package) Package {
 	out.Name = pkg.Name
 	out.ImportPath = pkg.PkgPath
 	out.Dir = packageDir(pkg)
+	out.Constants = make(map[string]ConstantDecl)
+	out.Functions = make(map[string]FunctionDecl)
+	out.Types = make(map[string]TypeDecl)
 
 	scope := pkg.Types.Scope()
 	for _, name := range scope.Names() {
 		obj := scope.Lookup(name)
 		switch obj := obj.(type) {
 		case *types.Const:
-			out.Constants = append(out.Constants, l.loadConstant(obj, out.AsRef()))
+			c := l.loadConstant(obj, out.AsRef())
+			out.Constants[c.Name] = c
 		case *types.Func:
-			out.Functions = append(out.Functions, l.loadFunction(obj, out.AsRef(), pkg, morphFiles))
+			fn := l.loadFunction(obj, out.AsRef(), pkg, morphFiles)
+			out.Functions[fn.Name] = fn
 		case *types.TypeName:
-			out.Types = append(out.Types, l.loadType(obj, out.AsRef()))
+			t := l.loadType(obj, out.AsRef())
+			out.Types[t.Name] = t
 		}
 	}
 
@@ -125,11 +127,11 @@ func (l *Loader) loadConstant(obj *types.Const, pkg PackageRef) ConstantDecl {
 	}
 
 	return ConstantDecl{
-		Name:     obj.Name(),
-		Package:  pkg,
-		Exported: obj.Exported(),
-		Type:     loadType(obj.Type()),
-		Value:    value,
+		Name:       obj.Name(),
+		Package:    pkg,
+		IsExported: obj.Exported(),
+		Type:       loadType(obj.Type()),
+		Value:      value,
 	}
 }
 
@@ -142,16 +144,16 @@ func (l *Loader) loadFunction(obj *types.Func, pkgRef PackageRef, pkg *packages.
 	decl := FunctionDecl{
 		Name:       obj.Name(),
 		Package:    pkgRef,
-		Exported:   obj.Exported(),
+		IsExported: obj.Exported(),
 		Params:     loadParameters(sig.Params()),
 		Results:    loadParameters(sig.Results()),
 		TypeParams: loadTypeParams(sig.TypeParams()),
-		Variadic:   sig.Variadic(),
+		IsVariadic: sig.Variadic(),
 	}
 
 	if filename, ok := filenameForObject(pkg, obj); ok {
 		decl.SourceFile = filename
-		decl.IsMorphFile = morphFiles[filename]
+		decl.IsInMorphFile = morphFiles[filename]
 	}
 
 	return decl
@@ -164,7 +166,7 @@ func (l *Loader) loadType(obj *types.TypeName, pkg PackageRef) TypeDecl {
 	out := TypeDecl{
 		Name:       obj.Name(),
 		Package:    pkg,
-		Alias:      obj.IsAlias(),
+		IsAlias:    obj.IsAlias(),
 		Type:       loadType(typ),
 		Underlying: loadType(typ.Underlying()),
 		Fields:     loadStructFields(typeAsStruct(typ)),
@@ -253,7 +255,7 @@ func loadType(typ types.Type) Type {
 			TypeParams: loadTypeParams(typ.TypeParams()),
 			Params:     loadParameters(typ.Params()),
 			Results:    loadParameters(typ.Results()),
-			Variadic:   typ.Variadic(),
+			IsVariadic: typ.Variadic(),
 		}
 	case *types.TypeParam:
 		return Type{
@@ -276,8 +278,8 @@ func loadType(typ types.Type) Type {
 	}
 }
 
-func loadInterfaceMethods(iface *types.Interface) []Method {
-	methods := make([]Method, 0, iface.NumMethods())
+func loadInterfaceMethods(iface *types.Interface) map[string]Method {
+	methods := make(map[string]Method, iface.NumMethods())
 	for i := 0; i < iface.NumMethods(); i++ {
 		fn := iface.Method(i)
 		sig, ok := fn.Type().(*types.Signature)
@@ -285,14 +287,14 @@ func loadInterfaceMethods(iface *types.Interface) []Method {
 			// TODO: Should this be handled in some way?
 			continue
 		}
-		methods = append(methods, Method{
+		methods[fn.Name()] = Method{
 			Name:       fn.Name(),
-			Exported:   fn.Exported(),
+			IsExported: fn.Exported(),
 			TypeParams: loadTypeParams(sig.TypeParams()),
 			Params:     loadParameters(sig.Params()),
 			Results:    loadParameters(sig.Results()),
-			Variadic:   sig.Variadic(),
-		})
+			IsVariadic: sig.Variadic(),
+		}
 	}
 	return methods
 }
@@ -321,30 +323,26 @@ func loadParameter(param *types.Var) Parameter {
 	}
 }
 
-func loadTypeMethods(typ types.Type) []Method {
+func loadTypeMethods(typ types.Type) map[string]Method {
 	named, ok := types.Unalias(typ).(*types.Named)
 	if !ok {
 		return nil
 	}
 
-	methods := make([]Method, 0, named.NumMethods())
+	methods := make(map[string]Method, named.NumMethods())
 	for i := 0; i < named.NumMethods(); i++ {
 		fn := named.Method(i)
 		sig := fn.Type().(*types.Signature)
-		methods = append(methods, Method{
+		methods[fn.Name()] = Method{
 			Name:       fn.Name(),
-			Exported:   fn.Exported(),
+			IsExported: fn.Exported(),
 			Receiver:   new(loadParameter(sig.Recv())),
 			TypeParams: loadTypeParams(sig.TypeParams()),
 			Params:     loadParameters(sig.Params()),
 			Results:    loadParameters(sig.Results()),
-			Variadic:   sig.Variadic(),
-		})
+			IsVariadic: sig.Variadic(),
+		}
 	}
-
-	slices.SortFunc(methods, func(a, b Method) int {
-		return cmp.Compare(a.Name, b.Name)
-	})
 
 	return methods
 }
@@ -366,21 +364,21 @@ func packageErrors(pkgs []*packages.Package) error {
 	return errors.Join(errs...)
 }
 
-func loadStructFields(s *types.Struct) []Field {
+func loadStructFields(s *types.Struct) map[string]Field {
 	if s == nil {
 		return nil
 	}
 
-	fields := make([]Field, 0, s.NumFields())
+	fields := make(map[string]Field, s.NumFields())
 	for i := 0; i < s.NumFields(); i++ {
 		field := s.Field(i)
-		fields = append(fields, Field{
-			Name:     field.Name(),
-			Exported: field.Exported(),
-			Embedded: field.Embedded(),
-			Tag:      s.Tag(i),
-			Type:     loadType(field.Type()),
-		})
+		fields[field.Name()] = Field{
+			Name:       field.Name(),
+			IsExported: field.Exported(),
+			IsEmbedded: field.Embedded(),
+			Tag:        s.Tag(i),
+			Type:       loadType(field.Type()),
+		}
 	}
 	return fields
 }

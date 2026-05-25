@@ -37,3 +37,21 @@ type TypeRef struct {
 	Name       string
 	Key        string
 }
+
+// TypeRefFromType returns a TypeRef for the given types.Type.
+func TypeRefFromType(t types.Type) TypeRef {
+	return TypeRef{
+		Name:       t.Name,
+		ImportPath: t.Package.ImportPath,
+		Key:        TypeKey(t),
+	}
+}
+
+// TypeRefFromTypeDecl returns a TypeRef for the given types.TypeDecl.
+func TypeRefFromTypeDecl(t types.TypeDecl) TypeRef {
+	return TypeRef{
+		Name:       t.Name,
+		ImportPath: t.Package.ImportPath,
+		Key:        TypeKey(t.Type),
+	}
+}

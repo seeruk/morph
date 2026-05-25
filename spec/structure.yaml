@@ -22,8 +22,8 @@ defaults:
 discovery:
   packages:
   - import: github.com/seeruk/nextmealplease/internal/optional
-    exclusions:
-    - github.com/seeruk/nextmealplease/internal/optional.OptionalPtr
+  exclusions:
+  - github.com/seeruk/nextmealplease/internal/optional.OptionalPtr
 
 # Conversions are used to define custom mapping functions for specific type-pairs, explicitly.
 conversions:

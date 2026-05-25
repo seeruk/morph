@@ -24,9 +24,9 @@ defaults:
 discovery:
   packages:
   - import: module.test/shared/conversions
-    exclusions:
-    - module.test/shared/conversions.LegacyUserToUser
-    - module.test/shared/conversions.LegacyStatus.ToStatus
+  exclusions:
+  - module.test/shared/conversions.LegacyUserToUser
+  - module.test/shared/conversions.LegacyStatus.ToStatus
 
 conversions:
 - module.test/shared/conversions.CheckedIntToSmallInt

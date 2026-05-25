@@ -117,7 +117,7 @@ func TestTypeKey(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, typeKey(tt.typ))
+			assert.Equal(t, tt.want, TypeKey(tt.typ))
 		})
 	}
 }
@@ -139,7 +139,7 @@ func TestTypePairKey(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, typePairKey(tt.source, tt.target))
+			assert.Equal(t, tt.want, TypePairKey(tt.source, tt.target))
 		})
 	}
 }
@@ -186,7 +186,7 @@ func TestSignatureKey(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, signatureKey(tt.signature))
+			assert.Equal(t, tt.want, SignatureKey(tt.signature))
 		})
 	}
 }
@@ -213,7 +213,7 @@ func TestTypeMapperKey(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, typeMapperKey(tt.source, tt.target, tt.signature))
+			assert.Equal(t, tt.want, TypeMapperKey(tt.source, tt.target, tt.signature))
 		})
 	}
 }

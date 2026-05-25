@@ -3,6 +3,8 @@ package spec
 import (
 	"fmt"
 	"strings"
+
+	"github.com/seeruk/morph/types"
 )
 
 // CallableRef is a structured representation of a reference to a particular callable, i.e. a
@@ -11,6 +13,27 @@ type CallableRef struct {
 	ImportPath string
 	TypeName   string
 	Name       string
+}
+
+// CallableRefFromFunctionDecl returns a CallableRef for a given types.FunctionDecl.
+func CallableRefFromFunctionDecl(fn types.FunctionDecl) CallableRef {
+	return CallableRef{
+		ImportPath: fn.Package.ImportPath,
+		Name:       fn.Name,
+	}
+}
+
+// CallableRefFromMethod returns a CallableRef for a given types.Method.
+func CallableRefFromMethod(method types.Method) (CallableRef, bool) {
+	if method.Receiver == nil {
+		return CallableRef{}, false
+	}
+
+	return CallableRef{
+		ImportPath: method.Receiver.Type.Package.ImportPath,
+		TypeName:   method.Receiver.Type.Name,
+		Name:       method.Name,
+	}, true
 }
 
 func (r *CallableRef) UnmarshalText(text []byte) error {

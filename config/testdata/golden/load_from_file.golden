@@ -34,19 +34,19 @@
   "discovery": {
     "packages": [
       {
-        "import": "module.test/shared/conversions",
-        "exclusions": [
-          {
-            "ImportPath": "module.test/shared/conversions",
-            "TypeName": "",
-            "Name": "LegacyUserToUser"
-          },
-          {
-            "ImportPath": "module.test/shared/conversions",
-            "TypeName": "LegacyStatus",
-            "Name": "ToStatus"
-          }
-        ]
+        "import": "module.test/shared/conversions"
+      }
+    ],
+    "exclusions": [
+      {
+        "ImportPath": "module.test/shared/conversions",
+        "TypeName": "",
+        "Name": "LegacyUserToUser"
+      },
+      {
+        "ImportPath": "module.test/shared/conversions",
+        "TypeName": "LegacyStatus",
+        "Name": "ToStatus"
       }
     ]
   },
