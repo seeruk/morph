@@ -29,6 +29,11 @@ type Planner struct {
 	// outputGroups contains output group specific state, things that are useful to keep track of
 	// so that packages are generated correctly and efficiently
 	outputGroups map[plan.OutputLocation]outputGroupState
+
+	// explicitCallables keeps track of all the mapping functions Morph will generate for the
+	// current spec. This allows us to avoid accidentally using a mapping function via discovery
+	// that we're about to generate.
+	explicitCallables map[spec.CallableRef]struct{}
 }
 
 // NewPlanner returns a new Planner, set to plan the given Spec.
