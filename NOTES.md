@@ -18,3 +18,9 @@ Therefore, if a mapping function was not explicitly requested _in this run_, it 
 
 So, upfront in the planning process, we should keep track of all the explicitly requested functions 
 that will be planned, and then while actually planning them, we can safely handle auto-discovery.
+
+The only potential flaw in that plan is that if multiple Morph runs can generate code into the same
+package, the unexported functions from one run would be in the same package and could collide. This
+could be avoided pretty easily by doing something like generating a spec-based unique prefix or 
+suffix for all nested functions. They'd still never be used for discovery, so the only concern is
+this potential naming collision.

@@ -25,7 +25,7 @@ type Planner struct {
 	// loader is the initialized type loader for this planner
 	loader *types.Loader
 	// registry is the callableRegistry used by this planner to find callables that could be used
-	// for the purposes of mapping between types
+	// to map between types
 	registry *callableRegistry
 	// workspace contains the module and filesystem environment Morph is planning within
 	workspace *Workspace
@@ -80,6 +80,11 @@ func (p *Planner) Plan() (Plan, error) {
 	if err := p.prepareRegistry(); err != nil {
 		return out, fmt.Errorf("failed to prepare registry: %w", err)
 	}
+
+	// Next we'll do a shallow pass over the spec to determine all the mapping functions we're going
+	// to generate. This allows us to avoid auto-discovering functions we're about to generate when
+	// we're planning value mapping, and also allows Morph to detect some other potential issues
+	// earlier, for example, cyclic dependency issues.
 
 	// We determine all output locations upfront as part of our strategy for avoiding discovering
 	// mapping functions we're about to generate. If we know which files we're going to generate,
