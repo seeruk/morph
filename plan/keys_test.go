@@ -147,38 +147,38 @@ func TestTypePairKey(t *testing.T) {
 func TestSignatureKey(t *testing.T) {
 	tests := []struct {
 		name      string
-		signature MapperSignature
+		signature spec.MapperSignature
 		want      string
 	}{
 		{
 			name: "value to value",
-			signature: MapperSignature{
-				Accepts: spec.ParameterKindValue,
-				Returns: spec.ParameterKindValue,
+			signature: spec.MapperSignature{
+				Accepts: new(spec.ParameterKindValue),
+				Returns: new(spec.ParameterKindValue),
 			},
 			want: "value->value",
 		},
 		{
 			name: "pointer to value",
-			signature: MapperSignature{
-				Accepts: spec.ParameterKindPointer,
-				Returns: spec.ParameterKindValue,
+			signature: spec.MapperSignature{
+				Accepts: new(spec.ParameterKindPointer),
+				Returns: new(spec.ParameterKindValue),
 			},
 			want: "pointer->value",
 		},
 		{
 			name: "value to pointer",
-			signature: MapperSignature{
-				Accepts: spec.ParameterKindValue,
-				Returns: spec.ParameterKindPointer,
+			signature: spec.MapperSignature{
+				Accepts: new(spec.ParameterKindValue),
+				Returns: new(spec.ParameterKindPointer),
 			},
 			want: "value->pointer",
 		},
 		{
 			name: "pointer to pointer",
-			signature: MapperSignature{
-				Accepts: spec.ParameterKindPointer,
-				Returns: spec.ParameterKindPointer,
+			signature: spec.MapperSignature{
+				Accepts: new(spec.ParameterKindPointer),
+				Returns: new(spec.ParameterKindPointer),
 			},
 			want: "pointer->pointer",
 		},
@@ -196,16 +196,16 @@ func TestTypeMapperKey(t *testing.T) {
 		name      string
 		source    TypeRef
 		target    TypeRef
-		signature MapperSignature
+		signature spec.MapperSignature
 		want      string
 	}{
 		{
 			name:   "combines type pair and signature keys",
 			source: TypeRef{Key: "module.test/source.User"},
 			target: TypeRef{Key: "module.test/target.User"},
-			signature: MapperSignature{
-				Accepts: spec.ParameterKindPointer,
-				Returns: spec.ParameterKindValue,
+			signature: spec.MapperSignature{
+				Accepts: new(spec.ParameterKindPointer),
+				Returns: new(spec.ParameterKindValue),
 			},
 			want: "module.test/source.User->module.test/target.User|pointer->value",
 		},

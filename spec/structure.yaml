@@ -21,13 +21,11 @@ defaults:
 # not included by default, so you're able to configure them as you see fit.
 discovery:
   packages:
-  - import: github.com/seeruk/nextmealplease/internal/optional
+  - github.com/seeruk/nextmealplease/internal/optional
+  functions:
+  - github.com/seeruk/nextmealplease/internal/numeric.CheckedInt32ToInt8
   exclusions:
   - github.com/seeruk/nextmealplease/internal/optional.OptionalPtr
-
-# Conversions are used to define custom mapping functions for specific type-pairs, explicitly.
-conversions:
-- github.com/seeruk/nextmealplease/internal/numeric.CheckedInt32ToInt8
 
 # The types you want to map are defined here, grouped by a pair of packages, and then types within
 # those packages. For packages which require minimal configuration otherwise, this is a very compact

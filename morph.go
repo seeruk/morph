@@ -16,11 +16,10 @@ type Plan struct {
 
 // Spec is a description of what Morph should do, and how it should do it.
 type Spec struct {
-	Defaults    spec.Defaults      `json:"defaults"`
-	Discovery   spec.Discovery     `json:"discovery"`
-	Conversions []spec.CallableRef `json:"conversions"`
-	Packages    []spec.Package     `json:"packages"`
-	Presets     []spec.Preset      `json:"presets"`
+	Defaults  spec.Defaults  `json:"defaults"`
+	Discovery spec.Discovery `json:"discovery"`
+	Packages  []spec.Package `json:"packages"`
+	Presets   []spec.Preset  `json:"presets"`
 }
 
 // OutputFile is an in-memory representation of a generated file, ready to be written, detailing

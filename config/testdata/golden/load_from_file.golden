@@ -33,10 +33,9 @@
   },
   "discovery": {
     "packages": [
-      {
-        "import": "module.test/shared/conversions"
-      }
+      "module.test/shared/conversions"
     ],
+    "inclusions": null,
     "exclusions": [
       {
         "ImportPath": "module.test/shared/conversions",
@@ -50,18 +49,6 @@
       }
     ]
   },
-  "conversions": [
-    {
-      "ImportPath": "module.test/shared/conversions",
-      "TypeName": "",
-      "Name": "CheckedIntToSmallInt"
-    },
-    {
-      "ImportPath": "module.test/shared/conversions",
-      "TypeName": "UserID",
-      "Name": "String"
-    }
-  ],
   "packages": [
     {
       "source": "module.test/source",
@@ -95,7 +82,8 @@
                 "returns": 1
               }
             }
-          }
+          },
+          "bidirectional": null
         },
         {
           "name": "",
@@ -114,9 +102,16 @@
             }
           },
           "struct": null,
-          "mappers": null
+          "mappers": null,
+          "bidirectional": null
         }
       ],
+      "output": {
+        "strategy": 0,
+        "path": "",
+        "package": "",
+        "filename": ""
+      },
       "bidirectional": true
     },
     {
@@ -131,7 +126,8 @@
           "preset": "",
           "enum": null,
           "struct": null,
-          "mappers": null
+          "mappers": null,
+          "bidirectional": null
         },
         {
           "name": "",
@@ -146,9 +142,16 @@
             }
           },
           "struct": null,
-          "mappers": null
+          "mappers": null,
+          "bidirectional": null
         }
       ],
+      "output": {
+        "strategy": 0,
+        "path": "",
+        "package": "",
+        "filename": ""
+      },
       "bidirectional": null
     }
   ],

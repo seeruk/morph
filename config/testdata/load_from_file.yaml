@@ -23,14 +23,14 @@ defaults:
 
 discovery:
   packages:
-  - import: module.test/shared/conversions
+  - module.test/shared/conversions
+  functions:
+  - module.test/shared/conversions.CheckedIntToSmallInt
+  - module.test/shared/conversions.UserID.String
   exclusions:
   - module.test/shared/conversions.LegacyUserToUser
   - module.test/shared/conversions.LegacyStatus.ToStatus
 
-conversions:
-- module.test/shared/conversions.CheckedIntToSmallInt
-- module.test/shared/conversions.UserID.String
 
 packages:
 - source: module.test/source

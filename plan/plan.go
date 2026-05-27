@@ -32,7 +32,7 @@ type Type struct {
 	// Function information
 	FunctionName string
 	TypeParams   []types.TypeParam
-	Signature    MapperSignature
+	Signature    spec.MapperSignature
 	CanError     bool
 	// Plan
 	Enum       *EnumPlan
@@ -95,13 +95,6 @@ const (
 	OperationArray       OperationKind = "array"
 	OperationMap         OperationKind = "map"
 )
-
-// MapperSignature represents the planned signature of a mapping function, it differs from the type
-// found in the spec package in that values here are explicit and always defined (i.e. not nil).
-type MapperSignature struct {
-	Accepts spec.ParameterKind
-	Returns spec.ParameterKind
-}
 
 // Diagnostic is a generalized type used for presenting helpful messages to Morph consumers to help
 // them find and fix issues found during planning.

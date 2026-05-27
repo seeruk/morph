@@ -13,9 +13,9 @@ type PackagesDefaults struct {
 
 // TypesDefaults represents available options for configuring type-pair-level defaults.
 type TypesDefaults struct {
-	Enum          EnumDefaults `json:"enum"`
-	Mappers       Mappers      `json:"mappers"`
-	Bidirectional *bool        `json:"bidirectional"`
+	Enum          *EnumDefaults `json:"enum"`
+	Mappers       *Mappers      `json:"mappers"`
+	Bidirectional *bool         `json:"bidirectional"`
 }
 
 // EnumDefaults represents available options for configuring enum mapping defaults.

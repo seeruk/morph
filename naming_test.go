@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/seeruk/morph"
-	"github.com/seeruk/morph/plan"
 	"github.com/seeruk/morph/spec"
 	"github.com/seeruk/morph/types"
 	"github.com/stretchr/testify/assert"
@@ -15,21 +14,21 @@ func TestMapperName(t *testing.T) {
 	input := morph.NameInput{
 		Source: types.Type{
 			Name:    "User",
-			Package: types.PackageRef{Name: "Source"},
+			Package: types.PackageRef{Name: "source"},
 		},
 		Target: types.Type{
 			Name:    "Person",
-			Package: types.PackageRef{Name: "Target"},
+			Package: types.PackageRef{Name: "target"},
 		},
 		TypeParams: []types.TypeParam{
 			{
 				Name:       "T",
-				Constraint: types.Type{Name: "Entity", Package: types.PackageRef{Name: "Domain"}},
+				Constraint: types.Type{Name: "Entity", Package: types.PackageRef{Name: "domain"}},
 			},
 		},
-		Signature: plan.MapperSignature{
-			Accepts: spec.ParameterKindPointer,
-			Returns: spec.ParameterKindValue,
+		Signature: spec.MapperSignature{
+			Accepts: new(spec.ParameterKindPointer),
+			Returns: new(spec.ParameterKindValue),
 		},
 		CanError: true,
 	}
@@ -80,6 +79,10 @@ func TestMapperName_Error(t *testing.T) {
 	input := morph.NameInput{
 		Source: types.Type{Name: "User"},
 		Target: types.Type{Name: "Person"},
+		Signature: spec.MapperSignature{
+			Accepts: new(spec.ParameterKindPointer),
+			Returns: new(spec.ParameterKindValue),
+		},
 	}
 
 	tests := []struct {

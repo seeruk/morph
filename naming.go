@@ -9,18 +9,18 @@ import (
 
 	"github.com/seeruk/morph/internal/slicesx"
 	"github.com/seeruk/morph/plan"
+	"github.com/seeruk/morph/spec"
 	"github.com/seeruk/morph/types"
 )
 
 // NameInput is a type used to collect information used for templating a mapper function name.
 // TODO: Is it possible to have all of this when we need it?
 type NameInput struct {
-	Source      types.Type
-	Target      types.Type
-	TypeParams  []types.TypeParam
-	Signature   plan.MapperSignature
-	CanError    bool
-	Initialisms []string
+	Source     types.Type
+	Target     types.Type
+	TypeParams []types.TypeParam
+	Signature  spec.MapperSignature
+	CanError   bool
 }
 
 type nameTemplateData struct {
@@ -51,7 +51,7 @@ type nameType struct {
 func nameTypeFromType(typ types.Type) nameType {
 	return nameType{
 		Type:    typ.Name,
-		Package: typ.Package.Name,
+		Package: uppercaseFirst(typ.Package.Name),
 	}
 }
 
@@ -74,7 +74,7 @@ type nameSignature struct {
 	Returns string
 }
 
-func nameSignatureFromType(sig plan.MapperSignature) nameSignature {
+func nameSignatureFromType(sig spec.MapperSignature) nameSignature {
 	return nameSignature{
 		Accepts: uppercaseFirst(sig.Accepts.String()),
 		Returns: uppercaseFirst(sig.Returns.String()),

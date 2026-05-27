@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/seeruk/morph/spec"
 	"github.com/seeruk/morph/types"
 )
 
@@ -73,13 +74,13 @@ func TypePairKey(source TypeRef, target TypeRef) string {
 // SignatureKey returns a string that identifies the signature structure of a mapper function.
 // Typically, this will be used in combination with another key function to uniquely identify a
 // mapper.
-func SignatureKey(signature MapperSignature) string {
+func SignatureKey(signature spec.MapperSignature) string {
 	return signature.Accepts.String() + "->" + signature.Returns.String()
 }
 
 // TypeMapperKey returns a key that uniquely identifies an individual mapper function. This is
 // particularly useful for caching planned mappers and looking them up again later, as the types
 // used to create this key are unfortunately not able to be comparable (e.g. would contain slices).
-func TypeMapperKey(source TypeRef, target TypeRef, signature MapperSignature) string {
+func TypeMapperKey(source TypeRef, target TypeRef, signature spec.MapperSignature) string {
 	return TypePairKey(source, target) + "|" + SignatureKey(signature)
 }

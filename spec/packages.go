@@ -17,13 +17,14 @@ type Package struct {
 
 // Type represents the mapping configuration for a specific pair of types.
 type Type struct {
-	Name    string   `json:"name"`
-	Source  string   `json:"source"`
-	Target  string   `json:"target"`
-	Preset  string   `json:"preset"`
-	Enum    *Enum    `json:"enum"`
-	Struct  *Struct  `json:"struct"`
-	Mappers *Mappers `json:"mappers"`
+	Name          string   `json:"name"`
+	Source        string   `json:"source"`
+	Target        string   `json:"target"`
+	Preset        string   `json:"preset"`
+	Enum          *Enum    `json:"enum"`
+	Struct        *Struct  `json:"struct"`
+	Mappers       *Mappers `json:"mappers"`
+	Bidirectional *bool    `json:"bidirectional"`
 }
 
 // Enum represents configuration for how an enum mapping function should be generated,
@@ -89,15 +90,8 @@ type Mappers struct {
 // Mapper represents configuration for how the mapper function should be generated, allowing
 // customization of things like naming, and the signature of the function.
 type Mapper struct {
-	// Name can be used to provide an exact name, but also supports pattern-based naming using
-	// predefined placeholders. Available placeholders are:
-	// - <SourcePkg>, <SourcePackage>
-	// - <TargetPkg>, <TargetPackage>
-	// - <SourceType>
-	// - <TargetType>
-	//
-	// So for example, you can do `Map<SourcePkg><SourceType>To<TargetPkg><TargetType>` (which is
-	// the default that Morph will use...).
+	// Name can be used to provide an exact name, but also supports a template. We use Go's built-in
+	// text/template, and the template data is morph.NameInput
 	Name string `json:"name"`
 
 	// Signature allows the signature of a generated mapper function to be customized.
