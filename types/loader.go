@@ -41,7 +41,7 @@ func NewLoader(dir string) *Loader {
 // loader's configured directory.
 func (l *Loader) Load(ctx context.Context, patterns ...string) error {
 	if len(patterns) == 0 {
-		patterns = []string{"./..."}
+		return errors.New("at least one package pattern must be provided")
 	}
 
 	cfg := &packages.Config{

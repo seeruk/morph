@@ -46,6 +46,15 @@ func TestLoaderLoad_LoadsPackages(t *testing.T) {
 	assert.NotEmpty(t, beta.Types)
 }
 
+func TestLoaderLoad_DoesNotAllowEmptyPatterns(t *testing.T) {
+	loader := types.NewLoader("testdata")
+
+	err := loader.Load(context.Background())
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "at least one package pattern must be provided")
+}
+
 func TestLoaderLoad_ReturnsPackageErrors(t *testing.T) {
 	loader := types.NewLoader("testdata")
 
