@@ -33,8 +33,8 @@ func NewLoader(dir string) *Loader {
 	}
 }
 
-// Load attempts to load Go packages matching the given pattern(s). If no patterns are provided, it
-// defaults to loading all packages in the loader's configured directory (i.e. using "./...").
+// Load attempts to load Go packages matching the given pattern(s). At least one loader pattern must
+// be provided, or an error will be returned.
 //
 // Package patterns can be specified in the same way as with the "go list" command, e.g.
 // "github.com/my/module/..." or "./cmd/...". The loader will resolve these patterns relative to the
