@@ -10,12 +10,12 @@ defaults:
         failureMode: error
       mappers:
         forward:
-          name: Map<SourceType>To<TargetType>
+          name: Map{{ .Source.Type }}To{{ .Target.Type }}
           signature:
             accepts: value
             returns: pointer
         inverse:
-          name: Map<TargetType>To<SourceType>
+          name: Map{{ .Target.Type }}To{{ .Source.Type }}
           signature:
             accepts: pointer
             returns: value

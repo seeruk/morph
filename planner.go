@@ -5,7 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go/parser"
+	"go/token"
+	"io/fs"
 	"maps"
+	"os"
 	"path"
 	"path/filepath"
 	"slices"
@@ -527,10 +531,23 @@ func (p *Planner) outputLocationForPackage(output spec.Output) (plan.OutputLocat
 		importPath = path.Join(p.workspace.ModulePath, relativeToModule)
 	}
 
+	// We also need to check if the package exists already on disk, and if it does, we need to use
+	// the package name already used within that package. If we just put in what the user has asked
+	// for, we might generate something that won't compile.
+	packageName, ok, err := packageNameFromDir(logicalDir)
+	if err != nil {
+		return plan.OutputLocation{}, fmt.Errorf("failed to determine package name from output directory: %w", err)
+	}
+	if !ok {
+		// If we couldn't find a package name from the directory, we'll just use the base of the
+		// output path as the package name.
+		packageName = output.Package
+	}
+
 	return plan.OutputLocation{
 		LogicalPath: filepath.ToSlash(filepath.Join(logicalDir, output.Filename)),
 		ImportPath:  importPath,
-		PackageName: output.Package,
+		PackageName: packageName,
 	}, nil
 }
 
@@ -540,6 +557,47 @@ func (p *Planner) outputLocationForExistingPackage(pkg types.Package, output spe
 		ImportPath:  pkg.ImportPath,
 		PackageName: pkg.Name,
 	}
+}
+
+func packageNameFromDir(dir string) (name string, ok bool, err error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("read output dir: %w", err)
+	}
+
+	fset := token.NewFileSet()
+
+	var found string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		filename := entry.Name()
+		if filepath.Ext(filename) != ".go" || strings.HasSuffix(filename, "_test.go") {
+			continue
+		}
+
+		filePath := filepath.Join(dir, filename)
+		file, err := parser.ParseFile(fset, filePath, nil, parser.PackageClauseOnly)
+		if err != nil {
+			return "", false, fmt.Errorf("parse package clause in %q: %w", filePath, err)
+		}
+
+		if found == "" {
+			found = file.Name.Name
+			continue
+		}
+
+		if file.Name.Name != found {
+			return "", false, fmt.Errorf("multiple packages found in output dir %q: %q and %q", dir, found, file.Name.Name)
+		}
+	}
+
+	return found, found != "", nil
 }
 
 func sortedOutputGroups(outputGroups map[plan.OutputLocation]plan.OutputGroup) []plan.OutputGroup {

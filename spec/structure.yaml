@@ -66,12 +66,12 @@ presets:
   bidirectional: true
   mappers:
     forward:
-      name: Map<TargetPackage><TargetType>FromProto
+      name: Map{{ .Target.Package }}{{ .Target.Type }}FromProto
       signature:
         accepts: pointer
         returns: value
     inverse:
-      name: Map<TargetPackage><TargetType>ToProto
+      name: Map{{ .Target.Package }}{{ .Target.Type }}ToProto
       signature:
         accepts: value
         returns: pointer
