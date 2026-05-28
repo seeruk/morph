@@ -83,12 +83,12 @@ presets:
     failureMode: error
   mappers:
     forward:
-      name: Map<TargetPackage><TargetType>FromAPI
+      name: Map{{ .Target.Package }}{{ .Target.Type }}FromAPI
       signature:
         accepts: pointer
         returns: value
     inverse:
-      name: Map<TargetPackage><TargetType>ToAPI
+      name: Map{{ .Target.Package}}{{ .Target.Type }}ToAPI
       signature:
         accepts: value
         returns: pointer

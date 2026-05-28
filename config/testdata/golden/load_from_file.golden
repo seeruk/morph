@@ -174,14 +174,14 @@
       },
       "mappers": {
         "forward": {
-          "name": "Map\u003cTargetPackage\u003e\u003cTargetType\u003eFromAPI",
+          "name": "Map{{ .Target.Package }}{{ .Target.Type }}FromAPI",
           "signature": {
             "accepts": 1,
             "returns": 0
           }
         },
         "inverse": {
-          "name": "Map\u003cTargetPackage\u003e\u003cTargetType\u003eToAPI",
+          "name": "Map{{ .Target.Package}}{{ .Target.Type }}ToAPI",
           "signature": {
             "accepts": 0,
             "returns": 1
