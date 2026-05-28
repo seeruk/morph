@@ -253,6 +253,8 @@ func (s *typeLoadState) loadType(typ types.Type) Type {
 			String:  typ.String(),
 		}
 		if !s.enter(typ.Obj()) {
+			out.TypeParams = s.loadTypeParamNames(typ.TypeParams())
+			out.TypeArgs = s.loadTypeArgs(typ.TypeArgs())
 			return out
 		}
 		out.TypeParams = s.loadTypeParams(typ.TypeParams())
@@ -268,6 +270,8 @@ func (s *typeLoadState) loadType(typ types.Type) Type {
 			String:  typ.String(),
 		}
 		if !s.enter(typ.Obj()) {
+			out.TypeParams = s.loadTypeParamNames(typ.TypeParams())
+			out.TypeArgs = s.loadTypeArgs(typ.TypeArgs())
 			return out
 		}
 		out.TypeParams = s.loadTypeParams(typ.TypeParams())
@@ -501,6 +505,19 @@ func (s *typeLoadState) loadTypeArgs(list *types.TypeList) []Type {
 	}
 
 	return args
+}
+
+func (s *typeLoadState) loadTypeParamNames(params *types.TypeParamList) []TypeParam {
+	if params == nil {
+		return nil
+	}
+
+	out := make([]TypeParam, 0, params.Len())
+	for i := 0; i < params.Len(); i++ {
+		out = append(out, TypeParam{Name: params.At(i).Obj().Name()})
+	}
+
+	return out
 }
 
 func (s *typeLoadState) enter(obj *types.TypeName) bool {

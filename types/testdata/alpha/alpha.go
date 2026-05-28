@@ -20,6 +20,10 @@ type Node struct {
 	Next *Node
 }
 
+type List[T any] struct {
+	Next *List[T]
+}
+
 type Pair[T any] struct {
 	*Embedded
 	Source T `json:"source"`

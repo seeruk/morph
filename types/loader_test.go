@@ -214,6 +214,14 @@ func TestLoader_Load(t *testing.T) {
 				elemKind:       types.TypeKindStruct,
 			},
 			{
+				name:           "should load generic recursive struct types",
+				typ:            "List",
+				typeKind:       types.TypeKindNamed,
+				underlyingKind: types.TypeKindStruct,
+				elemKind:       types.TypeKindStruct,
+				typeParamName:  "T",
+			},
+			{
 				name:           "should load generic struct types",
 				typ:            "Pair",
 				typeKind:       types.TypeKindNamed,
@@ -278,6 +286,25 @@ func TestLoader_Load(t *testing.T) {
 		assert.Equal(t, types.TypeKindNamed, next.Type.Elem.Kind)
 		assert.Equal(t, "Node", next.Type.Elem.Name)
 		assert.Nil(t, next.Type.Elem.Elem)
+	})
+
+	t.Run("should preserve generic arguments on recursive type declarations", func(t *testing.T) {
+		pkg := loadAlphaPackage(t)
+		list := findType(t, pkg, "List")
+
+		require.NotNil(t, list.Type.Elem)
+		next, ok := list.Type.Elem.Fields["Next"]
+		require.True(t, ok)
+
+		assert.Equal(t, types.TypeKindPointer, next.Type.Kind)
+		require.NotNil(t, next.Type.Elem)
+		assert.Equal(t, types.TypeKindNamed, next.Type.Elem.Kind)
+		assert.Equal(t, "List", next.Type.Elem.Name)
+		assert.Nil(t, next.Type.Elem.Elem)
+
+		require.Len(t, next.Type.Elem.TypeArgs, 1)
+		assert.Equal(t, types.TypeKindTypeParam, next.Type.Elem.TypeArgs[0].Kind)
+		assert.Equal(t, "T", next.Type.Elem.TypeArgs[0].Name)
 	})
 
 	t.Run("should attach constants to named type declarations", func(t *testing.T) {
