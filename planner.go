@@ -50,6 +50,10 @@ type Planner struct {
 	// plannedOutputFiles is a map of the logical paths of all output files Morph is planning to
 	// generate. This is useful for discovering functions in files we're about to generate.
 	plannedOutputFiles map[string]struct{}
+	// shallowMappings contains the type mapper keys of all mappings currently shallow planned.
+	// As shallow plans are made, they'll be added to this map.
+	// As these mappings are fully planned, they will be removed from this map.
+	shallowMappings map[string]struct{}
 }
 
 // NewPlanner returns a new Planner, set to plan the given Spec.
@@ -92,6 +96,12 @@ func (p *Planner) Plan() (Plan, error) {
 	// allow discovery to pick up on functions we're about to generate.
 	if err := p.registerDiscovery(); err != nil {
 		return out, fmt.Errorf("failed to register discovery: %w", err)
+	}
+
+	// Now we're ready to plan value mappings. This is a deeper pass over the spec, actually based
+	// on the shallow plan we've just done, as that only contains explicitly requested mappings.
+	for _, og := range out.OutputGroups {
+		p.planOutputGroup(og)
 	}
 
 	return out, nil
@@ -349,10 +359,16 @@ func (p *Planner) shallowPackagePlan(
 			return fmt.Errorf("failed to add explicit root forward plan for packages %q -> %q: %w", pkgSpec.Source, pkgSpec.Target, err)
 		}
 
+		forwardKey := plan.TypeMapperKey(forward.Source, forward.Target, forward.Signature)
+		p.shallowMappings[forwardKey] = struct{}{}
+
 		if inverse != nil {
 			if err = p.addExplicitRoot(outputGroups, location, inverse); err != nil {
 				return fmt.Errorf("failed to add explicit root inverse plan for packages %q -> %q: %w", pkgSpec.Source, pkgSpec.Target, err)
 			}
+
+			inverseKey := plan.TypeMapperKey(inverse.Source, inverse.Target, inverse.Signature)
+			p.shallowMappings[inverseKey] = struct{}{}
 		}
 	}
 
@@ -390,13 +406,13 @@ func (p *Planner) shallowTypePlan(
 
 	var forward, inverse *plan.Type
 
-	forward, err := p.shallowRootPlan(sourceDecl, targetDecl, typeSpec.Mappers.Forward)
+	forward, err := p.shallowRootPlan(sourceDecl, targetDecl, typeSpec, typeSpec.Mappers.Forward)
 	if err != nil {
 		return nil, nil, fmt.Errorf("type %q -> %q: %w", typeSpec.Source, typeSpec.Target, err)
 	}
 
 	if typeSpec.Bidirectional != nil && *typeSpec.Bidirectional {
-		inverse, err = p.shallowRootPlan(targetDecl, sourceDecl, typeSpec.Mappers.Inverse)
+		inverse, err = p.shallowRootPlan(targetDecl, sourceDecl, typeSpec, typeSpec.Mappers.Inverse)
 		if err != nil {
 			return nil, nil, fmt.Errorf("type %q -> %q inverse: %w", typeSpec.Source, typeSpec.Target, err)
 		}
@@ -406,7 +422,11 @@ func (p *Planner) shallowTypePlan(
 }
 
 // shallowRootPlan prepares a shallow plan for a particular type mapping.
-func (p *Planner) shallowRootPlan(sourceDecl, targetDecl types.TypeDecl, mapper spec.Mapper) (*plan.Type, error) {
+func (p *Planner) shallowRootPlan(
+	sourceDecl, targetDecl types.TypeDecl,
+	typeSpec spec.Type,
+	mapper spec.Mapper,
+) (*plan.Type, error) {
 	nameInput := NameInput{
 		Source:     sourceDecl.Type,
 		Target:     targetDecl.Type,
@@ -419,6 +439,10 @@ func (p *Planner) shallowRootPlan(sourceDecl, targetDecl types.TypeDecl, mapper 
 		return nil, fmt.Errorf("failed to determine mapper name: %w", err)
 	}
 
+	if typeSpec.Enum == nil || typeSpec.Struct == nil {
+		return nil, errors.New("expected type spec to at least have defaults applied")
+	}
+
 	return &plan.Type{
 		Source:       plan.TypeRefFromTypeDecl(sourceDecl),
 		Target:       plan.TypeRefFromTypeDecl(targetDecl),
@@ -429,6 +453,10 @@ func (p *Planner) shallowRootPlan(sourceDecl, targetDecl types.TypeDecl, mapper 
 		FunctionName: functionName,
 		TypeParams:   sourceDecl.Type.TypeParams,
 		Signature:    mapper.Signature,
+		// We store these in the plan, because we've already done the work assigning defaults and
+		// resolving presets by this point, but we need to use that later.
+		EnumSpec:   *typeSpec.Enum,
+		StructSpec: *typeSpec.Struct,
 	}, nil
 }
 
@@ -557,6 +585,34 @@ func (p *Planner) outputLocationForExistingPackage(pkg types.Package, output spe
 		ImportPath:  pkg.ImportPath,
 		PackageName: pkg.Name,
 	}
+}
+
+func (p *Planner) planOutputGroup(outputGroup plan.OutputGroup) {
+	for _, typ := range outputGroup.Roots {
+		p.planType(typ)
+	}
+}
+
+func (p *Planner) planType(typ *plan.Type) {
+	key := plan.TypeMapperKey(typ.Source, typ.Target, typ.Signature)
+	if _, isShallow := p.plannedOutputFiles[key]; !isShallow {
+		// This one is already done.
+		return
+	}
+
+	switch {
+	case isEnumType(typ.SourceDecl) && isEnumType(typ.TargetDecl):
+		p.planEnum(typ)
+	case isStructType(typ.SourceDecl) && isStructType(typ.TargetDecl):
+		p.planStruct(typ)
+	default:
+		// TODO: Error? Diagnostics? Need to make a decision about that... ideally we wouldn't just
+		//  error once and make people need to solve one problem at a time.
+		return
+	}
+
+	// Mark this as fully planned.
+	delete(p.shallowMappings, key)
 }
 
 func packageNameFromDir(dir string) (name string, ok bool, err error) {

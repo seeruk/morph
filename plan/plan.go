@@ -34,6 +34,9 @@ type Type struct {
 	TypeParams   []types.TypeParam
 	Signature    spec.MapperSignature
 	CanError     bool
+	// Spec
+	EnumSpec   spec.Enum
+	StructSpec spec.Struct
 	// Plan
 	Enum       *EnumPlan
 	StructPlan *StructPlan
