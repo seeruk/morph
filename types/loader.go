@@ -411,7 +411,7 @@ func loadTypeMethods(typ types.Type) map[string]Method {
 		fn := named.Method(i)
 		sig := fn.Type().(*types.Signature)
 		methods[fn.Name()] = Method{
-			Owner:      loadNamedTypeIdentity(named),
+			Owner:      loadType(named),
 			Name:       fn.Name(),
 			IsExported: fn.Exported(),
 			Receiver:   new(loadParameter(sig.Recv())),
@@ -513,15 +513,6 @@ func (s *typeLoadState) enter(obj *types.TypeName) bool {
 
 func (s *typeLoadState) leave(obj *types.TypeName) {
 	delete(s.loading, obj)
-}
-
-func loadNamedTypeIdentity(typ *types.Named) Type {
-	return Type{
-		Kind:    TypeKindNamed,
-		Name:    typ.Obj().Name(),
-		Package: packageRefFromObject(typ.Obj()),
-		String:  typ.String(),
-	}
 }
 
 func typeAsStruct(typ types.Type) *types.Struct {
