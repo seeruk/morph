@@ -539,8 +539,8 @@ func (p *Planner) outputLocationForPackage(output spec.Output) (plan.OutputLocat
 		return plan.OutputLocation{}, fmt.Errorf("failed to determine package name from output directory: %w", err)
 	}
 	if !ok {
-		// If we couldn't find a package name from the directory, we'll just use the base of the
-		// output path as the package name.
+		// If we couldn't find a package name from the directory, we'll just use package name from
+		// the output spec as fallback and pray.
 		packageName = output.Package
 	}
 
