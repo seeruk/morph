@@ -67,7 +67,7 @@ func TestTypeKey(t *testing.T) {
 			typ: types.Type{
 				Kind: types.TypeKindAlias,
 				Name: "UserAlias",
-				Elem: typePtr(userType),
+				Elem: new(userType),
 			},
 			want: "module.test/example.User",
 		},
@@ -75,7 +75,7 @@ func TestTypeKey(t *testing.T) {
 			name: "pointer includes element key",
 			typ: types.Type{
 				Kind: types.TypeKindPointer,
-				Elem: typePtr(userType),
+				Elem: new(userType),
 			},
 			want: "*module.test/example.User",
 		},
@@ -83,7 +83,7 @@ func TestTypeKey(t *testing.T) {
 			name: "slice includes element key",
 			typ: types.Type{
 				Kind: types.TypeKindSlice,
-				Elem: typePtr(userType),
+				Elem: new(userType),
 			},
 			want: "[]module.test/example.User",
 		},
@@ -92,7 +92,7 @@ func TestTypeKey(t *testing.T) {
 			typ: types.Type{
 				Kind: types.TypeKindArray,
 				Len:  3,
-				Elem: typePtr(intType),
+				Elem: new(intType),
 			},
 			want: "[3]int",
 		},
@@ -100,8 +100,8 @@ func TestTypeKey(t *testing.T) {
 			name: "map includes key and value keys",
 			typ: types.Type{
 				Kind:  types.TypeKindMap,
-				Key:   typePtr(stringType),
-				Value: typePtr(userType),
+				Key:   new(stringType),
+				Value: new(userType),
 			},
 			want: "map[string]module.test/example.User",
 		},
@@ -182,6 +182,11 @@ func TestSignatureKey(t *testing.T) {
 			},
 			want: "pointer->pointer",
 		},
+		{
+			name:      "should default nil signature parts to value",
+			signature: spec.MapperSignature{},
+			want:      "value->value",
+		},
 	}
 
 	for _, tt := range tests {
@@ -216,8 +221,4 @@ func TestTypeMapperKey(t *testing.T) {
 			assert.Equal(t, tt.want, TypeMapperKey(tt.source, tt.target, tt.signature))
 		})
 	}
-}
-
-func typePtr(typ types.Type) *types.Type {
-	return &typ
 }

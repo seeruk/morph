@@ -34,7 +34,7 @@ var defaultMapperSignature = spec.MapperSignature{
 }
 
 var defaultOutput = spec.Output{
-	Strategy: spec.OutputStrategySinglePackage,
+	Strategy: new(spec.OutputStrategySinglePackage),
 	Package:  "morph",
 	Path:     "morph",
 	Filename: "morph.gen.go",

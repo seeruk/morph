@@ -84,7 +84,7 @@ func callableFromFunctionDecl(fn types.FunctionDecl, source plan.CallableSource)
 }
 
 func callableFromMethod(method types.Method, source plan.CallableSource) (plan.CallableRef, bool) {
-	if method.IsVariadic || len(method.TypeParams) > 0 || len(method.Params) != 1 {
+	if method.Receiver == nil || method.IsVariadic || len(method.TypeParams) > 0 || len(method.Params) != 0 {
 		// TODO: Revisit type params for using generic callables
 		return plan.CallableRef{}, false
 	}
@@ -95,10 +95,11 @@ func callableFromMethod(method types.Method, source plan.CallableSource) (plan.C
 	}
 
 	return plan.CallableRef{
-		SourceType:   plan.TypeRefFromType(method.Params[0].Type),
+		SourceType:   plan.TypeRefFromType(method.Receiver.Type),
 		TargetType:   plan.TypeRefFromType(method.Results[0].Type),
 		Kind:         plan.CallableKindMethod,
 		Source:       source,
+		Package:      method.Receiver.Type.Package,
 		Name:         method.Name,
 		ReturnsError: returnsError,
 	}, true

@@ -228,6 +228,15 @@ func TestLoaderLoad_LoadsTypes(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("should attach constants to named type declarations", func(t *testing.T) {
+		difficulty := findType(t, pkg, "Difficulty")
+		assert.ElementsMatch(t, []string{
+			"DifficultyEasy",
+			"DifficultyHard",
+			"difficultyMax",
+		}, slices.Collect(maps.Keys(difficulty.Constants)))
+	})
 }
 
 func TestLoaderLoad_LoadsStructFieldsAndMethods(t *testing.T) {

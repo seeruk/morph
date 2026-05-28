@@ -158,6 +158,47 @@ func TestPlanner_isFunctionPendingGeneration(t *testing.T) {
 	}
 }
 
+func TestOutputWithDefaults(t *testing.T) {
+	t.Run("should allow single package override", func(t *testing.T) {
+		defaults := spec.Output{
+			Strategy: new(spec.OutputStrategySourcePackage),
+			Path:     "source",
+			Package:  "source",
+			Filename: "source.gen.go",
+		}
+		output := spec.Output{
+			Strategy: new(spec.OutputStrategySinglePackage),
+			Path:     "morph",
+			Package:  "morph",
+			Filename: "morph.gen.go",
+		}
+
+		got := outputWithDefaults(output, defaults)
+
+		require.NotNil(t, got.Strategy)
+		assert.Equal(t, spec.OutputStrategySinglePackage, *got.Strategy)
+		assert.Equal(t, "morph", got.Path)
+		assert.Equal(t, "morph", got.Package)
+		assert.Equal(t, "morph.gen.go", got.Filename)
+	})
+}
+
+func TestSortedOutputGroups(t *testing.T) {
+	t.Run("should order groups by location", func(t *testing.T) {
+		locationB := testOutputLocation("module.test/b", "/repo/b/morph.gen.go")
+		locationA := testOutputLocation("module.test/a", "/repo/a/morph.gen.go")
+
+		got := sortedOutputGroups(map[plan.OutputLocation]plan.OutputGroup{
+			locationB: {Location: locationB},
+			locationA: {Location: locationA},
+		})
+
+		require.Len(t, got, 2)
+		assert.Equal(t, locationA, got[0].Location)
+		assert.Equal(t, locationB, got[1].Location)
+	})
+}
+
 func testOutputLocation(importPath, logicalPath string) plan.OutputLocation {
 	return plan.OutputLocation{
 		LogicalPath: logicalPath,
@@ -182,10 +223,8 @@ func testPlanType(sourceKey, targetKey, functionName string) *plan.Type {
 }
 
 func testMapperSignature() spec.MapperSignature {
-	accepts := spec.ParameterKindValue
-	returns := spec.ParameterKindValue
 	return spec.MapperSignature{
-		Accepts: &accepts,
-		Returns: &returns,
+		Accepts: new(spec.ParameterKindValue),
+		Returns: new(spec.ParameterKindValue),
 	}
 }

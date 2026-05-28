@@ -35,7 +35,18 @@
     "packages": [
       "module.test/shared/conversions"
     ],
-    "inclusions": null,
+    "functions": [
+      {
+        "ImportPath": "module.test/shared/conversions",
+        "TypeName": "",
+        "Name": "CheckedIntToSmallInt"
+      },
+      {
+        "ImportPath": "module.test/shared/conversions",
+        "TypeName": "UserID",
+        "Name": "String"
+      }
+    ],
     "exclusions": [
       {
         "ImportPath": "module.test/shared/conversions",
@@ -107,7 +118,7 @@
         }
       ],
       "output": {
-        "strategy": 0,
+        "strategy": null,
         "path": "",
         "package": "",
         "filename": ""
@@ -147,7 +158,7 @@
         }
       ],
       "output": {
-        "strategy": 0,
+        "strategy": null,
         "path": "",
         "package": "",
         "filename": ""

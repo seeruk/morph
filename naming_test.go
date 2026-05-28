@@ -73,6 +73,18 @@ func TestMapperName(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+
+	t.Run("should default missing signature parts", func(t *testing.T) {
+		input := morph.NameInput{
+			Source: types.Type{Name: "User"},
+			Target: types.Type{Name: "Person"},
+		}
+
+		got, err := morph.MapperName(input, "Map{{ .Source.Type }}{{ .Signature.Accepts }}To{{ .Target.Type }}{{ .Signature.Returns }}")
+
+		require.NoError(t, err)
+		assert.Equal(t, "MapUserValueToPersonValue", got)
+	})
 }
 
 func TestMapperName_Error(t *testing.T) {

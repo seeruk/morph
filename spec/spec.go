@@ -43,10 +43,6 @@ func (r *CallableRef) UnmarshalText(text []byte) error {
 	}
 
 	lastSlash := strings.LastIndex(value, "/")
-	if lastSlash == -1 {
-		return fmt.Errorf("invalid callable reference %q", value)
-	}
-
 	lastDot := strings.LastIndex(value, ".")
 	if lastDot <= lastSlash+1 || lastDot == len(value)-1 {
 		return fmt.Errorf("invalid callable reference %q", value)

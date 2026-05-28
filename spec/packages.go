@@ -40,9 +40,11 @@ type Enum struct {
 }
 
 func (e *Enum) ApplyDefaults(preset EnumDefaults) {
-	if e.FailureMode == nil && preset.FailureMode != nil {
-		*e.FailureMode = *preset.FailureMode
+	if e == nil || e.FailureMode != nil || preset.FailureMode == nil {
+		return
 	}
+
+	e.FailureMode = new(*preset.FailureMode)
 }
 
 // EnumFailureMode enumerates the possible failure modes for an enum mapping function.

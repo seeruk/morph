@@ -82,9 +82,9 @@ func (p *Planner) Plan() (Plan, error) {
 		return out, fmt.Errorf("failed shallow planning pass: %w", err)
 	}
 
-	out.OutputGroups = slices.Collect(maps.Values(outputGroups))
+	out.OutputGroups = sortedOutputGroups(outputGroups)
 
-	// Now the shallow plan is complete, we can safely set up discovery, knowing we're not going to
+	// Now the shallow plan is complete; we can safely set up discovery, knowing we're not going to
 	// allow discovery to pick up on functions we're about to generate.
 	if err := p.registerDiscovery(); err != nil {
 		return out, fmt.Errorf("failed to register discovery: %w", err)
@@ -484,7 +484,11 @@ func (p *Planner) outputLocationForPackages(
 	targetPkg types.Package,
 	output spec.Output,
 ) (plan.OutputLocation, error) {
-	switch output.Strategy {
+	if output.Strategy == nil {
+		return plan.OutputLocation{}, errors.New("missing output strategy")
+	}
+
+	switch *output.Strategy {
 	case spec.OutputStrategySinglePackage:
 		return p.outputLocationForPackage(output)
 	case spec.OutputStrategySourcePackage:
@@ -492,7 +496,7 @@ func (p *Planner) outputLocationForPackages(
 	case spec.OutputStrategyTargetPackage:
 		return p.outputLocationForExistingPackage(targetPkg, output), nil
 	default:
-		return plan.OutputLocation{}, fmt.Errorf("unknown output strategy %q", output.Strategy)
+		return plan.OutputLocation{}, fmt.Errorf("unknown output strategy %q", output.Strategy.String())
 	}
 }
 
@@ -514,7 +518,7 @@ func (p *Planner) outputLocationForPackage(output spec.Output) (plan.OutputLocat
 		return plan.OutputLocation{}, fmt.Errorf("failed to determine output path relative to module root: %w", err)
 	}
 
-	if strings.HasPrefix(relativeToModule, "..") {
+	if relativeToModule == ".." || strings.HasPrefix(relativeToModule, ".."+string(filepath.Separator)) {
 		return plan.OutputLocation{}, fmt.Errorf("output path %q is outside of the module root %q", logicalDir, p.workspace.ModuleDir)
 	}
 
@@ -536,6 +540,18 @@ func (p *Planner) outputLocationForExistingPackage(pkg types.Package, output spe
 		ImportPath:  pkg.ImportPath,
 		PackageName: pkg.Name,
 	}
+}
+
+func sortedOutputGroups(outputGroups map[plan.OutputLocation]plan.OutputGroup) []plan.OutputGroup {
+	out := slices.Collect(maps.Values(outputGroups))
+	slices.SortFunc(out, func(a, b plan.OutputGroup) int {
+		return cmp.Or(
+			cmp.Compare(a.Location.LogicalPath, b.Location.LogicalPath),
+			cmp.Compare(a.Location.ImportPath, b.Location.ImportPath),
+			cmp.Compare(a.Location.PackageName, b.Location.PackageName),
+		)
+	})
+	return out
 }
 
 // appendDiagnostic appends only distinct diagnostics to the given slice of diagnostics.

@@ -127,7 +127,37 @@ func (l *Loader) loadPackage(pkg *packages.Package) Package {
 		}
 	}
 
+	out.attachConstantsToTypes()
+
 	return out
+}
+
+func (p *Package) attachConstantsToTypes() {
+	constantsByType := make(map[string]map[string]ConstantDecl)
+
+	for _, constant := range p.Constants {
+		typ := constant.Type
+		if typ.Kind != TypeKindNamed && typ.Kind != TypeKindAlias {
+			continue
+		}
+		if typ.Name == "" || typ.Package.ImportPath != p.ImportPath {
+			continue
+		}
+
+		if _, ok := constantsByType[typ.Name]; !ok {
+			constantsByType[typ.Name] = make(map[string]ConstantDecl)
+		}
+		constantsByType[typ.Name][constant.Name] = constant
+	}
+
+	for typeName, constants := range constantsByType {
+		decl, ok := p.Types[typeName]
+		if !ok {
+			continue
+		}
+		decl.Constants = constants
+		p.Types[typeName] = decl
+	}
 }
 
 // loadConstant loads a constant declaration from the given types.Const object.
@@ -182,7 +212,7 @@ func (l *Loader) loadType(obj *types.TypeName, pkg PackageRef) TypeDecl {
 		Underlying: loadType(typ.Underlying()),
 		Fields:     loadStructFields(typeAsStruct(typ)),
 		Methods:    loadTypeMethods(typ),
-		// NOTE: Constants are assigned after, because we have to load them all first
+		// NOTE: Constants are assigned after all package declarations have been loaded.
 	}
 
 	return out

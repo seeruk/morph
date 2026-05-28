@@ -37,13 +37,25 @@ func TestCallableRef_UnmarshalText(t *testing.T) {
 			},
 		},
 		{
-			name: "invalid - trailing dots",
-			in:   "module.test/example.Type.Invalid.",
-			errs: true,
+			name: "should parse stdlib function refs",
+			in:   "strconv.Atoi",
+			out: CallableRef{
+				ImportPath: "strconv",
+				Name:       "Atoi",
+			},
 		},
 		{
-			name: "invalid - missing package",
-			in:   "Type.Invalid",
+			name: "should parse stdlib method refs",
+			in:   "time.Time.Format",
+			out: CallableRef{
+				ImportPath: "time",
+				TypeName:   "Time",
+				Name:       "Format",
+			},
+		},
+		{
+			name: "invalid - trailing dots",
+			in:   "module.test/example.Type.Invalid.",
 			errs: true,
 		},
 		{

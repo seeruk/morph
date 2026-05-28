@@ -75,3 +75,34 @@ func TestParameterKind_String(t *testing.T) {
 		})
 	}
 }
+
+func TestEnum_ApplyDefaults(t *testing.T) {
+	t.Run("should copy the default failure mode when unset", func(t *testing.T) {
+		defaultFailureMode := EnumFailureModeError
+		enum := &Enum{}
+
+		enum.ApplyDefaults(EnumDefaults{FailureMode: &defaultFailureMode})
+
+		require.NotNil(t, enum.FailureMode)
+		assert.Equal(t, EnumFailureModeError, *enum.FailureMode)
+		assert.NotSame(t, &defaultFailureMode, enum.FailureMode)
+	})
+
+	t.Run("should keep an explicit failure mode", func(t *testing.T) {
+		enum := &Enum{FailureMode: new(EnumFailureModeZero)}
+
+		enum.ApplyDefaults(EnumDefaults{FailureMode: new(EnumFailureModeError)})
+
+		require.NotNil(t, enum.FailureMode)
+		assert.Equal(t, EnumFailureModeZero, *enum.FailureMode)
+	})
+
+	t.Run("should tolerate nil enum receivers", func(t *testing.T) {
+		defaultFailureMode := EnumFailureModeError
+		var enum *Enum
+
+		assert.NotPanics(t, func() {
+			enum.ApplyDefaults(EnumDefaults{FailureMode: &defaultFailureMode})
+		})
+	})
+}

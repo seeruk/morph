@@ -6,10 +6,10 @@ import (
 )
 
 type Output struct {
-	Strategy OutputStrategy `json:"strategy"`
-	Path     string         `json:"path"`
-	Package  string         `json:"package"`
-	Filename string         `json:"filename"`
+	Strategy *OutputStrategy `json:"strategy"`
+	Path     string          `json:"path"`
+	Package  string          `json:"package"`
+	Filename string          `json:"filename"`
 }
 
 type OutputStrategy uint
