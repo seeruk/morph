@@ -207,6 +207,13 @@ func TestLoader_Load(t *testing.T) {
 				elemKind:       types.TypeKindBasic,
 			},
 			{
+				name:           "should load recursive struct types",
+				typ:            "Node",
+				typeKind:       types.TypeKindNamed,
+				underlyingKind: types.TypeKindStruct,
+				elemKind:       types.TypeKindStruct,
+			},
+			{
 				name:           "should load generic struct types",
 				typ:            "Pair",
 				typeKind:       types.TypeKindNamed,
@@ -258,6 +265,21 @@ func TestLoader_Load(t *testing.T) {
 		}
 	})
 
+	t.Run("should stop expanding recursive type declarations", func(t *testing.T) {
+		pkg := loadAlphaPackage(t)
+		node := findType(t, pkg, "Node")
+
+		require.NotNil(t, node.Type.Elem)
+		next, ok := node.Type.Elem.Fields["Next"]
+		require.True(t, ok)
+
+		assert.Equal(t, types.TypeKindPointer, next.Type.Kind)
+		require.NotNil(t, next.Type.Elem)
+		assert.Equal(t, types.TypeKindNamed, next.Type.Elem.Kind)
+		assert.Equal(t, "Node", next.Type.Elem.Name)
+		assert.Nil(t, next.Type.Elem.Elem)
+	})
+
 	t.Run("should attach constants to named type declarations", func(t *testing.T) {
 		pkg := loadAlphaPackage(t)
 
@@ -294,6 +316,9 @@ func TestLoader_Load(t *testing.T) {
 
 		invert := findMethod(t, pair, "Invert")
 		assert.True(t, invert.IsExported)
+		assert.Equal(t, types.TypeKindNamed, invert.Owner.Kind)
+		assert.Equal(t, "Pair", invert.Owner.Name)
+		assert.Equal(t, pkg.ImportPath, invert.Owner.Package.ImportPath)
 		require.NotNil(t, invert.Receiver)
 		assert.Equal(t, types.TypeKindNamed, invert.Receiver.Type.Kind)
 		assert.Empty(t, invert.Params)
@@ -301,6 +326,9 @@ func TestLoader_Load(t *testing.T) {
 
 		set := findMethod(t, pair, "Set")
 		assert.True(t, set.IsExported)
+		assert.Equal(t, types.TypeKindNamed, set.Owner.Kind)
+		assert.Equal(t, "Pair", set.Owner.Name)
+		assert.Equal(t, pkg.ImportPath, set.Owner.Package.ImportPath)
 		require.NotNil(t, set.Receiver)
 		assert.Equal(t, types.TypeKindPointer, set.Receiver.Type.Kind)
 		assert.Equal(t, []types.TypeKind{types.TypeKindTypeParam, types.TypeKindTypeParam}, parameterKinds(set.Params))

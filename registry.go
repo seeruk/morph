@@ -89,6 +89,11 @@ func callableFromMethod(method types.Method, source plan.CallableSource) (plan.C
 		return plan.CallableRef{}, false
 	}
 
+	owner, ok := method.OwnerType()
+	if !ok {
+		return plan.CallableRef{}, false
+	}
+
 	returnsError, ok := callableResults(method.Results)
 	if !ok {
 		return plan.CallableRef{}, false
@@ -99,7 +104,7 @@ func callableFromMethod(method types.Method, source plan.CallableSource) (plan.C
 		TargetType:   plan.TypeRefFromType(method.Results[0].Type),
 		Kind:         plan.CallableKindMethod,
 		Source:       source,
-		Package:      method.Receiver.Type.Package,
+		Package:      owner.Package,
 		Name:         method.Name,
 		ReturnsError: returnsError,
 	}, true

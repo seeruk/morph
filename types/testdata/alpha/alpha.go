@@ -16,6 +16,10 @@ type Embedded struct {
 	Name string
 }
 
+type Node struct {
+	Next *Node
+}
+
 type Pair[T any] struct {
 	*Embedded
 	Source T `json:"source"`

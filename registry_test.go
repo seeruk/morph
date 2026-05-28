@@ -35,6 +35,7 @@ func TestCallableFromMethod(t *testing.T) {
 		{
 			name: "should reject methods with explicit params",
 			method: types.Method{
+				Owner:    sourceType,
 				Receiver: &types.Parameter{Type: sourceType},
 				Name:     "Format",
 				Params:   []types.Parameter{{Type: targetType}},
@@ -44,6 +45,7 @@ func TestCallableFromMethod(t *testing.T) {
 		{
 			name: "should reject methods without results",
 			method: types.Method{
+				Owner:    sourceType,
 				Receiver: &types.Parameter{Type: sourceType},
 				Name:     "Clear",
 			},
@@ -59,6 +61,7 @@ func TestCallableFromMethod(t *testing.T) {
 
 	t.Run("should use the receiver as the source type", func(t *testing.T) {
 		callable, ok := callableFromMethod(types.Method{
+			Owner:    sourceType,
 			Receiver: &types.Parameter{Type: sourceType},
 			Name:     "String",
 			Results:  []types.Parameter{{Type: targetType}},
@@ -70,6 +73,24 @@ func TestCallableFromMethod(t *testing.T) {
 		assert.Equal(t, "String", callable.Name)
 		assert.Equal(t, plan.TypeRefFromType(sourceType), callable.SourceType)
 		assert.Equal(t, plan.TypeRefFromType(targetType), callable.TargetType)
+		assert.Equal(t, sourceType.Package, callable.Package)
+	})
+
+	t.Run("should use the owner as the callable package for pointer receivers", func(t *testing.T) {
+		pointerSource := types.Type{
+			Kind: types.TypeKindPointer,
+			Elem: &sourceType,
+		}
+
+		callable, ok := callableFromMethod(types.Method{
+			Owner:    sourceType,
+			Receiver: &types.Parameter{Type: pointerSource},
+			Name:     "String",
+			Results:  []types.Parameter{{Type: targetType}},
+		}, plan.CallableSourceUser)
+
+		require.True(t, ok)
+		assert.Equal(t, plan.TypeRefFromType(pointerSource), callable.SourceType)
 		assert.Equal(t, sourceType.Package, callable.Package)
 	})
 }

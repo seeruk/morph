@@ -25,13 +25,14 @@ func CallableRefFromFunctionDecl(fn types.FunctionDecl) CallableRef {
 
 // CallableRefFromMethod returns a CallableRef for a given types.Method.
 func CallableRefFromMethod(method types.Method) (CallableRef, bool) {
-	if method.Receiver == nil {
+	owner, ok := method.OwnerType()
+	if !ok {
 		return CallableRef{}, false
 	}
 
 	return CallableRef{
-		ImportPath: method.Receiver.Type.Package.ImportPath,
-		TypeName:   method.Receiver.Type.Name,
+		ImportPath: owner.Package.ImportPath,
+		TypeName:   owner.Name,
 		Name:       method.Name,
 	}, true
 }

@@ -218,8 +218,22 @@ func (l *Loader) loadType(obj *types.TypeName, pkg PackageRef) TypeDecl {
 	return out
 }
 
+type typeLoadState struct {
+	loading map[*types.TypeName]struct{}
+}
+
+func newTypeLoadState() *typeLoadState {
+	return &typeLoadState{
+		loading: make(map[*types.TypeName]struct{}),
+	}
+}
+
 // loadType loads a Type from a types.Type, recursively resolving nested types as needed.
 func loadType(typ types.Type) Type {
+	return newTypeLoadState().loadType(typ)
+}
+
+func (s *typeLoadState) loadType(typ types.Type) Type {
 	if typ == nil {
 		return Type{Kind: TypeKindInvalid}
 	}
@@ -232,70 +246,80 @@ func loadType(typ types.Type) Type {
 			String: typ.String(),
 		}
 	case *types.Named:
-		return Type{
-			Kind:       TypeKindNamed,
-			Name:       typ.Obj().Name(),
-			Package:    packageRefFromObject(typ.Obj()),
-			String:     typ.String(),
-			TypeParams: loadTypeParams(typ.TypeParams()),
-			TypeArgs:   loadTypeArgs(typ.TypeArgs()),
-			Elem:       new(loadType(typ.Underlying())),
+		out := Type{
+			Kind:    TypeKindNamed,
+			Name:    typ.Obj().Name(),
+			Package: packageRefFromObject(typ.Obj()),
+			String:  typ.String(),
 		}
+		if !s.enter(typ.Obj()) {
+			return out
+		}
+		out.TypeParams = s.loadTypeParams(typ.TypeParams())
+		out.TypeArgs = s.loadTypeArgs(typ.TypeArgs())
+		out.Elem = new(s.loadType(typ.Underlying()))
+		s.leave(typ.Obj())
+		return out
 	case *types.Alias:
-		return Type{
-			Kind:       TypeKindAlias,
-			Name:       typ.Obj().Name(),
-			Package:    packageRefFromObject(typ.Obj()),
-			String:     typ.String(),
-			Elem:       new(loadType(typ.Rhs())),
-			TypeParams: loadTypeParams(typ.TypeParams()),
-			TypeArgs:   loadTypeArgs(typ.TypeArgs()),
+		out := Type{
+			Kind:    TypeKindAlias,
+			Name:    typ.Obj().Name(),
+			Package: packageRefFromObject(typ.Obj()),
+			String:  typ.String(),
 		}
+		if !s.enter(typ.Obj()) {
+			return out
+		}
+		out.TypeParams = s.loadTypeParams(typ.TypeParams())
+		out.TypeArgs = s.loadTypeArgs(typ.TypeArgs())
+		out.Elem = new(s.loadType(typ.Rhs()))
+		s.leave(typ.Obj())
+		return out
 	case *types.Pointer:
 		return Type{
 			Kind:   TypeKindPointer,
 			String: typ.String(),
-			Elem:   new(loadType(typ.Elem())),
+			Elem:   new(s.loadType(typ.Elem())),
 		}
 	case *types.Slice:
 		return Type{
 			Kind:   TypeKindSlice,
 			String: typ.String(),
-			Elem:   new(loadType(typ.Elem())),
+			Elem:   new(s.loadType(typ.Elem())),
 		}
 	case *types.Array:
 		return Type{
 			Kind:   TypeKindArray,
 			String: typ.String(),
 			Len:    typ.Len(),
-			Elem:   new(loadType(typ.Elem())),
+			Elem:   new(s.loadType(typ.Elem())),
 		}
 	case *types.Map:
 		return Type{
 			Kind:   TypeKindMap,
 			String: typ.String(),
-			Key:    new(loadType(typ.Key())),
-			Value:  new(loadType(typ.Elem())),
+			Key:    new(s.loadType(typ.Key())),
+			Value:  new(s.loadType(typ.Elem())),
 		}
 	case *types.Struct:
 		return Type{
 			Kind:   TypeKindStruct,
 			String: typ.String(),
-			Fields: loadStructFields(typ),
+			Fields: s.loadStructFields(typ),
 		}
 	case *types.Interface:
 		return Type{
 			Kind:    TypeKindInterface,
 			String:  typ.String(),
-			Methods: loadInterfaceMethods(typ),
+			Methods: s.loadInterfaceMethods(typ),
 		}
 	case *types.Signature:
 		return Type{
 			Kind:       TypeKindSignature,
 			String:     typ.String(),
-			TypeParams: loadTypeParams(typ.TypeParams()),
-			Params:     loadParameters(typ.Params()),
-			Results:    loadParameters(typ.Results()),
+			TypeParams: s.loadTypeParams(typ.TypeParams()),
+			Params:     s.loadParameters(typ.Params()),
+			Results:    s.loadParameters(typ.Results()),
 			IsVariadic: typ.Variadic(),
 		}
 	case *types.TypeParam:
@@ -309,7 +333,7 @@ func loadType(typ types.Type) Type {
 			Kind:    TypeKindChan,
 			String:  typ.String(),
 			ChanDir: typ.Dir(),
-			Elem:    new(loadType(typ.Elem())),
+			Elem:    new(s.loadType(typ.Elem())),
 		}
 	default:
 		return Type{
@@ -320,6 +344,10 @@ func loadType(typ types.Type) Type {
 }
 
 func loadInterfaceMethods(iface *types.Interface) map[string]Method {
+	return newTypeLoadState().loadInterfaceMethods(iface)
+}
+
+func (s *typeLoadState) loadInterfaceMethods(iface *types.Interface) map[string]Method {
 	methods := make(map[string]Method, iface.NumMethods())
 	for i := 0; i < iface.NumMethods(); i++ {
 		fn := iface.Method(i)
@@ -331,9 +359,9 @@ func loadInterfaceMethods(iface *types.Interface) map[string]Method {
 		methods[fn.Name()] = Method{
 			Name:       fn.Name(),
 			IsExported: fn.Exported(),
-			TypeParams: loadTypeParams(sig.TypeParams()),
-			Params:     loadParameters(sig.Params()),
-			Results:    loadParameters(sig.Results()),
+			TypeParams: s.loadTypeParams(sig.TypeParams()),
+			Params:     s.loadParameters(sig.Params()),
+			Results:    s.loadParameters(sig.Results()),
 			IsVariadic: sig.Variadic(),
 		}
 	}
@@ -341,26 +369,34 @@ func loadInterfaceMethods(iface *types.Interface) map[string]Method {
 }
 
 func loadParameters(tuple *types.Tuple) []Parameter {
+	return newTypeLoadState().loadParameters(tuple)
+}
+
+func (s *typeLoadState) loadParameters(tuple *types.Tuple) []Parameter {
 	if tuple == nil {
 		return nil
 	}
 
 	params := make([]Parameter, 0, tuple.Len())
 	for i := 0; i < tuple.Len(); i++ {
-		params = append(params, loadParameter(tuple.At(i)))
+		params = append(params, s.loadParameter(tuple.At(i)))
 	}
 
 	return params
 }
 
 func loadParameter(param *types.Var) Parameter {
+	return newTypeLoadState().loadParameter(param)
+}
+
+func (s *typeLoadState) loadParameter(param *types.Var) Parameter {
 	if param == nil {
 		return Parameter{}
 	}
 
 	return Parameter{
 		Name: param.Name(),
-		Type: loadType(param.Type()),
+		Type: s.loadType(param.Type()),
 	}
 }
 
@@ -375,6 +411,7 @@ func loadTypeMethods(typ types.Type) map[string]Method {
 		fn := named.Method(i)
 		sig := fn.Type().(*types.Signature)
 		methods[fn.Name()] = Method{
+			Owner:      loadNamedTypeIdentity(named),
 			Name:       fn.Name(),
 			IsExported: fn.Exported(),
 			Receiver:   new(loadParameter(sig.Recv())),
@@ -406,25 +443,33 @@ func packageErrors(pkgs []*packages.Package) error {
 }
 
 func loadStructFields(s *types.Struct) map[string]Field {
-	if s == nil {
+	return newTypeLoadState().loadStructFields(s)
+}
+
+func (s *typeLoadState) loadStructFields(strct *types.Struct) map[string]Field {
+	if strct == nil {
 		return nil
 	}
 
-	fields := make(map[string]Field, s.NumFields())
-	for i := 0; i < s.NumFields(); i++ {
-		field := s.Field(i)
+	fields := make(map[string]Field, strct.NumFields())
+	for i := 0; i < strct.NumFields(); i++ {
+		field := strct.Field(i)
 		fields[field.Name()] = Field{
 			Name:       field.Name(),
 			IsExported: field.Exported(),
 			IsEmbedded: field.Embedded(),
-			Tag:        s.Tag(i),
-			Type:       loadType(field.Type()),
+			Tag:        strct.Tag(i),
+			Type:       s.loadType(field.Type()),
 		}
 	}
 	return fields
 }
 
 func loadTypeParams(params *types.TypeParamList) []TypeParam {
+	return newTypeLoadState().loadTypeParams(params)
+}
+
+func (s *typeLoadState) loadTypeParams(params *types.TypeParamList) []TypeParam {
 	if params == nil {
 		return nil
 	}
@@ -434,7 +479,7 @@ func loadTypeParams(params *types.TypeParamList) []TypeParam {
 		param := params.At(i)
 		out = append(out, TypeParam{
 			Name:       param.Obj().Name(),
-			Constraint: loadType(param.Constraint()),
+			Constraint: s.loadType(param.Constraint()),
 		})
 	}
 
@@ -442,16 +487,41 @@ func loadTypeParams(params *types.TypeParamList) []TypeParam {
 }
 
 func loadTypeArgs(list *types.TypeList) []Type {
+	return newTypeLoadState().loadTypeArgs(list)
+}
+
+func (s *typeLoadState) loadTypeArgs(list *types.TypeList) []Type {
 	if list == nil {
 		return nil
 	}
 
 	args := make([]Type, 0, list.Len())
 	for i := 0; i < list.Len(); i++ {
-		args = append(args, loadType(list.At(i)))
+		args = append(args, s.loadType(list.At(i)))
 	}
 
 	return args
+}
+
+func (s *typeLoadState) enter(obj *types.TypeName) bool {
+	if _, ok := s.loading[obj]; ok {
+		return false
+	}
+	s.loading[obj] = struct{}{}
+	return true
+}
+
+func (s *typeLoadState) leave(obj *types.TypeName) {
+	delete(s.loading, obj)
+}
+
+func loadNamedTypeIdentity(typ *types.Named) Type {
+	return Type{
+		Kind:    TypeKindNamed,
+		Name:    typ.Obj().Name(),
+		Package: packageRefFromObject(typ.Obj()),
+		String:  typ.String(),
+	}
 }
 
 func typeAsStruct(typ types.Type) *types.Struct {

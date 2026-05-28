@@ -3,6 +3,7 @@ package spec
 import (
 	"testing"
 
+	"github.com/seeruk/morph/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -82,4 +83,45 @@ func TestCallableRef_UnmarshalText(t *testing.T) {
 			assert.Equal(t, tc.out, ref, "expected ref %q to equal %q", tc.out, ref)
 		})
 	}
+}
+
+func TestCallableRefFromMethod(t *testing.T) {
+	owner := types.Type{
+		Kind:    types.TypeKindNamed,
+		Name:    "Thing",
+		Package: types.PackageRef{ImportPath: "module.test/example"},
+	}
+	target := types.Type{
+		Kind:   types.TypeKindBasic,
+		Name:   "string",
+		String: "string",
+	}
+
+	t.Run("should return false without method owner or receiver", func(t *testing.T) {
+		ref, ok := CallableRefFromMethod(types.Method{Name: "String"})
+
+		assert.False(t, ok)
+		assert.Equal(t, CallableRef{}, ref)
+	})
+
+	t.Run("should use method owner for pointer receiver refs", func(t *testing.T) {
+		receiver := types.Type{
+			Kind: types.TypeKindPointer,
+			Elem: &owner,
+		}
+
+		ref, ok := CallableRefFromMethod(types.Method{
+			Owner:    owner,
+			Receiver: &types.Parameter{Type: receiver},
+			Name:     "String",
+			Results:  []types.Parameter{{Type: target}},
+		})
+
+		require.True(t, ok)
+		assert.Equal(t, CallableRef{
+			ImportPath: "module.test/example",
+			TypeName:   "Thing",
+			Name:       "String",
+		}, ref)
+	})
 }

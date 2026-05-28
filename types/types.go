@@ -108,6 +108,7 @@ type Field struct {
 
 // Method describes a method declared against a type.
 type Method struct {
+	Owner      Type       // The named type the method is declared on
 	Receiver   *Parameter // Can be nil, for example, for interface methods
 	Name       string
 	TypeParams []TypeParam
@@ -115,6 +116,28 @@ type Method struct {
 	Results    []Parameter
 	IsExported bool
 	IsVariadic bool
+}
+
+// OwnerType returns the named type the method is declared on.
+func (m Method) OwnerType() (Type, bool) {
+	if m.Owner.Name != "" {
+		return m.Owner, true
+	}
+
+	if m.Receiver == nil {
+		return Type{}, false
+	}
+
+	receiver := m.Receiver.Type
+	if receiver.Kind == TypeKindPointer && receiver.Elem != nil {
+		receiver = *receiver.Elem
+	}
+
+	if receiver.Kind != TypeKindNamed && receiver.Kind != TypeKindAlias {
+		return Type{}, false
+	}
+
+	return receiver, true
 }
 
 // Parameter describes a function parameter, result, or method receiver.
