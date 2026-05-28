@@ -7,14 +7,14 @@
         },
         "mappers": {
           "forward": {
-            "name": "Map\u003cSourceType\u003eTo\u003cTargetType\u003e",
+            "name": "Map{{ .Source.Type }}To{{ .Target.Type }}",
             "signature": {
               "accepts": 0,
               "returns": 1
             }
           },
           "inverse": {
-            "name": "Map\u003cTargetType\u003eTo\u003cSourceType\u003e",
+            "name": "Map{{ .Target.Type }}To{{ .Source.Type }}",
             "signature": {
               "accepts": 1,
               "returns": 0
