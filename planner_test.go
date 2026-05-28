@@ -1,6 +1,7 @@
 package morph
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -199,6 +200,75 @@ func TestSortedOutputGroups(t *testing.T) {
 	})
 }
 
+func TestPackageNameFromDir(t *testing.T) {
+	t.Run("should return false when directory does not exist", func(t *testing.T) {
+		name, ok, err := packageNameFromDir(filepath.Join(t.TempDir(), "missing"))
+
+		require.NoError(t, err)
+		assert.Empty(t, name)
+		assert.False(t, ok)
+	})
+
+	t.Run("should return false when directory has no package files", func(t *testing.T) {
+		dir := t.TempDir()
+		writePlannerTestFile(t, dir, "README.md", "# no package here\n")
+
+		name, ok, err := packageNameFromDir(dir)
+
+		require.NoError(t, err)
+		assert.Empty(t, name)
+		assert.False(t, ok)
+	})
+
+	t.Run("should ignore test package files", func(t *testing.T) {
+		dir := t.TempDir()
+		writePlannerTestFile(t, dir, "thing_test.go", "package example_test\n")
+
+		name, ok, err := packageNameFromDir(dir)
+
+		require.NoError(t, err)
+		assert.Empty(t, name)
+		assert.False(t, ok)
+	})
+
+	t.Run("should return package name from go files", func(t *testing.T) {
+		dir := t.TempDir()
+		writePlannerTestFile(t, dir, "thing.go", "package example\n")
+		writePlannerTestFile(t, dir, "other.go", "package example\n")
+
+		name, ok, err := packageNameFromDir(dir)
+
+		require.NoError(t, err)
+		assert.Equal(t, "example", name)
+		assert.True(t, ok)
+	})
+
+	t.Run("should return error for invalid go files", func(t *testing.T) {
+		dir := t.TempDir()
+		writePlannerTestFile(t, dir, "broken.go", "package \n")
+
+		name, ok, err := packageNameFromDir(dir)
+
+		require.Error(t, err)
+		assert.Empty(t, name)
+		assert.False(t, ok)
+		assert.ErrorContains(t, err, "parse package clause")
+	})
+
+	t.Run("should return error for multiple package names", func(t *testing.T) {
+		dir := t.TempDir()
+		writePlannerTestFile(t, dir, "one.go", "package one\n")
+		writePlannerTestFile(t, dir, "two.go", "package two\n")
+
+		name, ok, err := packageNameFromDir(dir)
+
+		require.Error(t, err)
+		assert.Empty(t, name)
+		assert.False(t, ok)
+		assert.ErrorContains(t, err, "multiple packages found")
+	})
+}
+
 func testOutputLocation(importPath, logicalPath string) plan.OutputLocation {
 	return plan.OutputLocation{
 		LogicalPath: logicalPath,
@@ -227,4 +297,10 @@ func testMapperSignature() spec.MapperSignature {
 		Accepts: new(spec.ParameterKindValue),
 		Returns: new(spec.ParameterKindValue),
 	}
+}
+
+func writePlannerTestFile(t *testing.T, dir, name, content string) {
+	t.Helper()
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600))
 }

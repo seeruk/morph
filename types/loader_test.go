@@ -14,339 +14,363 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewLoader_DefaultDir(t *testing.T) {
-	loader := types.NewLoader("")
+func TestNewLoader(t *testing.T) {
+	t.Run("should default empty dir to current directory", func(t *testing.T) {
+		loader := types.NewLoader("")
 
-	err := loader.Load(context.Background(), "./testdata/alpha")
+		err := loader.Load(context.Background(), "./testdata/alpha")
+		require.NoError(t, err)
 
-	require.NoError(t, err)
-	assert.Len(t, loader.Packages(), 1)
+		assert.Len(t, loader.Packages(), 1)
+	})
 }
 
-func TestLoaderLoad_LoadsPackages(t *testing.T) {
-	loader := loadFixture(t, "./alpha", "./beta")
-	pkgs := loader.Packages()
+func TestLoader_Load(t *testing.T) {
+	t.Run("should load requested packages", func(t *testing.T) {
+		loader := loadFixture(t, "./alpha", "./beta")
 
-	require.Len(t, pkgs, 2)
-	assert.ElementsMatch(t, []string{
-		"github.com/seeruk/morph/types/testdata/alpha",
-		"github.com/seeruk/morph/types/testdata/beta",
-	}, slices.Collect(maps.Keys(pkgs)))
+		pkgs := loader.Packages()
+		require.Len(t, pkgs, 2)
 
-	alpha := findPackage(t, pkgs, "github.com/seeruk/morph/types/testdata/alpha")
-	assert.Equal(t, "alpha", alpha.Name)
-	assert.NotEmpty(t, alpha.Dir)
-	assert.NotEmpty(t, alpha.Constants)
-	assert.NotEmpty(t, alpha.Functions)
-	assert.NotEmpty(t, alpha.Types)
+		assert.ElementsMatch(t, []string{
+			"github.com/seeruk/morph/types/testdata/alpha",
+			"github.com/seeruk/morph/types/testdata/beta",
+		}, slices.Collect(maps.Keys(pkgs)))
 
-	beta := findPackage(t, pkgs, "github.com/seeruk/morph/types/testdata/beta")
-	assert.Equal(t, "beta", beta.Name)
-	assert.NotEmpty(t, beta.Dir)
-	assert.NotEmpty(t, beta.Types)
-}
+		alpha := findPackage(t, pkgs, "github.com/seeruk/morph/types/testdata/alpha")
+		assert.Equal(t, "alpha", alpha.Name)
+		assert.NotEmpty(t, alpha.Dir)
+		assert.NotEmpty(t, alpha.Constants)
+		assert.NotEmpty(t, alpha.Functions)
+		assert.NotEmpty(t, alpha.Types)
 
-func TestLoaderLoad_DoesNotAllowEmptyPatterns(t *testing.T) {
-	loader := types.NewLoader("testdata")
+		beta := findPackage(t, pkgs, "github.com/seeruk/morph/types/testdata/beta")
+		assert.Equal(t, "beta", beta.Name)
+		assert.NotEmpty(t, beta.Dir)
+		assert.NotEmpty(t, beta.Types)
+	})
 
-	err := loader.Load(context.Background())
+	t.Run("should reject empty patterns", func(t *testing.T) {
+		loader := types.NewLoader("testdata")
 
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "at least one package pattern must be provided")
-}
+		err := loader.Load(context.Background())
+		require.Error(t, err)
 
-func TestLoaderLoad_ReturnsPackageErrors(t *testing.T) {
-	loader := types.NewLoader("testdata")
+		assert.ErrorContains(t, err, "at least one package pattern must be provided")
+	})
 
-	err := loader.Load(context.Background(), "./invalid")
+	t.Run("should return package errors", func(t *testing.T) {
+		loader := types.NewLoader("testdata")
 
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "types: loaded packages")
-	assert.ErrorContains(t, err, "DoesNotExist")
-}
+		err := loader.Load(context.Background(), "./invalid")
+		require.Error(t, err)
 
-func TestLoaderLoad_LoadsConstants(t *testing.T) {
-	pkg := loadAlphaPackage(t)
+		assert.ErrorContains(t, err, "types: loaded packages")
+		assert.ErrorContains(t, err, "DoesNotExist")
+	})
 
-	tests := []struct {
-		name     string
-		exported bool
-		value    string
-		typeKind types.TypeKind
-		typeName string
-	}{
-		{
-			name:     "DifficultyEasy",
-			exported: true,
-			value:    "0",
-			typeKind: types.TypeKindNamed,
-			typeName: "Difficulty",
-		},
-		{
-			name:     "difficultyMax",
-			exported: false,
-			value:    "2",
-			typeKind: types.TypeKindNamed,
-			typeName: "Difficulty",
-		},
-		{
-			name:     "Message",
-			exported: true,
-			value:    "\"hello\"",
-			typeKind: types.TypeKindBasic,
-			typeName: "untyped string",
-		},
-	}
+	t.Run("should load constants", func(t *testing.T) {
+		pkg := loadAlphaPackage(t)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			constant := findConstant(t, pkg, tt.name)
+		tests := []struct {
+			name     string
+			constant string
+			exported bool
+			value    string
+			typeKind types.TypeKind
+			typeName string
+		}{
+			{
+				name:     "should load exported typed constants",
+				constant: "DifficultyEasy",
+				exported: true,
+				value:    "0",
+				typeKind: types.TypeKindNamed,
+				typeName: "Difficulty",
+			},
+			{
+				name:     "should load unexported typed constants",
+				constant: "difficultyMax",
+				exported: false,
+				value:    "2",
+				typeKind: types.TypeKindNamed,
+				typeName: "Difficulty",
+			},
+			{
+				name:     "should load untyped constants",
+				constant: "Message",
+				exported: true,
+				value:    "\"hello\"",
+				typeKind: types.TypeKindBasic,
+				typeName: "untyped string",
+			},
+		}
 
-			assert.Equal(t, tt.name, constant.Name)
-			assert.Equal(t, tt.exported, constant.IsExported)
-			assert.Equal(t, tt.value, constant.Value)
-			assert.Equal(t, tt.typeKind, constant.Type.Kind)
-			assert.Equal(t, tt.typeName, constant.Type.Name)
-			assert.Equal(t, pkg.AsRef(), constant.Package)
-		})
-	}
-}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				constant := findConstant(t, pkg, tt.constant)
 
-func TestLoaderLoad_LoadsFunctions(t *testing.T) {
-	pkg := loadAlphaPackage(t)
+				assert.Equal(t, tt.constant, constant.Name)
+				assert.Equal(t, tt.exported, constant.IsExported)
+				assert.Equal(t, tt.value, constant.Value)
+				assert.Equal(t, tt.typeKind, constant.Type.Kind)
+				assert.Equal(t, tt.typeName, constant.Type.Name)
+				assert.Equal(t, pkg.AsRef(), constant.Package)
+			})
+		}
+	})
 
-	tests := []struct {
-		name          string
-		exported      bool
-		paramKinds    []types.TypeKind
-		resultKinds   []types.TypeKind
-		typeParamName string
-		variadic      bool
-	}{
-		{
-			name:        "Exported",
-			exported:    true,
-			paramKinds:  []types.TypeKind{types.TypeKindBasic, types.TypeKindBasic},
-			resultKinds: []types.TypeKind{types.TypeKindBasic, types.TypeKindNamed},
-		},
-		{
-			name:          "generic",
-			exported:      false,
-			paramKinds:    []types.TypeKind{types.TypeKindTypeParam},
-			resultKinds:   []types.TypeKind{types.TypeKindTypeParam},
-			typeParamName: "T",
-		},
-		{
-			name:        "Variadic",
-			exported:    true,
-			paramKinds:  []types.TypeKind{types.TypeKindBasic, types.TypeKindSlice},
-			resultKinds: []types.TypeKind{types.TypeKindSlice},
-			variadic:    true,
-		},
-	}
+	t.Run("should load functions", func(t *testing.T) {
+		pkg := loadAlphaPackage(t)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fn := findFunction(t, pkg, tt.name)
+		tests := []struct {
+			name          string
+			function      string
+			exported      bool
+			paramKinds    []types.TypeKind
+			resultKinds   []types.TypeKind
+			typeParamName string
+			variadic      bool
+		}{
+			{
+				name:        "should load exported functions",
+				function:    "Exported",
+				exported:    true,
+				paramKinds:  []types.TypeKind{types.TypeKindBasic, types.TypeKindBasic},
+				resultKinds: []types.TypeKind{types.TypeKindBasic, types.TypeKindNamed},
+			},
+			{
+				name:          "should load generic functions",
+				function:      "generic",
+				exported:      false,
+				paramKinds:    []types.TypeKind{types.TypeKindTypeParam},
+				resultKinds:   []types.TypeKind{types.TypeKindTypeParam},
+				typeParamName: "T",
+			},
+			{
+				name:        "should load variadic functions",
+				function:    "Variadic",
+				exported:    true,
+				paramKinds:  []types.TypeKind{types.TypeKindBasic, types.TypeKindSlice},
+				resultKinds: []types.TypeKind{types.TypeKindSlice},
+				variadic:    true,
+			},
+		}
 
-			assert.Equal(t, tt.name, fn.Name)
-			assert.Equal(t, tt.exported, fn.IsExported)
-			assert.Equal(t, tt.variadic, fn.IsVariadic)
-			assert.Equal(t, tt.paramKinds, parameterKinds(fn.Params))
-			assert.Equal(t, tt.resultKinds, parameterKinds(fn.Results))
-			assert.Equal(t, pkg.AsRef(), fn.Package)
-			assert.Contains(t, filepath.ToSlash(fn.SourceFile), "/types/testdata/alpha/")
-			assert.False(t, fn.IsInMorphFile)
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				fn := findFunction(t, pkg, tt.function)
 
-			if tt.typeParamName != "" {
-				require.Len(t, fn.TypeParams, 1)
-				assert.Equal(t, tt.typeParamName, fn.TypeParams[0].Name)
-				assert.Equal(t, types.TypeKindInterface, fn.TypeParams[0].Constraint.Kind)
-			}
-		})
-	}
-}
+				assert.Equal(t, tt.function, fn.Name)
+				assert.Equal(t, tt.exported, fn.IsExported)
+				assert.Equal(t, tt.variadic, fn.IsVariadic)
+				assert.Equal(t, tt.paramKinds, parameterKinds(fn.Params))
+				assert.Equal(t, tt.resultKinds, parameterKinds(fn.Results))
+				assert.Equal(t, pkg.AsRef(), fn.Package)
+				assert.Contains(t, filepath.ToSlash(fn.SourceFile), "/types/testdata/alpha/")
+				assert.False(t, fn.IsInMorphFile)
 
-func TestLoaderLoad_LoadsTypes(t *testing.T) {
-	pkg := loadAlphaPackage(t)
+				if tt.typeParamName != "" {
+					require.Len(t, fn.TypeParams, 1)
+					assert.Equal(t, tt.typeParamName, fn.TypeParams[0].Name)
+					assert.Equal(t, types.TypeKindInterface, fn.TypeParams[0].Constraint.Kind)
+				}
+			})
+		}
+	})
 
-	tests := []struct {
-		name           string
-		alias          bool
-		typeKind       types.TypeKind
-		underlyingKind types.TypeKind
-		elemKind       types.TypeKind
-		typeParamName  string
-	}{
-		{
-			name:           "Difficulty",
-			typeKind:       types.TypeKindNamed,
-			underlyingKind: types.TypeKindBasic,
-			elemKind:       types.TypeKindBasic,
-		},
-		{
-			name:           "ID",
-			alias:          true,
-			typeKind:       types.TypeKindAlias,
-			underlyingKind: types.TypeKindBasic,
-			elemKind:       types.TypeKindBasic,
-		},
-		{
-			name:           "Pair",
-			typeKind:       types.TypeKindNamed,
-			underlyingKind: types.TypeKindStruct,
-			elemKind:       types.TypeKindStruct,
-			typeParamName:  "T",
-		},
-		{
-			name:           "Reader",
-			typeKind:       types.TypeKindNamed,
-			underlyingKind: types.TypeKindInterface,
-			elemKind:       types.TypeKindInterface,
-		},
-		{
-			name:           "FuncType",
-			typeKind:       types.TypeKindNamed,
-			underlyingKind: types.TypeKindSignature,
-			elemKind:       types.TypeKindSignature,
-		},
-		{
-			name:           "Complex",
-			typeKind:       types.TypeKindNamed,
-			underlyingKind: types.TypeKindStruct,
-			elemKind:       types.TypeKindStruct,
-		},
-	}
+	t.Run("should load type declarations", func(t *testing.T) {
+		pkg := loadAlphaPackage(t)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			decl := findType(t, pkg, tt.name)
+		tests := []struct {
+			name           string
+			typ            string
+			alias          bool
+			typeKind       types.TypeKind
+			underlyingKind types.TypeKind
+			elemKind       types.TypeKind
+			typeParamName  string
+		}{
+			{
+				name:           "should load named enum types",
+				typ:            "Difficulty",
+				typeKind:       types.TypeKindNamed,
+				underlyingKind: types.TypeKindBasic,
+				elemKind:       types.TypeKindBasic,
+			},
+			{
+				name:           "should load alias types",
+				typ:            "ID",
+				alias:          true,
+				typeKind:       types.TypeKindAlias,
+				underlyingKind: types.TypeKindBasic,
+				elemKind:       types.TypeKindBasic,
+			},
+			{
+				name:           "should load generic struct types",
+				typ:            "Pair",
+				typeKind:       types.TypeKindNamed,
+				underlyingKind: types.TypeKindStruct,
+				elemKind:       types.TypeKindStruct,
+				typeParamName:  "T",
+			},
+			{
+				name:           "should load interface types",
+				typ:            "Reader",
+				typeKind:       types.TypeKindNamed,
+				underlyingKind: types.TypeKindInterface,
+				elemKind:       types.TypeKindInterface,
+			},
+			{
+				name:           "should load function types",
+				typ:            "FuncType",
+				typeKind:       types.TypeKindNamed,
+				underlyingKind: types.TypeKindSignature,
+				elemKind:       types.TypeKindSignature,
+			},
+			{
+				name:           "should load complex struct types",
+				typ:            "Complex",
+				typeKind:       types.TypeKindNamed,
+				underlyingKind: types.TypeKindStruct,
+				elemKind:       types.TypeKindStruct,
+			},
+		}
 
-			assert.Equal(t, tt.alias, decl.IsAlias)
-			assert.Equal(t, tt.typeKind, decl.Type.Kind)
-			assert.Equal(t, tt.underlyingKind, decl.Underlying.Kind)
-			assert.Equal(t, tt.name, decl.Type.Name)
-			assert.Equal(t, pkg.AsRef(), decl.Package)
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				decl := findType(t, pkg, tt.typ)
 
-			require.NotNil(t, decl.Type.Elem)
-			assert.Equal(t, tt.elemKind, decl.Type.Elem.Kind)
+				assert.Equal(t, tt.alias, decl.IsAlias)
+				assert.Equal(t, tt.typeKind, decl.Type.Kind)
+				assert.Equal(t, tt.underlyingKind, decl.Underlying.Kind)
+				assert.Equal(t, tt.typ, decl.Type.Name)
+				assert.Equal(t, pkg.AsRef(), decl.Package)
 
-			if tt.typeParamName != "" {
-				require.Len(t, decl.Type.TypeParams, 1)
-				assert.Equal(t, tt.typeParamName, decl.Type.TypeParams[0].Name)
-			}
-		})
-	}
+				require.NotNil(t, decl.Type.Elem)
+				assert.Equal(t, tt.elemKind, decl.Type.Elem.Kind)
+
+				if tt.typeParamName != "" {
+					require.Len(t, decl.Type.TypeParams, 1)
+					assert.Equal(t, tt.typeParamName, decl.Type.TypeParams[0].Name)
+				}
+			})
+		}
+	})
 
 	t.Run("should attach constants to named type declarations", func(t *testing.T) {
+		pkg := loadAlphaPackage(t)
+
 		difficulty := findType(t, pkg, "Difficulty")
+
 		assert.ElementsMatch(t, []string{
 			"DifficultyEasy",
 			"DifficultyHard",
 			"difficultyMax",
 		}, slices.Collect(maps.Keys(difficulty.Constants)))
 	})
-}
 
-func TestLoaderLoad_LoadsStructFieldsAndMethods(t *testing.T) {
-	pkg := loadAlphaPackage(t)
-	pair := findType(t, pkg, "Pair")
+	t.Run("should load struct fields and methods", func(t *testing.T) {
+		pkg := loadAlphaPackage(t)
+		pair := findType(t, pkg, "Pair")
 
-	require.Len(t, pair.Fields, 3)
-	embedded := findField(t, pair, "Embedded")
-	assert.Equal(t, "Embedded", embedded.Name)
-	assert.True(t, embedded.IsEmbedded)
-	assert.Equal(t, types.TypeKindPointer, embedded.Type.Kind)
-	require.NotNil(t, embedded.Type.Elem)
-	assert.Equal(t, "Embedded", embedded.Type.Elem.Name)
+		require.Len(t, pair.Fields, 3)
+		embedded := findField(t, pair, "Embedded")
+		assert.Equal(t, "Embedded", embedded.Name)
+		assert.True(t, embedded.IsEmbedded)
+		assert.Equal(t, types.TypeKindPointer, embedded.Type.Kind)
+		require.NotNil(t, embedded.Type.Elem)
+		assert.Equal(t, "Embedded", embedded.Type.Elem.Name)
 
-	source := findField(t, pair, "Source")
-	assert.Equal(t, "Source", source.Name)
-	assert.True(t, source.IsExported)
-	assert.False(t, source.IsEmbedded)
-	assert.Equal(t, `json:"source"`, source.Tag)
-	assert.Equal(t, types.TypeKindTypeParam, source.Type.Kind)
+		source := findField(t, pair, "Source")
+		assert.Equal(t, "Source", source.Name)
+		assert.True(t, source.IsExported)
+		assert.False(t, source.IsEmbedded)
+		assert.Equal(t, `json:"source"`, source.Tag)
+		assert.Equal(t, types.TypeKindTypeParam, source.Type.Kind)
 
-	require.Len(t, pair.Methods, 2)
-	assert.ElementsMatch(t, []string{"Invert", "Set"}, slices.Collect(maps.Keys(pair.Methods)))
+		require.Len(t, pair.Methods, 2)
+		assert.ElementsMatch(t, []string{"Invert", "Set"}, slices.Collect(maps.Keys(pair.Methods)))
 
-	invert := findMethod(t, pair, "Invert")
-	assert.True(t, invert.IsExported)
-	require.NotNil(t, invert.Receiver)
-	assert.Equal(t, types.TypeKindNamed, invert.Receiver.Type.Kind)
-	assert.Empty(t, invert.Params)
-	assert.Equal(t, []types.TypeKind{types.TypeKindNamed}, parameterKinds(invert.Results))
+		invert := findMethod(t, pair, "Invert")
+		assert.True(t, invert.IsExported)
+		require.NotNil(t, invert.Receiver)
+		assert.Equal(t, types.TypeKindNamed, invert.Receiver.Type.Kind)
+		assert.Empty(t, invert.Params)
+		assert.Equal(t, []types.TypeKind{types.TypeKindNamed}, parameterKinds(invert.Results))
 
-	set := findMethod(t, pair, "Set")
-	assert.True(t, set.IsExported)
-	require.NotNil(t, set.Receiver)
-	assert.Equal(t, types.TypeKindPointer, set.Receiver.Type.Kind)
-	assert.Equal(t, []types.TypeKind{types.TypeKindTypeParam, types.TypeKindTypeParam}, parameterKinds(set.Params))
-	assert.Empty(t, set.Results)
-}
+		set := findMethod(t, pair, "Set")
+		assert.True(t, set.IsExported)
+		require.NotNil(t, set.Receiver)
+		assert.Equal(t, types.TypeKindPointer, set.Receiver.Type.Kind)
+		assert.Equal(t, []types.TypeKind{types.TypeKindTypeParam, types.TypeKindTypeParam}, parameterKinds(set.Params))
+		assert.Empty(t, set.Results)
+	})
 
-func TestLoaderLoad_LoadsCompositeTypeShapes(t *testing.T) {
-	pkg := loadAlphaPackage(t)
-	complexType := findType(t, pkg, "Complex")
+	t.Run("should load composite type shapes", func(t *testing.T) {
+		pkg := loadAlphaPackage(t)
+		complexType := findType(t, pkg, "Complex")
 
-	tests := []struct {
-		name      string
-		kind      types.TypeKind
-		elemKind  types.TypeKind
-		keyKind   types.TypeKind
-		valueKind types.TypeKind
-		arrayLen  int64
-		chanDir   gotypes.ChanDir
-	}{
-		{name: "Ptr", kind: types.TypeKindPointer, elemKind: types.TypeKindNamed},
-		{name: "Slice", kind: types.TypeKindSlice, elemKind: types.TypeKindBasic},
-		{name: "Array", kind: types.TypeKindArray, elemKind: types.TypeKindBasic, arrayLen: 2},
-		{name: "Map", kind: types.TypeKindMap, keyKind: types.TypeKindBasic, valueKind: types.TypeKindNamed},
-		{name: "SendOnly", kind: types.TypeKindChan, elemKind: types.TypeKindBasic, chanDir: gotypes.SendOnly},
-		{name: "RecvOnly", kind: types.TypeKindChan, elemKind: types.TypeKindBasic, chanDir: gotypes.RecvOnly},
-		{name: "Both", kind: types.TypeKindChan, elemKind: types.TypeKindBasic, chanDir: gotypes.SendRecv},
-		{name: "Reader", kind: types.TypeKindNamed, elemKind: types.TypeKindInterface},
-		{name: "Handler", kind: types.TypeKindNamed, elemKind: types.TypeKindSignature},
-	}
+		tests := []struct {
+			name      string
+			field     string
+			kind      types.TypeKind
+			elemKind  types.TypeKind
+			keyKind   types.TypeKind
+			valueKind types.TypeKind
+			arrayLen  int64
+			chanDir   gotypes.ChanDir
+		}{
+			{name: "should load pointer fields", field: "Ptr", kind: types.TypeKindPointer, elemKind: types.TypeKindNamed},
+			{name: "should load slice fields", field: "Slice", kind: types.TypeKindSlice, elemKind: types.TypeKindBasic},
+			{name: "should load array fields", field: "Array", kind: types.TypeKindArray, elemKind: types.TypeKindBasic, arrayLen: 2},
+			{name: "should load map fields", field: "Map", kind: types.TypeKindMap, keyKind: types.TypeKindBasic, valueKind: types.TypeKindNamed},
+			{name: "should load send-only channel fields", field: "SendOnly", kind: types.TypeKindChan, elemKind: types.TypeKindBasic, chanDir: gotypes.SendOnly},
+			{name: "should load receive-only channel fields", field: "RecvOnly", kind: types.TypeKindChan, elemKind: types.TypeKindBasic, chanDir: gotypes.RecvOnly},
+			{name: "should load bidirectional channel fields", field: "Both", kind: types.TypeKindChan, elemKind: types.TypeKindBasic, chanDir: gotypes.SendRecv},
+			{name: "should load named interface fields", field: "Reader", kind: types.TypeKindNamed, elemKind: types.TypeKindInterface},
+			{name: "should load named function fields", field: "Handler", kind: types.TypeKindNamed, elemKind: types.TypeKindSignature},
+		}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			field := findField(t, complexType, tt.name)
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				field := findField(t, complexType, tt.field)
 
-			assert.Equal(t, tt.kind, field.Type.Kind)
-			if tt.arrayLen != 0 {
-				assert.Equal(t, tt.arrayLen, field.Type.Len)
-			}
-			if tt.chanDir != 0 {
-				assert.Equal(t, tt.chanDir, field.Type.ChanDir)
-			}
-			if tt.elemKind != "" {
-				require.NotNil(t, field.Type.Elem)
-				assert.Equal(t, tt.elemKind, field.Type.Elem.Kind)
-			}
-			if tt.keyKind != "" {
-				require.NotNil(t, field.Type.Key)
-				assert.Equal(t, tt.keyKind, field.Type.Key.Kind)
-			}
-			if tt.valueKind != "" {
-				require.NotNil(t, field.Type.Value)
-				assert.Equal(t, tt.valueKind, field.Type.Value.Kind)
-			}
-		})
-	}
-}
+				assert.Equal(t, tt.kind, field.Type.Kind)
+				if tt.arrayLen != 0 {
+					assert.Equal(t, tt.arrayLen, field.Type.Len)
+				}
+				if tt.chanDir != 0 {
+					assert.Equal(t, tt.chanDir, field.Type.ChanDir)
+				}
+				if tt.elemKind != "" {
+					require.NotNil(t, field.Type.Elem)
+					assert.Equal(t, tt.elemKind, field.Type.Elem.Kind)
+				}
+				if tt.keyKind != "" {
+					require.NotNil(t, field.Type.Key)
+					assert.Equal(t, tt.keyKind, field.Type.Key.Kind)
+				}
+				if tt.valueKind != "" {
+					require.NotNil(t, field.Type.Value)
+					assert.Equal(t, tt.valueKind, field.Type.Value.Kind)
+				}
+			})
+		}
+	})
 
-func TestLoaderLoad_MarksMorphGeneratedFunctions(t *testing.T) {
-	pkg := loadAlphaPackage(t)
+	t.Run("should mark Morph generated functions", func(t *testing.T) {
+		pkg := loadAlphaPackage(t)
 
-	generated := findFunction(t, pkg, "GeneratedMapper")
-	normal := findFunction(t, pkg, "Exported")
+		generated := findFunction(t, pkg, "GeneratedMapper")
+		normal := findFunction(t, pkg, "Exported")
 
-	assert.True(t, generated.IsInMorphFile)
-	assert.Contains(t, filepath.Base(generated.SourceFile), "generated_morph.go")
+		assert.True(t, generated.IsInMorphFile)
+		assert.Contains(t, filepath.Base(generated.SourceFile), "generated_morph.go")
 
-	assert.False(t, normal.IsInMorphFile)
-	assert.Contains(t, filepath.Base(normal.SourceFile), "alpha.go")
+		assert.False(t, normal.IsInMorphFile)
+		assert.Contains(t, filepath.Base(normal.SourceFile), "alpha.go")
+	})
 }
 
 func loadFixture(t *testing.T, patterns ...string) *types.Loader {
