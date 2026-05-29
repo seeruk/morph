@@ -2,9 +2,11 @@ package morph
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/seeruk/morph/plan"
+	"github.com/seeruk/morph/spec"
 	"github.com/seeruk/morph/types"
 )
 
@@ -73,6 +75,10 @@ func (p *Planner) planValue(sourceType, targetType types.Type, path string) plan
 
 	if sourceType.Kind == types.TypeKindPointer || targetType.Kind == types.TypeKindPointer {
 		return p.planPointerMapping(sourceType, targetType, path)
+	}
+
+	if callable, ok := p.discoverValidMethodCallable(sourceType, targetType); ok {
+		fmt.Println(callable.Name)
 	}
 
 	// TODO: Method conversion
@@ -155,6 +161,82 @@ func (p *Planner) planPointerMapping(source, target types.Type, path string) pla
 		CanError:      elem.CanError,
 		Diagnostics:   elem.Diagnostics,
 	}
+}
+
+func (p *Planner) discoverValidMethodCallable(sourceType, targetType types.Type) (plan.CallableRef, bool) {
+	methodTypeDecl, methodType, ok := p.methodTypeDecl(sourceType)
+	if !ok {
+		return plan.CallableRef{}, false
+	}
+
+	var fallback plan.CallableRef
+	var fallbackOK bool
+	for _, method := range methodTypeDecl.Methods {
+		if !method.IsExported {
+			continue
+		}
+
+		callable, ok := callableFromMethod(method, plan.CallableSourceDiscovered)
+		if !ok {
+			continue
+		}
+
+		// TODO: This doesn't work, because if methods have generic type params on the receiver, it
+		//  may not match the concrete type of the target (e.g. Optional[T] != Optional[string]).
+		//  These methods may still be compatible, but we need to know that `T` in that instance is
+		//  set on the overall type to the same thing as the type we're trying to map to (either
+		//  both are T, for example, or T is set to string on the method type's parent field so it's
+		//  the same as the target.
+		if callable.TargetType != plan.TypeRefFromType(targetType) {
+			key := plan.TypeKey(targetType)
+			fmt.Println(key)
+			continue
+		}
+
+		specCallable := spec.CallableRef{
+			ImportPath: callable.Package.ImportPath,
+			TypeName:   callable.SourceType.Name,
+			Name:       callable.Name,
+		}
+
+		// Skip explicitly excluded methods from this form of discovery.
+		if slices.Contains(p.spec.Discovery.Exclusions, specCallable) {
+			continue
+		}
+
+		// TODO: How do we check if it's an exact match?
+
+		if !fallbackOK && isCompatibleMethodReceiver(methodType, method.Receiver.Type) {
+			fallback = callable
+			fallbackOK = true
+		}
+	}
+
+	return fallback, fallbackOK
+}
+
+// methodTypeDecl attempts to unwrap a types.Type to the underlying named type (unaliased, not a \
+// pointer).
+func (p *Planner) methodTypeDecl(typ types.Type) (types.TypeDecl, types.Type, bool) {
+	typ = types.Unwrap(typ)
+	if typ.Kind != types.TypeKindNamed {
+		return types.TypeDecl{}, types.Type{}, false
+	}
+	// Find the underlying named type in the type loader, and we'll grab the declaration and type.
+	for importPath, pkg := range p.loader.Packages() {
+		if importPath != typ.Package.ImportPath {
+			continue
+		}
+		if methodType, ok := pkg.Types[typ.Name]; ok {
+			return methodType, typ, true
+		}
+	}
+	return types.TypeDecl{}, types.Type{}, false
+}
+
+func isCompatibleMethodReceiver(sourceType, receiverType types.Type) bool {
+	receiverType = types.UnwrapAlias(receiverType)
+	return false
 }
 
 // isStructType returns true if the given type declaration looks like a struct type, i.e. its
