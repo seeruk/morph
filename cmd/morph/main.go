@@ -27,5 +27,9 @@ func main() {
 		panic(err)
 	}
 
+	for _, diagnostic := range plan.Diagnostics {
+		fmt.Println(diagnostic)
+	}
+
 	spew.Dump(plan)
 }

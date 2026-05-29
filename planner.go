@@ -54,6 +54,8 @@ type Planner struct {
 	// As shallow plans are made, they'll be added to this map.
 	// As these mappings are fully planned, they will be removed from this map.
 	shallowMappings map[string]struct{}
+
+	diagnostics []plan.Diagnostic
 }
 
 // NewPlanner returns a new Planner, set to plan the given Spec.
@@ -104,6 +106,8 @@ func (p *Planner) Plan() (Plan, error) {
 	for _, og := range out.OutputGroups {
 		p.planOutputGroup(og)
 	}
+
+	out.Diagnostics = p.diagnostics
 
 	return out, nil
 }
@@ -602,7 +606,7 @@ func (p *Planner) planOutputGroup(outputGroup plan.OutputGroup) {
 
 func (p *Planner) planType(typ *plan.Type) {
 	key := plan.TypeMapperKey(typ.Source, typ.Target, typ.Signature)
-	if _, isShallow := p.plannedOutputFiles[key]; !isShallow {
+	if _, isShallow := p.shallowMappings[key]; !isShallow {
 		// This one is already done.
 		return
 	}

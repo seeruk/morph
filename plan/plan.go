@@ -1,6 +1,8 @@
 package plan
 
 import (
+	"fmt"
+
 	"github.com/seeruk/morph/spec"
 	"github.com/seeruk/morph/types"
 )
@@ -38,70 +40,102 @@ type Type struct {
 	EnumSpec   spec.Enum
 	StructSpec spec.Struct
 	// Plan
-	Enum       *EnumPlan
-	StructPlan *StructPlan
+	Enum       *Enum
+	StructPlan *Struct
 	// Debugging information
 	Diagnostics []Diagnostic
 }
 
-type EnumPlan struct {
+type Enum struct {
 	FailureMode spec.EnumFailureMode
-	Values      []EnumValuePlan
+	Values      []EnumValue
 }
 
-// EnumValuePlan describes the plan for mapping a single enum value.
-type EnumValuePlan struct {
+// EnumValue describes the plan for mapping a single enum value.
+type EnumValue struct {
 	Source types.ConstantDecl
 	Target types.ConstantDecl
 }
 
-type StructPlan struct {
-	Fields []FieldPlan
+type Struct struct {
+	Fields []Field
 }
 
-type FieldPlan struct {
+type Field struct {
 	SourceField types.Field
 	TargetField types.Field
-	Mapping     ValuePlan
+	Mapping     Value
 }
 
-// ValuePlan describes how to map one value to another. Compound mappings point to child mappings
-// for elements, keys, or values (i.e. for nested types).
-type ValuePlan struct {
-	Kind          OperationKind
+// Value describes how to map one value to another. Compound mappings point to child mappings for
+// elements, keys, or values (i.e. for nested types).
+type Value struct {
+	Operation     Operation
 	Source        types.Type
 	Target        types.Type
 	Callable      *CallableRef
 	Plan          *Type
-	Elem          *ValuePlan
-	Key           *ValuePlan
-	Value         *ValuePlan
+	Elem          *Value
+	Key           *Value
+	Value         *Value
 	SourcePointer bool
 	TargetPointer bool
 	CanError      bool
 	Diagnostics   []Diagnostic
 }
 
-// OperationKind describes the operation used for a mapping node.
-type OperationKind string
+// Operation describes the operation used for a mapping node.
+type Operation string
 
 const (
-	OperationUnsupported OperationKind = "unsupported"
-	OperationAssign      OperationKind = "assign"
-	OperationConversion  OperationKind = "conversion"
-	OperationMethod      OperationKind = "method"
-	OperationConvert     OperationKind = "convert"
-	OperationStruct      OperationKind = "struct"
-	OperationEnum        OperationKind = "enum"
-	OperationPointer     OperationKind = "pointer"
-	OperationSlice       OperationKind = "slice"
-	OperationArray       OperationKind = "array"
-	OperationMap         OperationKind = "map"
+	OperationUnsupported Operation = "unsupported"
+	OperationAssign      Operation = "assign"
+	OperationFunction    Operation = "function"
+	OperationMethod      Operation = "method"
+	OperationConvert     Operation = "convert"
+	OperationStruct      Operation = "struct"
+	OperationEnum        Operation = "enum"
+	OperationPointer     Operation = "pointer"
+	OperationSlice       Operation = "slice"
+	OperationArray       Operation = "array"
+	OperationMap         Operation = "map"
 )
 
 // Diagnostic is a generalized type used for presenting helpful messages to Morph consumers to help
 // them find and fix issues found during planning.
 type Diagnostic struct {
+	Level   DiagnosticLevel
 	Path    string
 	Message string
+}
+
+// String returns this Diagnostic as a string.
+func (d Diagnostic) String() string {
+	if d.Path == "" {
+		return fmt.Sprintf("%s: %s", d.Level, d.Message)
+	}
+	return fmt.Sprintf("%s: %s: %s", d.Level, d.Path, d.Message)
+}
+
+// DiagnosticLevel enumerates the possible levels of diagnostics, which can be used to determine
+// whether a plan failed.
+type DiagnosticLevel uint
+
+const (
+	DiagnosticLevelFatal DiagnosticLevel = iota
+	DiagnosticLevelWarning
+	diagnosticLevelMax
+)
+
+var diagnosticLevelNames = map[DiagnosticLevel]string{
+	DiagnosticLevelFatal:   "fatal",
+	DiagnosticLevelWarning: "warning",
+}
+
+// String returns this DiagnosticLevel as a string.
+func (d DiagnosticLevel) String() string {
+	if s, ok := diagnosticLevelNames[d]; ok {
+		return s
+	}
+	return "unknown"
 }
