@@ -66,6 +66,7 @@ func NewPlanner(specification Spec, workingDir string) *Planner {
 		mappings:           make(map[string]*plan.Type),
 		plannedFunctions:   make(map[spec.CallableRef]string),
 		plannedOutputFiles: make(map[string]struct{}),
+		shallowMappings:    make(map[string]struct{}),
 	}
 }
 
@@ -439,8 +440,14 @@ func (p *Planner) shallowRootPlan(
 		return nil, fmt.Errorf("failed to determine mapper name: %w", err)
 	}
 
-	if typeSpec.Enum == nil || typeSpec.Struct == nil {
+	if typeSpec.Enum == nil {
 		return nil, errors.New("expected type spec to at least have defaults applied")
+	}
+
+	// The struct spec can be nil, because there are no defaults for it
+	var structSpec spec.Struct
+	if typeSpec.Struct != nil {
+		structSpec = *typeSpec.Struct
 	}
 
 	return &plan.Type{
@@ -456,7 +463,7 @@ func (p *Planner) shallowRootPlan(
 		// We store these in the plan, because we've already done the work assigning defaults and
 		// resolving presets by this point, but we need to use that later.
 		EnumSpec:   *typeSpec.Enum,
-		StructSpec: *typeSpec.Struct,
+		StructSpec: structSpec,
 	}, nil
 }
 
