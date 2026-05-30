@@ -197,11 +197,7 @@ func (p *Planner) discoverValidMethodCallable(sourceType, targetType types.Type)
 		candidates[callable] = compatibility
 	}
 
-	for callable := range candidates {
-		return callable, true
-	}
-
-	return plan.CallableRef{}, false
+	return bestMethodCandidate(candidates)
 }
 
 // methodTypeDecl attempts to unwrap a types.Type to the underlying named type (unaliased, not a \
@@ -243,11 +239,13 @@ func (c methodCompatibility) Compatible() bool {
 // receiver and the source type Morph is trying to map from.
 type methodReceiverCompatibility uint
 
+// Possible methodReceiverCompatibility values. These are ordered in priority order.
 const (
 	methodReceiverIncompatible methodReceiverCompatibility = iota
 	methodReceiverExact
 	methodReceiverAutoAddress // source T, receiver *T
 	methodReceiverAutoDeref   // source *T, receiver T
+	methodReceiverMax
 )
 
 func (c methodReceiverCompatibility) Compatible() bool {
@@ -258,10 +256,12 @@ func (c methodReceiverCompatibility) Compatible() bool {
 // result and the target type Morph is trying to map to.
 type methodResultCompatibility uint
 
+// Possible methodResultCompatibility values. These are ordered in priority order.
 const (
 	methodResultIncompatible methodResultCompatibility = iota
 	methodResultExact
 	methodResultGeneric // e.g. receiver binds T=string, result T matches target string
+	methodResultMax
 )
 
 func (c methodResultCompatibility) Compatible() bool {
@@ -423,6 +423,69 @@ func substituteTypeParams(typ types.Type, bindings map[string]types.Type) types.
 	}
 
 	return typ
+}
+
+func bestMethodCandidate(candidates map[plan.CallableRef]methodCompatibility) (plan.CallableRef, bool) {
+	var best plan.CallableRef
+	var bestRank int
+	var found bool
+
+	for callable, compatibility := range candidates {
+		rank, ok := methodCompatibilityRank(compatibility)
+		if !ok {
+			continue
+		}
+
+		// Lower rank is better, and callableLess is used to tie-break
+		if !found || rank < bestRank || rank == bestRank && callableLess(best, callable) {
+			best = callable
+			bestRank = rank
+			found = true
+		}
+	}
+
+	return best, found
+}
+
+const (
+	methodReceiverRankCount = int(methodReceiverMax - 1)
+	methodErrorRankCount    = 2
+)
+
+// methodCompatibilityRank calculates a rank used to prioritize which method to select when multiple
+// candidate methods are available for discovery. Exact result matches are preferred, within which
+// methods that don't error are preferred, within which methods that have greater receiver
+// compatibility are preferred. The lower the returned rank, the better.
+func methodCompatibilityRank(c methodCompatibility) (int, bool) {
+	if !c.Compatible() {
+		return 0, false
+	}
+
+	resultRank := int(c.Result) - 1
+	receiverRank := int(c.Receiver) - 1
+
+	errorRank := 0
+	if c.ReturnsError {
+		errorRank = 1
+	}
+
+	rank := (resultRank * methodErrorRankCount * methodReceiverRankCount) +
+		(errorRank * methodReceiverRankCount) +
+		receiverRank
+
+	return rank, true
+}
+
+// callableLess is used to compare two plan.CallableRef so Morph can produce stable discovery
+// results given the same input.
+func callableLess(a, b plan.CallableRef) bool {
+	if a.Package.ImportPath != b.Package.ImportPath {
+		return a.Package.ImportPath < b.Package.ImportPath
+	}
+	if a.SourceType.Key != b.SourceType.Key {
+		return a.SourceType.Key < b.SourceType.Key
+	}
+	return a.Name < b.Name
 }
 
 // pointerElem unwraps aliased types, and returns the type and whether it's a pointer.
