@@ -169,8 +169,7 @@ func (p *Planner) discoverValidMethodCallable(sourceType, targetType types.Type)
 		return plan.CallableRef{}, false
 	}
 
-	var bestMatch plan.CallableRef
-	var foundMatch bool
+	candidates := make(map[plan.CallableRef]methodCompatibility)
 	for _, method := range methodTypeDecl.Methods {
 		callable, ok := callableFromMethod(method, plan.CallableSourceDiscovered)
 		if !ok {
@@ -190,16 +189,19 @@ func (p *Planner) discoverValidMethodCallable(sourceType, targetType types.Type)
 
 		// Check if the method is compatible for this pair of types, this includes checking if
 		// methods with generic type parameters are compatible too.
-		if !assessMethodCompatibility(sourceType, targetType, method, callable) {
+		compatibility := assessMethodCompatibility(sourceType, targetType, method)
+		if !compatibility.Compatible() {
 			continue
 		}
 
-		// TODO: Prioritisation...
-		bestMatch = callable
-		foundMatch = true
+		candidates[callable] = compatibility
 	}
 
-	return bestMatch, foundMatch
+	for callable := range candidates {
+		return callable, true
+	}
+
+	return plan.CallableRef{}, false
 }
 
 // methodTypeDecl attempts to unwrap a types.Type to the underlying named type (unaliased, not a \
@@ -269,7 +271,6 @@ func (c methodResultCompatibility) Compatible() bool {
 func assessMethodCompatibility(
 	sourceType, targetType types.Type,
 	method types.Method,
-	callable plan.CallableRef,
 ) methodCompatibility {
 	if !method.IsExported {
 		return methodCompatibility{} // Zero is incompatible.
@@ -278,24 +279,24 @@ func assessMethodCompatibility(
 	// At this point, we already know this is a method on the source type, so we don't need to check
 	// anything like that. So we can start with a very basic check; is the target type the same as
 	// the first result of the method?
-	if _, ok := callableResults(method.Results); !ok {
+	returnsError, ok := callableResults(method.Results)
+	if !ok {
 		return methodCompatibility{}
 	}
 
-	receiverCompat := assessMethodReceiverCompatibility(sourceType, method)
-	if !receiverCompat.Compatible() {
+	receiver := assessMethodReceiverCompatibility(sourceType, method)
+	if !receiver.Compatible() {
 		return methodCompatibility{}
 	}
 
-	// If the result is the same, then we have a compatible method!
-	if sameType(targetType, method.Results[0].Type) {
-		return methodCompatibility{
-			Result:       methodResultExact,
-			ReturnsError: callable.ReturnsError,
-		}
-	}
+	result, bindings := assessMethodResultCompatibility(sourceType, targetType, method)
 
-	return methodCompatibility{}
+	return methodCompatibility{
+		Receiver:     receiver,
+		Result:       result,
+		ReturnsError: returnsError,
+		TypeBindings: bindings,
+	}
 }
 
 func assessMethodReceiverCompatibility(sourceType types.Type, method types.Method) methodReceiverCompatibility {
@@ -322,6 +323,106 @@ func assessMethodReceiverCompatibility(sourceType types.Type, method types.Metho
 	}
 
 	return methodReceiverIncompatible
+}
+
+func assessMethodResultCompatibility(
+	sourceType, targetType types.Type,
+	method types.Method,
+) (methodResultCompatibility, map[string]types.Type) {
+	resultType := method.Results[0].Type
+
+	if sameType(targetType, resultType) {
+		return methodResultExact, nil
+	}
+
+	bindings, ok := receiverTypeBindings(sourceType, method)
+	if !ok || len(bindings) == 0 {
+		return methodResultIncompatible, nil
+	}
+
+	resultType = substituteTypeParams(resultType, bindings)
+	if sameType(targetType, resultType) {
+		return methodResultGeneric, bindings
+	}
+
+	return methodResultIncompatible, nil
+}
+
+// receiverTypeBindings returns a mapping of generic type parameter (name, e.g. `T`) to the actual
+// type that the source field had there. For example, if a source field is an `Optional[string]`,
+// the receiver will be `Optional[T]`, so this would return `T` -> `string`. Of course, generic
+// types can have multiple type parameters, hence returning a map.
+func receiverTypeBindings(sourceType types.Type, method types.Method) (map[string]types.Type, bool) {
+	if method.Receiver == nil {
+		return nil, false
+	}
+
+	sourceType = types.Unwrap(sourceType)
+	receiverType := types.Unwrap(method.Receiver.Type)
+
+	if sourceType.Kind != receiverType.Kind ||
+		sourceType.Name != receiverType.Name ||
+		sourceType.Package.ImportPath != receiverType.Package.ImportPath ||
+		len(sourceType.TypeArgs) != len(receiverType.TypeArgs) {
+		return nil, false
+	}
+
+	bindings := make(map[string]types.Type)
+
+	for i, receiverArg := range receiverType.TypeArgs {
+		receiverArg = types.UnwrapAlias(receiverArg)
+
+		if receiverArg.Kind != types.TypeKindTypeParam {
+			if !sameType(receiverArg, sourceType.TypeArgs[i]) {
+				return nil, false
+			}
+			continue
+		}
+
+		bindings[receiverArg.Name] = sourceType.TypeArgs[i]
+	}
+
+	return bindings, true
+}
+
+// substituteTypeParams walks a type, substituting generic type parameters with the provided types
+// which are bound for this field.
+func substituteTypeParams(typ types.Type, bindings map[string]types.Type) types.Type {
+	typ = types.UnwrapAlias(typ)
+
+	if typ.Kind == types.TypeKindTypeParam {
+		if bound, ok := bindings[typ.Name]; ok {
+			return bound
+		}
+		return typ
+	}
+
+	if typ.Elem != nil {
+		elem := substituteTypeParams(*typ.Elem, bindings)
+		typ.Elem = &elem
+		typ.String = ""
+	}
+
+	if typ.Key != nil {
+		key := substituteTypeParams(*typ.Key, bindings)
+		typ.Key = &key
+		typ.String = ""
+	}
+
+	if typ.Value != nil {
+		value := substituteTypeParams(*typ.Value, bindings)
+		typ.Value = &value
+		typ.String = ""
+	}
+
+	if len(typ.TypeArgs) > 0 {
+		typ.TypeArgs = slices.Clone(typ.TypeArgs)
+		for i := range typ.TypeArgs {
+			typ.TypeArgs[i] = substituteTypeParams(typ.TypeArgs[i], bindings)
+		}
+	}
+
+	return typ
 }
 
 // pointerElem unwraps aliased types, and returns the type and whether it's a pointer.
