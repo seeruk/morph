@@ -164,32 +164,16 @@ func (p *Planner) planPointerMapping(source, target types.Type, path string) pla
 }
 
 func (p *Planner) discoverValidMethodCallable(sourceType, targetType types.Type) (plan.CallableRef, bool) {
-	methodTypeDecl, methodType, ok := p.methodTypeDecl(sourceType)
+	methodTypeDecl, _, ok := p.methodTypeDecl(sourceType)
 	if !ok {
 		return plan.CallableRef{}, false
 	}
 
-	var fallback plan.CallableRef
-	var fallbackOK bool
+	var bestMatch plan.CallableRef
+	var foundMatch bool
 	for _, method := range methodTypeDecl.Methods {
-		if !method.IsExported {
-			continue
-		}
-
 		callable, ok := callableFromMethod(method, plan.CallableSourceDiscovered)
 		if !ok {
-			continue
-		}
-
-		// TODO: This doesn't work, because if methods have generic type params on the receiver, it
-		//  may not match the concrete type of the target (e.g. Optional[T] != Optional[string]).
-		//  These methods may still be compatible, but we need to know that `T` in that instance is
-		//  set on the overall type to the same thing as the type we're trying to map to (either
-		//  both are T, for example, or T is set to string on the method type's parent field so it's
-		//  the same as the target.
-		if callable.TargetType != plan.TypeRefFromType(targetType) {
-			key := plan.TypeKey(targetType)
-			fmt.Println(key)
 			continue
 		}
 
@@ -204,15 +188,18 @@ func (p *Planner) discoverValidMethodCallable(sourceType, targetType types.Type)
 			continue
 		}
 
-		// TODO: How do we check if it's an exact match?
-
-		if !fallbackOK && isCompatibleMethodReceiver(methodType, method.Receiver.Type) {
-			fallback = callable
-			fallbackOK = true
+		// Check if the method is compatible for this pair of types, this includes checking if
+		// methods with generic type parameters are compatible too.
+		if !assessMethodCompatibility(sourceType, targetType, method, callable) {
+			continue
 		}
+
+		// TODO: Prioritisation...
+		bestMatch = callable
+		foundMatch = true
 	}
 
-	return fallback, fallbackOK
+	return bestMatch, foundMatch
 }
 
 // methodTypeDecl attempts to unwrap a types.Type to the underlying named type (unaliased, not a \
@@ -234,9 +221,120 @@ func (p *Planner) methodTypeDecl(typ types.Type) (types.TypeDecl, types.Type, bo
 	return types.TypeDecl{}, types.Type{}, false
 }
 
-func isCompatibleMethodReceiver(sourceType, receiverType types.Type) bool {
-	receiverType = types.UnwrapAlias(receiverType)
-	return false
+// methodCompatibility is a type used to help prioritize compatible methods, allowing Morph to
+// select, in theory, the most appropriate method for a pair of types.
+type methodCompatibility struct {
+	Receiver     methodReceiverCompatibility
+	Result       methodResultCompatibility
+	ReturnsError bool
+
+	// Only set when Result is MethodResultGeneric.
+	TypeBindings map[string]types.Type
+}
+
+// Compatible returns whether this method is compatible at all.
+func (c methodCompatibility) Compatible() bool {
+	return c.Receiver.Compatible() && c.Result.Compatible()
+}
+
+// methodReceiverCompatibility enumerates the possible levels of compatibility between a method's
+// receiver and the source type Morph is trying to map from.
+type methodReceiverCompatibility uint
+
+const (
+	methodReceiverIncompatible methodReceiverCompatibility = iota
+	methodReceiverExact
+	methodReceiverAutoAddress // source T, receiver *T
+	methodReceiverAutoDeref   // source *T, receiver T
+)
+
+func (c methodReceiverCompatibility) Compatible() bool {
+	return c != methodReceiverIncompatible
+}
+
+// methodResultCompatibility enumerates the possible levels of compatibility between a method's
+// result and the target type Morph is trying to map to.
+type methodResultCompatibility uint
+
+const (
+	methodResultIncompatible methodResultCompatibility = iota
+	methodResultExact
+	methodResultGeneric // e.g. receiver binds T=string, result T matches target string
+)
+
+func (c methodResultCompatibility) Compatible() bool {
+	return c != methodResultIncompatible
+}
+
+func assessMethodCompatibility(
+	sourceType, targetType types.Type,
+	method types.Method,
+	callable plan.CallableRef,
+) methodCompatibility {
+	if !method.IsExported {
+		return methodCompatibility{} // Zero is incompatible.
+	}
+
+	// At this point, we already know this is a method on the source type, so we don't need to check
+	// anything like that. So we can start with a very basic check; is the target type the same as
+	// the first result of the method?
+	if _, ok := callableResults(method.Results); !ok {
+		return methodCompatibility{}
+	}
+
+	receiverCompat := assessMethodReceiverCompatibility(sourceType, method)
+	if !receiverCompat.Compatible() {
+		return methodCompatibility{}
+	}
+
+	// If the result is the same, then we have a compatible method!
+	if sameType(targetType, method.Results[0].Type) {
+		return methodCompatibility{
+			Result:       methodResultExact,
+			ReturnsError: callable.ReturnsError,
+		}
+	}
+
+	return methodCompatibility{}
+}
+
+func assessMethodReceiverCompatibility(sourceType types.Type, method types.Method) methodReceiverCompatibility {
+	if method.Receiver == nil {
+		return methodReceiverIncompatible
+	}
+
+	sourceType = types.UnwrapAlias(sourceType)
+	receiverType := types.UnwrapAlias(method.Receiver.Type)
+
+	if sameType(sourceType, receiverType) {
+		return methodReceiverExact
+	}
+
+	sourceElem, sourcePointer := pointerElem(sourceType)
+	receiverElem, receiverPointer := pointerElem(receiverType)
+
+	if !sourcePointer && receiverPointer && sameType(sourceType, receiverElem) {
+		return methodReceiverAutoAddress
+	}
+
+	if sourcePointer && !receiverPointer && sameType(sourceElem, receiverType) {
+		return methodReceiverAutoDeref
+	}
+
+	return methodReceiverIncompatible
+}
+
+// pointerElem unwraps aliased types, and returns the type and whether it's a pointer.
+func pointerElem(typ types.Type) (types.Type, bool) {
+	typ = types.UnwrapAlias(typ)
+	if typ.Kind != types.TypeKindPointer || typ.Elem == nil {
+		return typ, false
+	}
+	return types.UnwrapAlias(*typ.Elem), true
+}
+
+func sameType(a, b types.Type) bool {
+	return plan.TypeKey(a) == plan.TypeKey(b)
 }
 
 // isStructType returns true if the given type declaration looks like a struct type, i.e. its
