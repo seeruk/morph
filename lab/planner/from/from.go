@@ -16,14 +16,14 @@ type Optional[T any] struct {
 	Valid bool
 }
 
-func (o *Optional[T]) AsOtherOptional() to.Optional[T] {
+func (o Optional[T]) AsOtherOptional() to.Optional[T] {
 	return to.Optional[T]{
 		Value: o.Value,
 		Valid: o.Valid,
 	}
 }
 
-func (o *Optional[T]) AsOptionalString() to.Optional[string] {
+func (o Optional[T]) AsOptionalString() to.Optional[string] {
 	return to.Optional[string]{
 		Value: fmt.Sprintf("%v", o.Value),
 		Valid: o.Valid,

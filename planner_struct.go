@@ -78,7 +78,7 @@ func (p *Planner) planValue(sourceType, targetType types.Type, path string) plan
 	}
 
 	if callable, ok := p.discoverValidMethodCallable(sourceType, targetType); ok {
-		fmt.Println(callable.Name)
+		fmt.Printf("%s: %s\n", sourceType.String, callable.Name)
 	}
 
 	// TODO: Method conversion
@@ -307,22 +307,31 @@ func assessMethodReceiverCompatibility(sourceType types.Type, method types.Metho
 	sourceType = types.UnwrapAlias(sourceType)
 	receiverType := types.UnwrapAlias(method.Receiver.Type)
 
-	if sameType(sourceType, receiverType) {
+	if sameReceiverType(sourceType, receiverType) {
 		return methodReceiverExact
 	}
 
 	sourceElem, sourcePointer := pointerElem(sourceType)
 	receiverElem, receiverPointer := pointerElem(receiverType)
 
-	if !sourcePointer && receiverPointer && sameType(sourceType, receiverElem) {
+	if !sourcePointer && receiverPointer && sameReceiverType(sourceType, receiverElem) {
 		return methodReceiverAutoAddress
 	}
 
-	if sourcePointer && !receiverPointer && sameType(sourceElem, receiverType) {
+	if sourcePointer && !receiverPointer && sameReceiverType(sourceElem, receiverType) {
 		return methodReceiverAutoDeref
 	}
 
 	return methodReceiverIncompatible
+}
+
+func sameReceiverType(sourceType, receiverType types.Type) bool {
+	if sameType(sourceType, receiverType) {
+		return true
+	}
+
+	_, ok := typeParamBindings(sourceType, receiverType)
+	return ok
 }
 
 func assessMethodResultCompatibility(
@@ -357,29 +366,36 @@ func receiverTypeBindings(sourceType types.Type, method types.Method) (map[strin
 		return nil, false
 	}
 
-	sourceType = types.Unwrap(sourceType)
-	receiverType := types.Unwrap(method.Receiver.Type)
+	sourceType, _ = pointerElem(sourceType)
+	receiverType, _ := pointerElem(method.Receiver.Type)
 
-	if sourceType.Kind != receiverType.Kind ||
-		sourceType.Name != receiverType.Name ||
-		sourceType.Package.ImportPath != receiverType.Package.ImportPath ||
-		len(sourceType.TypeArgs) != len(receiverType.TypeArgs) {
+	return typeParamBindings(sourceType, receiverType)
+}
+
+func typeParamBindings(sourceType, templateType types.Type) (map[string]types.Type, bool) {
+	sourceType = types.UnwrapAlias(sourceType)
+	templateType = types.UnwrapAlias(templateType)
+
+	if sourceType.Kind != templateType.Kind ||
+		sourceType.Name != templateType.Name ||
+		sourceType.Package.ImportPath != templateType.Package.ImportPath ||
+		len(sourceType.TypeArgs) != len(templateType.TypeArgs) {
 		return nil, false
 	}
 
 	bindings := make(map[string]types.Type)
 
-	for i, receiverArg := range receiverType.TypeArgs {
-		receiverArg = types.UnwrapAlias(receiverArg)
+	for i, templateArg := range templateType.TypeArgs {
+		templateArg = types.UnwrapAlias(templateArg)
 
-		if receiverArg.Kind != types.TypeKindTypeParam {
-			if !sameType(receiverArg, sourceType.TypeArgs[i]) {
+		if templateArg.Kind != types.TypeKindTypeParam {
+			if !sameType(templateArg, sourceType.TypeArgs[i]) {
 				return nil, false
 			}
 			continue
 		}
 
-		bindings[receiverArg.Name] = sourceType.TypeArgs[i]
+		bindings[templateArg.Name] = sourceType.TypeArgs[i]
 	}
 
 	return bindings, true

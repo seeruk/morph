@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/seeruk/morph"
 	"github.com/seeruk/morph/config"
 )
@@ -30,6 +29,4 @@ func main() {
 	for _, diagnostic := range plan.Diagnostics {
 		fmt.Println(diagnostic)
 	}
-
-	spew.Dump(plan)
 }
