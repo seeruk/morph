@@ -196,8 +196,6 @@ func (p *Planner) planExplicitRoot(source, target types.Type) (plan.Value, bool)
 		return plan.Value{}, false
 	}
 
-	// JIT plan type...
-	// TODO: Can we run into infinite loops here?!
 	p.planType(typePlan)
 
 	operation := plan.OperationStruct
@@ -258,7 +256,7 @@ func (p *Planner) planNestedStruct(source, target types.Type, path string) (plan
 	p.planType(&nested)
 
 	return plan.Value{
-		Operation:   plan.OperationStruct, // TODO: Is this right, for enums?
+		Operation:   plan.OperationStruct,
 		Source:      source,
 		Target:      target,
 		Plan:        &nested,
@@ -744,9 +742,8 @@ func (p *Planner) nestedFunctionName(sourceDecl, targetDecl types.TypeDecl) (str
 		Source:     sourceDecl.Type,
 		Target:     targetDecl.Type,
 		TypeParams: sourceDecl.Type.TypeParams,
-		// TODO: Should / could this use something in the spec?
-		Signature: mapperSignatureWithDefaults(spec.MapperSignature{}, defaultMapperSignature),
-		RunHash:   p.runHash,
+		Signature:  mapperSignatureWithDefaults(spec.MapperSignature{}, defaultMapperSignature),
+		RunHash:    p.runHash,
 	}
 
 	return MapperName(input, defaultNestedMapperName)

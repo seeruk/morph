@@ -3,7 +3,7 @@ package to
 type Single struct {
 	Foo    string
 	Bar    Optional[string]
-	Baz    bool
+	Baz    []Optional[string]
 	Nested Nested
 }
 

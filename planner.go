@@ -730,7 +730,6 @@ func sortedOutputGroups(outputGroups map[plan.OutputLocation]plan.OutputGroup) [
 }
 
 // appendDiagnostic appends only distinct diagnostics to the given slice of diagnostics.
-// TODO: Do we even need diagnostics? It is useful if something isn't a hard failure?
 func appendDiagnostic(dd []plan.Diagnostic, diagnostics ...plan.Diagnostic) []plan.Diagnostic {
 	distinct := make(map[plan.Diagnostic]struct{}, len(dd))
 	for _, d := range dd {

@@ -9,6 +9,7 @@ import (
 type Single struct {
 	Foo    string
 	Bar    Optional[string]
+	Baz    []Optional[string]
 	Nested Nested
 }
 
