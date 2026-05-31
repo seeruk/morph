@@ -198,7 +198,7 @@ func (p *Planner) planNestedStruct(source, target types.Type, path string) (plan
 	p.planType(&nested)
 
 	return plan.Value{
-		Operation:   plan.OperationStruct,
+		Operation:   plan.OperationStruct, // TODO: Is this right, for enums?
 		Source:      source,
 		Target:      target,
 		Plan:        &nested,

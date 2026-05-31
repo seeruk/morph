@@ -7,13 +7,19 @@ import (
 )
 
 type Single struct {
-	Foo string
-	Bar Optional[string]
+	Foo    string
+	Bar    Optional[string]
+	Nested Nested
 }
 
 type Generic[T any] struct {
 	Foo Optional[T]
 	Bar T
+}
+
+type Nested struct {
+	Foo string
+	Bar int
 }
 
 type Optional[T any] struct {
