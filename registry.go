@@ -52,15 +52,6 @@ func (r *callableRegistry) RegisterFunction(fn types.FunctionDecl, source plan.C
 	return ok
 }
 
-// RegisterMethod registers the given types.Method from the given source into this registry.
-func (r *callableRegistry) RegisterMethod(method types.Method, source plan.CallableSource) bool {
-	callable, ok := callableFromMethod(method, source)
-	if ok {
-		r.Register(callable)
-	}
-	return ok
-}
-
 func callableFromFunctionDecl(fn types.FunctionDecl, source plan.CallableSource) (plan.CallableRef, bool) {
 	if fn.IsVariadic || len(fn.TypeParams) > 0 || len(fn.Params) != 1 {
 		// TODO: Revisit type params for using generic callables
@@ -79,33 +70,6 @@ func callableFromFunctionDecl(fn types.FunctionDecl, source plan.CallableSource)
 		Source:       source,
 		Package:      fn.Package,
 		Name:         fn.Name,
-		ReturnsError: returnsError,
-	}, true
-}
-
-func callableFromMethod(method types.Method, source plan.CallableSource) (plan.CallableRef, bool) {
-	if method.Receiver == nil || method.IsVariadic || len(method.TypeParams) > 0 || len(method.Params) != 0 {
-		// TODO: Revisit type params for using generic callables
-		return plan.CallableRef{}, false
-	}
-
-	owner, ok := method.OwnerType()
-	if !ok {
-		return plan.CallableRef{}, false
-	}
-
-	returnsError, ok := callableResults(method.Results)
-	if !ok {
-		return plan.CallableRef{}, false
-	}
-
-	return plan.CallableRef{
-		SourceType:   plan.TypeRefFromType(method.Receiver.Type),
-		TargetType:   plan.TypeRefFromType(method.Results[0].Type),
-		Kind:         plan.CallableKindMethod,
-		Source:       source,
-		Package:      owner.Package,
-		Name:         method.Name,
 		ReturnsError: returnsError,
 	}, true
 }

@@ -240,30 +240,17 @@ func (p *Planner) registerDiscoveryFunctions(registry *callableRegistry, pkgs ma
 		}
 
 		if discoveryFn.TypeName != "" {
-			// Looking for a method
-			typ, ok := pkg.Types[discoveryFn.TypeName]
-			if !ok {
-				return fmt.Errorf("type not found for function '%s.%s' ", discoveryFn.ImportPath, discoveryFn.Name)
-			}
+			return fmt.Errorf("methods cannot be registered for function discovery, registering '%s.%s.%s'", discoveryFn.ImportPath, discoveryFn.TypeName, discoveryFn.Name)
+		}
 
-			method, ok := typ.Methods[discoveryFn.Name]
-			if !ok {
-				return fmt.Errorf("method not found for function '%s.%s.%s' ", discoveryFn.ImportPath, discoveryFn.TypeName, discoveryFn.Name)
-			}
+		// Looking for a function
+		fn, ok := pkg.Functions[discoveryFn.Name]
+		if !ok {
+			return fmt.Errorf("function not found for function '%s.%s' ", discoveryFn.ImportPath, discoveryFn.Name)
+		}
 
-			if ok := registry.RegisterMethod(method, plan.CallableSourceUser); !ok {
-				return fmt.Errorf("method is not viable for discovery '%s.%s.%s' ", discoveryFn.ImportPath, discoveryFn.TypeName, discoveryFn.Name)
-			}
-		} else {
-			// Looking for a function
-			fn, ok := pkg.Functions[discoveryFn.Name]
-			if !ok {
-				return fmt.Errorf("function not found for function '%s.%s' ", discoveryFn.ImportPath, discoveryFn.Name)
-			}
-
-			if ok := registry.RegisterFunction(fn, plan.CallableSourceUser); !ok {
-				return fmt.Errorf("function is not viable for discovery '%s.%s' ", discoveryFn.ImportPath, discoveryFn.Name)
-			}
+		if ok := registry.RegisterFunction(fn, plan.CallableSourceUser); !ok {
+			return fmt.Errorf("function is not viable for discovery '%s.%s' ", discoveryFn.ImportPath, discoveryFn.Name)
 		}
 	}
 
