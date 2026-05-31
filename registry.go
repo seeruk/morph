@@ -22,6 +22,8 @@ func (r *callableRegistry) Find(source, target types.Type, sources ...plan.Calla
 	sourceKey := types.TypeKey(source)
 	targetKey := types.TypeKey(target)
 
+	// TODO: Big changes here for function discovery...
+
 	// TODO: There could be multiple potential options. Maybe they could be prioritised based on
 	//  how well the signature matches what's needed, e.g. pointer / value parameters or results
 	for _, source := range sources {
