@@ -1,6 +1,10 @@
 package types
 
-import "go/types"
+import (
+	"fmt"
+	"go/types"
+	"strings"
+)
 
 // ModuleRef is a minimal reference to the loaded module.
 type ModuleRef struct {
@@ -190,6 +194,63 @@ type Type struct {
 type TypeParam struct {
 	Name       string
 	Constraint Type
+}
+
+// TypeKey returns a string key that uniquely identifies a type, including its structure and type
+// arguments. This is used for caching and comparison purposes.
+//
+// We can't just rely on the String field from TypeInfo, which is provided by go/types,
+// because Morph may substitute type arguments or unwrap aliases after loading.
+func TypeKey(t Type) string {
+	t = UnwrapAlias(t)
+
+	switch t.Kind {
+	case TypeKindNamed, TypeKindAlias:
+		name := t.Name
+		if t.Package.ImportPath != "" {
+			name = t.Package.ImportPath + "." + name
+		}
+		if len(t.TypeArgs) > 0 {
+			args := make([]string, 0, len(t.TypeArgs))
+			for _, arg := range t.TypeArgs {
+				args = append(args, TypeKey(arg))
+			}
+			return name + "[" + strings.Join(args, ", ") + "]"
+		}
+	case TypeKindTypeParam:
+		if t.Name != "" {
+			return t.Name
+		}
+	}
+
+	if t.String != "" {
+		return t.String
+	}
+
+	switch t.Kind {
+	case TypeKindPointer:
+		if t.Elem != nil {
+			return "*" + TypeKey(*t.Elem)
+		}
+	case TypeKindSlice:
+		if t.Elem != nil {
+			return "[]" + TypeKey(*t.Elem)
+		}
+	case TypeKindArray:
+		if t.Elem != nil {
+			return fmt.Sprintf("[%d]%s", t.Len, TypeKey(*t.Elem))
+		}
+	case TypeKindMap:
+		if t.Key != nil && t.Value != nil {
+			return fmt.Sprintf("map[%s]%s", TypeKey(*t.Key), TypeKey(*t.Value))
+		}
+	}
+
+	if t.Package.ImportPath != "" && t.Name != "" {
+		return t.Package.ImportPath + "." + t.Name
+	}
+
+	return t.Name
 }
 
 // Unwrap unwraps a chain of aliases and/or pointers (potentially interleaved) to return the

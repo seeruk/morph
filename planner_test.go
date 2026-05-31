@@ -14,7 +14,7 @@ import (
 
 func TestPlanner_addExplicitRoot(t *testing.T) {
 	t.Run("should register root state when adding a new mapper", func(t *testing.T) {
-		planner := NewPlanner(Spec{}, ".")
+		planner := NewPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
 		location := testOutputLocation("github.com/seeruk/morph/out", "/repo/out/morph.gen.go")
 		root := testPlanType("source.User", "target.User", "MapUser")
@@ -36,7 +36,7 @@ func TestPlanner_addExplicitRoot(t *testing.T) {
 	})
 
 	t.Run("should not append a duplicate root when mapper and function match", func(t *testing.T) {
-		planner := NewPlanner(Spec{}, ".")
+		planner := NewPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
 		location := testOutputLocation("github.com/seeruk/morph/out", "/repo/out/morph.gen.go")
 		root := testPlanType("source.User", "target.User", "MapUser")
@@ -52,7 +52,7 @@ func TestPlanner_addExplicitRoot(t *testing.T) {
 	})
 
 	t.Run("should error when the same mapper has different function names", func(t *testing.T) {
-		planner := NewPlanner(Spec{}, ".")
+		planner := NewPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
 		location := testOutputLocation("github.com/seeruk/morph/out", "/repo/out/morph.gen.go")
 		root := testPlanType("source.User", "target.User", "MapUser")
@@ -67,7 +67,7 @@ func TestPlanner_addExplicitRoot(t *testing.T) {
 	})
 
 	t.Run("should error when different mappers use the same function name in one package", func(t *testing.T) {
-		planner := NewPlanner(Spec{}, ".")
+		planner := NewPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
 		location := testOutputLocation("github.com/seeruk/morph/out", "/repo/out/morph.gen.go")
 		root := testPlanType("source.User", "target.User", "MapThing")
@@ -82,7 +82,7 @@ func TestPlanner_addExplicitRoot(t *testing.T) {
 	})
 
 	t.Run("should allow the same function name in different packages", func(t *testing.T) {
-		planner := NewPlanner(Spec{}, ".")
+		planner := NewPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
 		firstLocation := testOutputLocation("github.com/seeruk/morph/one", "/repo/one/morph.gen.go")
 		secondLocation := testOutputLocation("github.com/seeruk/morph/two", "/repo/two/morph.gen.go")
@@ -99,7 +99,7 @@ func TestPlanner_addExplicitRoot(t *testing.T) {
 	})
 
 	t.Run("should reuse the canonical root when the same mapper is added in different packages", func(t *testing.T) {
-		planner := NewPlanner(Spec{}, ".")
+		planner := NewPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
 		firstLocation := testOutputLocation("github.com/seeruk/morph/one", "/repo/one/morph.gen.go")
 		secondLocation := testOutputLocation("github.com/seeruk/morph/two", "/repo/two/morph.gen.go")
@@ -119,7 +119,7 @@ func TestPlanner_addExplicitRoot(t *testing.T) {
 }
 
 func TestPlanner_isFunctionPendingGeneration(t *testing.T) {
-	planner := NewPlanner(Spec{}, ".")
+	planner := NewPlanner(Spec{}, ".", "morph.yaml")
 	outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
 	location := testOutputLocation("github.com/seeruk/morph/out", "/repo/out/morph.gen.go")
 	root := testPlanType("source.User", "target.User", "MapUser")

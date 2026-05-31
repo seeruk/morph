@@ -4,7 +4,7 @@ import "github.com/seeruk/morph/types"
 
 // TypesPath ...
 func TypesPath(source, target types.Type) string {
-	return TypeKey(source) + "->" + TypeKey(target)
+	return types.TypeKey(source) + "->" + types.TypeKey(target)
 }
 
 // FieldPath ...

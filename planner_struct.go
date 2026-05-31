@@ -250,7 +250,7 @@ func (p *Planner) planNestedStruct(source, target types.Type, path string) (plan
 	var err error
 	nested.FunctionName, err = p.nestedFunctionName(sourceDecl, targetDecl)
 	if err != nil {
-		return unsupportedMapping(source, target, path, fmt.Sprintf("failed to generated nested function name: %v")), false
+		return unsupportedMapping(source, target, path, fmt.Sprintf("failed to generated nested function name: %v", err)), false
 	}
 
 	p.planType(&nested)
@@ -305,7 +305,7 @@ func (p *Planner) discoverMethodCallable(sourceType, targetType types.Type) (pla
 
 	candidates := make(map[plan.CallableRef]methodCompatibility)
 	for _, method := range methodTypeDecl.Methods {
-		callable, ok := callableFromMethod(method, plan.CallableSourceDiscovered)
+		callable, ok := plan.CallableRefFromMethod(method, plan.CallableSourceDiscovered)
 		if !ok {
 			continue
 		}
@@ -413,7 +413,7 @@ func assessMethodCompatibility(
 	// At this point, we already know this is a method on the source type, so we don't need to check
 	// anything like that. So we can start with a very basic check; is the target type the same as
 	// the first result of the method?
-	returnsError, ok := callableResults(method.Results)
+	returnsError, ok := plan.CallableResults(method.Results)
 	if !ok {
 		return methodCompatibility{}
 	}
@@ -771,7 +771,7 @@ func pointerElem(typ types.Type) (types.Type, bool) {
 }
 
 func sameType(a, b types.Type) bool {
-	return plan.TypeKey(a) == plan.TypeKey(b)
+	return types.TypeKey(a) == types.TypeKey(b)
 }
 
 // isStructType returns true if the given type declaration looks like a struct type, i.e. its

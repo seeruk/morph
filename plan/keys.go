@@ -1,69 +1,8 @@
 package plan
 
 import (
-	"fmt"
-	"strings"
-
 	"github.com/seeruk/morph/spec"
-	"github.com/seeruk/morph/types"
 )
-
-// TypeKey returns a string key that uniquely identifies a type, including its structure and type
-// arguments. This is used for caching and comparison purposes.
-//
-// We can't just rely on the String field from types.TypeInfo, which is provided by go/types,
-// because Morph may substitute type arguments or unwrap aliases after loading.
-func TypeKey(t types.Type) string {
-	t = types.UnwrapAlias(t)
-
-	switch t.Kind {
-	case types.TypeKindNamed, types.TypeKindAlias:
-		name := t.Name
-		if t.Package.ImportPath != "" {
-			name = t.Package.ImportPath + "." + name
-		}
-		if len(t.TypeArgs) > 0 {
-			args := make([]string, 0, len(t.TypeArgs))
-			for _, arg := range t.TypeArgs {
-				args = append(args, TypeKey(arg))
-			}
-			return name + "[" + strings.Join(args, ", ") + "]"
-		}
-	case types.TypeKindTypeParam:
-		if t.Name != "" {
-			return t.Name
-		}
-	}
-
-	if t.String != "" {
-		return t.String
-	}
-
-	switch t.Kind {
-	case types.TypeKindPointer:
-		if t.Elem != nil {
-			return "*" + TypeKey(*t.Elem)
-		}
-	case types.TypeKindSlice:
-		if t.Elem != nil {
-			return "[]" + TypeKey(*t.Elem)
-		}
-	case types.TypeKindArray:
-		if t.Elem != nil {
-			return fmt.Sprintf("[%d]%s", t.Len, TypeKey(*t.Elem))
-		}
-	case types.TypeKindMap:
-		if t.Key != nil && t.Value != nil {
-			return fmt.Sprintf("map[%s]%s", TypeKey(*t.Key), TypeKey(*t.Value))
-		}
-	}
-
-	if t.Package.ImportPath != "" && t.Name != "" {
-		return t.Package.ImportPath + "." + t.Name
-	}
-
-	return t.Name
-}
 
 // TypePairKey returns a combination of the keys of two given TypeRef. This key doesn't need to be
 // recreated here, we just take the "cached" key on the TypeRef.

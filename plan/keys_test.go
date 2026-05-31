@@ -117,7 +117,7 @@ func TestTypeKey(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, TypeKey(tt.typ))
+			assert.Equal(t, tt.want, types.TypeKey(tt.typ))
 		})
 	}
 }

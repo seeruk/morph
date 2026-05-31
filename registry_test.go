@@ -54,13 +54,13 @@ func TestCallableFromMethod(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, ok := callableFromMethod(tt.method, plan.CallableSourceUser)
+			_, ok := plan.CallableRefFromMethod(tt.method, plan.CallableSourceUser)
 			assert.False(t, ok)
 		})
 	}
 
 	t.Run("should use the receiver as the source type", func(t *testing.T) {
-		callable, ok := callableFromMethod(types.Method{
+		callable, ok := plan.CallableRefFromMethod(types.Method{
 			Owner:    sourceType,
 			Receiver: &types.Parameter{Type: sourceType},
 			Name:     "String",
@@ -82,7 +82,7 @@ func TestCallableFromMethod(t *testing.T) {
 			Elem: &sourceType,
 		}
 
-		callable, ok := callableFromMethod(types.Method{
+		callable, ok := plan.CallableRefFromMethod(types.Method{
 			Owner:    sourceType,
 			Receiver: &types.Parameter{Type: pointerSource},
 			Name:     "String",

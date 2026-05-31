@@ -30,7 +30,6 @@ func TestMapperName(t *testing.T) {
 			Accepts: new(spec.ParameterKindPointer),
 			Returns: new(spec.ParameterKindValue),
 		},
-		CanError: true,
 	}
 
 	tests := []struct {
@@ -57,11 +56,6 @@ func TestMapperName(t *testing.T) {
 			name:  "renders type parameter names and constraints",
 			templ: "Map{{ .Source.Type }}{{ range .TypeParams }}{{ .Name }}{{ .Constraint.Package }}{{ .Constraint.Type }}{{ end }}To{{ .Target.Type }}",
 			want:  "MapUserTDomainEntityToPerson",
-		},
-		{
-			name:  "renders error suffix when mapper can error",
-			templ: "Map{{ .Source.Type }}To{{ .Target.Type }}{{ if .CanError }}OrError{{ end }}",
-			want:  "MapUserToPersonOrError",
 		},
 	}
 
