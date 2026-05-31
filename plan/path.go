@@ -8,6 +8,6 @@ func TypesPath(source, target types.Type) string {
 }
 
 // FieldPath ...
-func FieldPath(source, target types.Type, sourceField, targetField types.Field) string {
-	return TypesPath(source, target) + "|" + sourceField.Name + "->" + targetField.Name
+func FieldPath(source, target types.Type, sourceField types.Field) string {
+	return TypesPath(source, target) + " :: " + sourceField.Name
 }

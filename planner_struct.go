@@ -25,7 +25,7 @@ func (p *Planner) planStruct(typ *plan.Type) {
 			continue
 		}
 
-		fieldPath := plan.FieldPath(typ.SourceType, typ.TargetType, sourceField, targetField)
+		fieldPath := plan.FieldPath(typ.SourceType, typ.TargetType, sourceField)
 
 		valuePlan := p.planValue(sourceField.Type, targetField.Type, fieldPath)
 		if valuePlan.CanError {
@@ -87,7 +87,67 @@ func (p *Planner) planValue(sourceType, targetType types.Type, path string) plan
 		}
 	}
 
-	// TODO: Arrays, slices, maps, nested structs (?)
+	switch {
+	case sourceType.Kind == types.TypeKindSlice && targetType.Kind == types.TypeKindSlice:
+		elemPlan := p.planValue(*sourceType.Elem, *targetType.Elem, path+"[]")
+
+		operation := plan.OperationSlice
+		if len(elemPlan.Diagnostics) > 0 {
+			operation = plan.OperationUnsupported
+		}
+
+		return plan.Value{
+			Operation:   operation,
+			Source:      sourceType,
+			Target:      targetType,
+			Elem:        &elemPlan,
+			CanError:    elemPlan.CanError,
+			Diagnostics: elemPlan.Diagnostics,
+		}
+
+	case sourceType.Kind == types.TypeKindArray && targetType.Kind == types.TypeKindArray:
+		if sourceType.Len != targetType.Len {
+			return unsupportedMapping(sourceType, targetType, path, "array lengths differ")
+		}
+
+		elemPlan := p.planValue(*sourceType.Elem, *targetType.Elem, path+"[]")
+
+		operation := plan.OperationMap
+		if len(elemPlan.Diagnostics) > 0 {
+			operation = plan.OperationUnsupported
+		}
+
+		return plan.Value{
+			Operation:   operation,
+			Source:      sourceType,
+			Target:      targetType,
+			Elem:        &elemPlan,
+			CanError:    elemPlan.CanError,
+			Diagnostics: elemPlan.Diagnostics,
+		}
+
+	case sourceType.Kind == types.TypeKindMap && targetType.Kind == types.TypeKindMap:
+		key := p.planValue(*sourceType.Key, *targetType.Key, path+"[key]")
+		value := p.planValue(*sourceType.Value, *targetType.Value, path+"[value]")
+
+		diagnostics := append([]plan.Diagnostic{}, key.Diagnostics...)
+		diagnostics = append(diagnostics, value.Diagnostics...)
+
+		operation := plan.OperationMap
+		if len(diagnostics) > 0 {
+			operation = plan.OperationUnsupported
+		}
+
+		return plan.Value{
+			Operation:   operation,
+			Source:      sourceType,
+			Target:      targetType,
+			Key:         &key,
+			Value:       &value,
+			CanError:    key.CanError || value.CanError,
+			Diagnostics: diagnostics,
+		}
+	}
 
 	if nested, ok := p.planNestedStruct(sourceType, targetType, path); ok {
 		return nested
