@@ -11,6 +11,11 @@ type Single struct {
 	Bar Optional[string]
 }
 
+type Generic[T any] struct {
+	Foo Optional[T]
+	Bar T
+}
+
 type Optional[T any] struct {
 	Value T
 	Valid bool

@@ -16,6 +16,6 @@ func New(workingDir string) *Engine {
 }
 
 // Plan generates a Plan for the supplied Spec using a new Planner.
-func (e *Engine) Plan(spec Spec) (Plan, error) {
-	return NewPlanner(spec, e.workingDir).Plan()
+func (e *Engine) Plan(spec Spec, ident string) (Plan, error) {
+	return NewPlanner(spec, e.workingDir, ident).Plan()
 }

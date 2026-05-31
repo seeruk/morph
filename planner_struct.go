@@ -77,15 +77,39 @@ func (p *Planner) planValue(sourceType, targetType types.Type, path string) plan
 		return p.planPointerMapping(sourceType, targetType, path)
 	}
 
-	if callable, ok := p.discoverValidMethodCallable(sourceType, targetType); ok {
-		fmt.Printf("%s: %s\n", sourceType.String, callable.Name)
+	if callable, ok := p.discoverMethodCallable(sourceType, targetType); ok {
+		return plan.Value{
+			Operation: operationForCallable(callable),
+			Source:    sourceType,
+			Target:    targetType,
+			Callable:  new(callable),
+			CanError:  callable.ReturnsError,
+		}
 	}
 
-	// TODO: Method conversion
-	// TODO: Arrays, slices, maps, nested structs (?), same type (assignment), basic type conversion
-	//  Any others?
+	// TODO: Arrays, slices, maps, nested structs (?)
 
-	return plan.Value{}
+	if nested, ok := p.planNestedStruct(sourceType, targetType, path); ok {
+		return nested
+	}
+
+	if sameType(sourceType, targetType) {
+		return plan.Value{
+			Operation: plan.OperationAssign,
+			Source:    sourceType,
+			Target:    targetType,
+		}
+	}
+
+	if p.canConvertByBasicType(sourceType, targetType) {
+		return plan.Value{
+			Operation: plan.OperationConvert,
+			Source:    sourceType,
+			Target:    targetType,
+		}
+	}
+
+	return unsupportedMapping(sourceType, targetType, path, "unable to determine mapping strategy")
 }
 
 // planExplicitRoot is used to "just-in-time" plan an explicit root, so that if we're going to
@@ -131,6 +155,58 @@ func (p *Planner) planExplicitRoot(source, target types.Type) (plan.Value, bool)
 	}, true
 }
 
+func (p *Planner) planNestedStruct(source, target types.Type, path string) (plan.Value, bool) {
+	sourceDecl, sourceOK := p.resolveStructType(source)
+	targetDecl, targetOK := p.resolveStructType(target)
+	if !sourceOK || !targetOK {
+		return plan.Value{}, false
+	}
+
+	if sameType(source, target) {
+		return plan.Value{}, false
+	}
+
+	// Nested structs use the globally configured defaults.
+	defaultTypes := typesDefaultsWithDefaults(p.spec.Defaults.Packages.Types, defaultTypesDefaults)
+
+	var enumSpec spec.Enum
+	if defaultTypes.Enum != nil {
+		// If this is nil, something is quite wrong...
+		enumSpec = *enumWithDefaults(nil, defaultTypes.Enum)
+	}
+
+	nested := plan.Type{
+		Source:     plan.TypeRefFromTypeDecl(sourceDecl),
+		Target:     plan.TypeRefFromTypeDecl(targetDecl),
+		SourceDecl: sourceDecl,
+		TargetDecl: targetDecl,
+		SourceType: source,
+		TargetType: target,
+		TypeParams: sourceDecl.Type.TypeParams,
+		Signature:  defaultMapperSignature,
+		EnumSpec:   enumSpec,
+		// We can't set structSpec in this case, because it's just field mapping currently. To have
+		// field mapping this type pair would have to be defined explicitly.
+	}
+
+	var err error
+	nested.FunctionName, err = p.nestedFunctionName(sourceDecl, targetDecl)
+	if err != nil {
+		return unsupportedMapping(source, target, path, fmt.Sprintf("failed to generated nested function name: %v")), false
+	}
+
+	p.planType(&nested)
+
+	return plan.Value{
+		Operation:   plan.OperationStruct,
+		Source:      source,
+		Target:      target,
+		Plan:        &nested,
+		CanError:    nested.CanError,
+		Diagnostics: nested.Diagnostics,
+	}, true
+}
+
 func (p *Planner) planPointerMapping(source, target types.Type, path string) plan.Value {
 	sourcePointer := source.Kind == types.TypeKindPointer
 	targetPointer := target.Kind == types.TypeKindPointer
@@ -163,7 +239,7 @@ func (p *Planner) planPointerMapping(source, target types.Type, path string) pla
 	}
 }
 
-func (p *Planner) discoverValidMethodCallable(sourceType, targetType types.Type) (plan.CallableRef, bool) {
+func (p *Planner) discoverMethodCallable(sourceType, targetType types.Type) (plan.CallableRef, bool) {
 	methodTypeDecl, _, ok := p.methodTypeDecl(sourceType)
 	if !ok {
 		return plan.CallableRef{}, false
@@ -432,10 +508,11 @@ func substituteTypeParams(typ types.Type, bindings map[string]types.Type) types.
 	}
 
 	if len(typ.TypeArgs) > 0 {
-		typ.TypeArgs = slices.Clone(typ.TypeArgs)
-		for i := range typ.TypeArgs {
-			typ.TypeArgs[i] = substituteTypeParams(typ.TypeArgs[i], bindings)
+		args := make([]types.Type, 0, len(typ.TypeArgs))
+		for _, arg := range typ.TypeArgs {
+			args = append(args, substituteTypeParams(arg, bindings))
 		}
+		typ.TypeArgs = args
 	}
 
 	return typ
@@ -490,6 +567,129 @@ func methodCompatibilityRank(c methodCompatibility) (int, bool) {
 		receiverRank
 
 	return rank, true
+}
+
+func (p *Planner) canConvertByBasicType(source types.Type, target types.Type) bool {
+	sourceUnderlying, sourceOK := p.basicUnderlying(source, map[plan.TypeRef]bool{})
+	targetUnderlying, targetOK := p.basicUnderlying(target, map[plan.TypeRef]bool{})
+	if !sourceOK || !targetOK {
+		return false
+	}
+	if sameType(sourceUnderlying, targetUnderlying) {
+		return true
+	}
+	return canConvertNumericLosslessly(sourceUnderlying.Name, targetUnderlying.Name)
+}
+
+// basicUnderlying recursively unwraps a type and/or it's underlying type to find a basic type. If
+// the underlying type is basic, we can (probably) try to convert it.
+// TODO: This may be too permissive, maybe it should be just basic types and aliases of them?
+func (p *Planner) basicUnderlying(typ types.Type, seen map[plan.TypeRef]bool) (types.Type, bool) {
+	typ = types.UnwrapAlias(typ)
+	switch typ.Kind {
+	case types.TypeKindBasic:
+		return typ, true
+	case types.TypeKindNamed:
+		// TODO: Does this need to be any more granular? I wouldn't expect so...
+		ref := plan.TypeRefFromType(typ)
+		if seen[ref] {
+			return types.Type{}, false
+		}
+		seen[ref] = true
+
+		typ, ok := p.resolveTypeDeclaration(typ)
+		if !ok {
+			return types.Type{}, false
+		}
+		return p.basicUnderlying(typ.Underlying, seen)
+	default:
+		return types.Type{}, false
+	}
+}
+
+type numericKind int
+
+const (
+	numericInvalid numericKind = iota
+	numericSigned
+	numericUnsigned
+	numericFloat
+)
+
+type numericInfo struct {
+	kind       numericKind
+	sourceBits int
+	targetBits int
+	precision  int
+}
+
+func canConvertNumericLosslessly(source string, target string) bool {
+	sourceInfo, sourceOK := maxSafeNumericConversionBits(source)
+	targetInfo, targetOK := maxSafeNumericConversionBits(target)
+	if !sourceOK || !targetOK {
+		return false
+	}
+
+	switch {
+	case sourceInfo.kind == numericSigned && targetInfo.kind == numericSigned:
+		return sourceInfo.sourceBits <= targetInfo.targetBits
+	case sourceInfo.kind == numericUnsigned && targetInfo.kind == numericUnsigned:
+		return sourceInfo.sourceBits <= targetInfo.targetBits
+	case sourceInfo.kind == numericUnsigned && targetInfo.kind == numericSigned:
+		return sourceInfo.sourceBits < targetInfo.targetBits
+	case sourceInfo.kind == numericFloat && targetInfo.kind == numericFloat:
+		return sourceInfo.precision < targetInfo.precision
+	case sourceInfo.kind != numericFloat && targetInfo.kind == numericFloat:
+		return sourceInfo.sourceBits <= targetInfo.precision
+	default:
+		return false
+	}
+}
+
+func maxSafeNumericConversionBits(name string) (numericInfo, bool) {
+	switch name {
+	case "int":
+		return numericInfo{kind: numericSigned, sourceBits: 64, targetBits: 32}, true
+	case "int8":
+		return numericInfo{kind: numericSigned, sourceBits: 8, targetBits: 8}, true
+	case "int16":
+		return numericInfo{kind: numericSigned, sourceBits: 16, targetBits: 16}, true
+	case "int32":
+		return numericInfo{kind: numericSigned, sourceBits: 32, targetBits: 32}, true
+	case "int64":
+		return numericInfo{kind: numericSigned, sourceBits: 64, targetBits: 64}, true
+	case "uint":
+		return numericInfo{kind: numericUnsigned, sourceBits: 64, targetBits: 32}, true
+	case "uint8":
+		return numericInfo{kind: numericUnsigned, sourceBits: 8, targetBits: 8}, true
+	case "uint16":
+		return numericInfo{kind: numericUnsigned, sourceBits: 16, targetBits: 16}, true
+	case "uint32":
+		return numericInfo{kind: numericUnsigned, sourceBits: 32, targetBits: 32}, true
+	case "uint64":
+		return numericInfo{kind: numericUnsigned, sourceBits: 64, targetBits: 64}, true
+	case "uintptr":
+		return numericInfo{kind: numericUnsigned, sourceBits: 64, targetBits: 32}, true
+	case "float32":
+		return numericInfo{kind: numericFloat, sourceBits: 32, targetBits: 32, precision: 24}, true
+	case "float64":
+		return numericInfo{kind: numericFloat, sourceBits: 64, targetBits: 64, precision: 53}, true
+	default:
+		return numericInfo{}, false
+	}
+}
+
+func (p *Planner) nestedFunctionName(sourceDecl, targetDecl types.TypeDecl) (string, error) {
+	input := NameInput{
+		Source:     sourceDecl.Type,
+		Target:     targetDecl.Type,
+		TypeParams: sourceDecl.Type.TypeParams,
+		// TODO: Should / could this use something in the spec?
+		Signature: mapperSignatureWithDefaults(spec.MapperSignature{}, defaultMapperSignature),
+		RunHash:   p.runHash,
+	}
+
+	return MapperName(input, defaultNestedMapperName)
 }
 
 // callableLess is used to compare two plan.CallableRef so Morph can produce stable discovery
@@ -573,4 +773,16 @@ func plannableFieldsByName(typeDecl types.TypeDecl) map[string]types.Field {
 		out[field.Name] = field
 	}
 	return out
+}
+
+func unsupportedMapping(source, target types.Type, path string, message string) plan.Value {
+	return plan.Value{
+		Operation: plan.OperationUnsupported,
+		Source:    source,
+		Target:    target,
+		Diagnostics: []plan.Diagnostic{{
+			Path:    path,
+			Message: fmt.Sprintf("cannot map %s to %s: %s", source.String, target.String, message),
+		}},
+	}
 }

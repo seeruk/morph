@@ -21,7 +21,7 @@ func main() {
 
 	engine := morph.New("lab/planner")
 
-	plan, err := engine.Plan(spec)
+	plan, err := engine.Plan(spec, "morph.yaml")
 	if err != nil {
 		panic(err)
 	}

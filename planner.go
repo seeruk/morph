@@ -26,6 +26,12 @@ type Planner struct {
 	spec Spec
 	// workingDir is the working directory of this Planner
 	workingDir string
+	// ident is a value used to identify this run, it should be stable (e.g. it could be the name of
+	// the config file used for this run). It doesn't need to be hyper-specific, as it's used to
+	// build a hash along with the workspace.
+	ident string
+	// runHash is a stable run hash for this module / location / spec origin.
+	runHash string
 
 	// loader is the initialized type loader for this planner
 	loader *types.Loader
@@ -59,10 +65,11 @@ type Planner struct {
 }
 
 // NewPlanner returns a new Planner, set to plan the given Spec.
-func NewPlanner(specification Spec, workingDir string) *Planner {
+func NewPlanner(specification Spec, workingDir, ident string) *Planner {
 	return &Planner{
 		spec:       specification,
 		workingDir: workingDir,
+		ident:      ident,
 
 		explicitRoots:      make(map[string]*plan.Type),
 		mappings:           make(map[string]*plan.Type),
@@ -83,6 +90,13 @@ func (p *Planner) Plan() (Plan, error) {
 	if err := p.prepare(); err != nil {
 		return out, fmt.Errorf("failed to prepare planner: %w", err)
 	}
+
+	hash, err := stableRunHash(p.workspace, p.ident)
+	if err != nil {
+		return out, fmt.Errorf("failed to generate run hash: %w", err)
+	}
+
+	p.runHash = hash
 
 	// Next we'll do a shallow pass over the spec to determine all the mapping functions we're going
 	// to generate. This allows us to avoid auto-discovering functions we're about to generate when
@@ -606,7 +620,10 @@ func (p *Planner) planOutputGroup(outputGroup plan.OutputGroup) {
 
 func (p *Planner) planType(typ *plan.Type) {
 	key := plan.TypeMapperKey(typ.Source, typ.Target, typ.Signature)
-	if _, isShallow := p.shallowMappings[key]; !isShallow {
+
+	_, isMapped := p.mappings[key]
+	_, isShallow := p.shallowMappings[key]
+	if isMapped && !isShallow {
 		// This one is already done.
 		return
 	}
@@ -624,6 +641,39 @@ func (p *Planner) planType(typ *plan.Type) {
 
 	// Mark this as fully planned.
 	delete(p.shallowMappings, key)
+	// Ensure it's in the map of mappings.
+	p.mappings[key] = typ
+}
+
+func (p *Planner) resolveStructType(typ types.Type) (types.TypeDecl, bool) {
+	typ = types.UnwrapAlias(typ)
+	if typ.Kind != types.TypeKindNamed {
+		return types.TypeDecl{}, false
+	}
+
+	typeDecl, ok := p.resolveTypeDeclaration(typ)
+	if !ok || !isStructType(typeDecl) {
+		return types.TypeDecl{}, false
+	}
+
+	return typeDecl, true
+}
+
+func (p *Planner) resolveTypeDeclaration(typ types.Type) (types.TypeDecl, bool) {
+	for _, pkg := range p.loader.Packages() {
+		if pkg.ImportPath != typ.Package.ImportPath {
+			continue
+		}
+
+		for _, pkgType := range pkg.Types {
+			if pkgType.Name == typ.Name {
+				// Type names are unique within a package, we don't need to get fancy.
+				return pkgType, true
+			}
+		}
+	}
+
+	return types.TypeDecl{}, false
 }
 
 func packageNameFromDir(dir string) (name string, ok bool, err error) {

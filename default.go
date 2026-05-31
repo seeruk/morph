@@ -9,6 +9,7 @@ import (
 const (
 	defaultForwardMapperName = "Map{{ .Source.Package }}{{ .Source.Type }}To{{ .Target.Package }}{{ .Target.Type }}"
 	defaultInverseMapperName = "Map{{ .Source.Package }}{{ .Source.Type }}From{{ .Target.Package }}{{ .Target.Type }}"
+	defaultNestedMapperName  = "mapNested{{ .Source.Package }}{{ .Source.Type }}To{{ .Target.Package }}{{ .Target.Type }}_{{ .RunHash }}"
 )
 
 var defaultTypesDefaults = spec.TypesDefaults{

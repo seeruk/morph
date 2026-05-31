@@ -20,7 +20,7 @@ type NameInput struct {
 	Target     types.Type
 	TypeParams []types.TypeParam
 	Signature  spec.MapperSignature
-	CanError   bool
+	RunHash    string
 }
 
 type nameTemplateData struct {
@@ -28,6 +28,7 @@ type nameTemplateData struct {
 	Target     nameType
 	TypeParams []nameTypeParam
 	Signature  nameSignature
+	RunHash    string
 	CanError   bool
 }
 
@@ -38,7 +39,7 @@ func nameTemplateDataFromInput(input NameInput) nameTemplateData {
 		Target:     nameTypeFromType(input.Target),
 		TypeParams: slicesx.Map(input.TypeParams, nameTypeParamFromTypeParam),
 		Signature:  nameSignatureFromType(signature),
-		CanError:   input.CanError,
+		RunHash:    input.RunHash,
 	}
 }
 
