@@ -32,7 +32,6 @@ type Type struct {
 	SourceType types.Type
 	TargetType types.Type
 	// Function information
-	NameFormat   string
 	FunctionName string
 	TypeParams   []types.TypeParam
 	Signature    spec.MapperSignature

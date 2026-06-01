@@ -28,7 +28,6 @@ type nameTemplateData struct {
 	TypeParams []nameTypeParam
 	Signature  nameSignature
 	RunHash    string
-	CanError   bool
 }
 
 func nameTemplateDataFromInput(input NameInput) nameTemplateData {

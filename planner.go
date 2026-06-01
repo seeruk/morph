@@ -463,7 +463,7 @@ func (p *Planner) shallowRootPlan(
 		structSpec = *typeSpec.Struct
 	}
 
-	return &plan.Type{
+	root := &plan.Type{
 		Source:       plan.TypeRefFromTypeDecl(sourceDecl),
 		Target:       plan.TypeRefFromTypeDecl(targetDecl),
 		SourceDecl:   sourceDecl,
@@ -477,7 +477,11 @@ func (p *Planner) shallowRootPlan(
 		// resolving presets by this point, but we need to use that later.
 		EnumSpec:   *typeSpec.Enum,
 		StructSpec: structSpec,
-	}, nil
+	}
+
+	root.Diagnostics = appendDiagnostic(root.Diagnostics, validateStructFieldMappings(root)...)
+
+	return root, nil
 }
 
 func invertStructSpec(in *spec.Struct) *spec.Struct {
@@ -488,6 +492,67 @@ func invertStructSpec(in *spec.Struct) *spec.Struct {
 	out := *in
 	out.Fields = mapsx.Invert(in.Fields)
 	return &out
+}
+
+func validateStructFieldMappings(typ *plan.Type) []plan.Diagnostic {
+	if len(typ.StructSpec.Fields) == 0 {
+		return nil
+	}
+
+	diagnosticPath := plan.TypesPath(typ.SourceType, typ.TargetType)
+
+	var out []plan.Diagnostic
+
+	sourceFields := plannableFieldsByName(typ.SourceDecl)
+	targetFields := plannableFieldsByName(typ.TargetDecl)
+
+	// Collect and sort source field names so the output of this is stable.
+	sourceFieldNames := slices.Collect(maps.Keys(typ.StructSpec.Fields))
+	slices.Sort(sourceFieldNames)
+
+	sourcesByTarget := make(map[string][]string)
+	targetFieldNames := make([]string, 0, len(sourceFieldNames))
+
+	for _, sourceName := range sourceFieldNames {
+		targetName := typ.StructSpec.Fields[sourceName]
+
+		if _, ok := sourceFields[sourceName]; !ok {
+			out = append(out, plan.Diagnostic{
+				Level:   plan.DiagnosticLevelFatal,
+				Path:    diagnosticPath,
+				Message: fmt.Sprintf("source field %q does not exist or is not plannable", sourceName),
+			})
+		}
+
+		if _, ok := targetFields[targetName]; !ok {
+			out = append(out, plan.Diagnostic{
+				Level:   plan.DiagnosticLevelFatal,
+				Path:    diagnosticPath,
+				Message: fmt.Sprintf("target field %q does not exist or is not plannable", targetName),
+			})
+		}
+
+		if _, ok := sourcesByTarget[targetName]; !ok {
+			targetFieldNames = append(targetFieldNames, targetName)
+		}
+
+		sourcesByTarget[targetName] = append(sourcesByTarget[targetName], sourceName)
+	}
+
+	slices.Sort(targetFieldNames)
+
+	for _, targetName := range targetFieldNames {
+		sourceNames := sourcesByTarget[targetName]
+		if len(sourceNames) > 1 {
+			out = append(out, plan.Diagnostic{
+				Level:   plan.DiagnosticLevelFatal,
+				Path:    diagnosticPath,
+				Message: fmt.Sprintf("target field %q is mapped from multiple source fields %q", targetName, sourceNames),
+			})
+		}
+	}
+
+	return out
 }
 
 // addExplicitRoot records an explicitly requested mapper in the shallow plan. It keeps one
@@ -646,9 +711,11 @@ func (p *Planner) planType(typ *plan.Type) {
 	case isStructType(typ.SourceDecl) && isStructType(typ.TargetDecl):
 		p.planStruct(typ)
 	default:
-		// TODO: Error? Diagnostics? Need to make a decision about that... ideally we wouldn't just
-		//  error once and make people need to solve one problem at a time.
-		return
+		typ.Diagnostics = appendDiagnostic(typ.Diagnostics, plan.Diagnostic{
+			Level:   plan.DiagnosticLevelFatal,
+			Path:    plan.TypesPath(typ.SourceType, typ.TargetType),
+			Message: "unsupported type mapping requested",
+		})
 	}
 
 	p.diagnostics = appendDiagnostic(p.diagnostics, typ.Diagnostics...)

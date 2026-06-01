@@ -49,10 +49,6 @@ func (p *Planner) planValue(sourceType, targetType types.Type, path string) plan
 	sourceType = types.UnwrapAlias(sourceType)
 	targetType = types.UnwrapAlias(targetType)
 
-	if sourceType.Kind == types.TypeKindPointer || targetType.Kind == types.TypeKindPointer {
-		return p.planPointerMapping(sourceType, targetType, path)
-	}
-
 	// If there's a user-supplied, explicit function to use for this pair of types, prefer it.
 	if fn, ok := p.discoverFunctionCallable(sourceType, targetType, plan.CallableSourceUser); ok {
 		return plan.Value{
@@ -87,6 +83,10 @@ func (p *Planner) planValue(sourceType, targetType types.Type, path string) plan
 			Callable:  new(callable),
 			CanError:  callable.ReturnsError,
 		}
+	}
+
+	if sourceType.Kind == types.TypeKindPointer || targetType.Kind == types.TypeKindPointer {
+		return p.planPointerMapping(sourceType, targetType, path)
 	}
 
 	switch {

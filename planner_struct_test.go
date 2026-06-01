@@ -298,6 +298,73 @@ func TestPlannerPlanStruct(t *testing.T) {
 	})
 }
 
+func TestValidateStructFieldMappings(t *testing.T) {
+	t.Run("reports missing source fields", func(t *testing.T) {
+		sourceDecl := testStructDecl("module.test/from", "Recipe", map[string]types.Field{
+			"DisplayName": testField("DisplayName", basicTestType("string")),
+		})
+		targetDecl := testStructDecl("module.test/to", "Recipe", map[string]types.Field{
+			"Name": testField("Name", basicTestType("string")),
+		})
+		typ := testStructPlanType(sourceDecl, targetDecl, spec.Struct{
+			Fields: map[string]string{
+				"MissingName": "Name",
+			},
+		})
+
+		got := validateStructFieldMappings(&typ)
+		require.Len(t, got, 1)
+
+		assert.Equal(t, plan.DiagnosticLevelFatal, got[0].Level)
+		assert.Equal(t, plan.TypesPath(typ.SourceType, typ.TargetType), got[0].Path)
+		assert.Equal(t, `source field "MissingName" does not exist or is not plannable`, got[0].Message)
+	})
+
+	t.Run("reports missing target fields", func(t *testing.T) {
+		sourceDecl := testStructDecl("module.test/from", "Recipe", map[string]types.Field{
+			"DisplayName": testField("DisplayName", basicTestType("string")),
+		})
+		targetDecl := testStructDecl("module.test/to", "Recipe", map[string]types.Field{
+			"Name": testField("Name", basicTestType("string")),
+		})
+		typ := testStructPlanType(sourceDecl, targetDecl, spec.Struct{
+			Fields: map[string]string{
+				"DisplayName": "MissingName",
+			},
+		})
+
+		got := validateStructFieldMappings(&typ)
+		require.Len(t, got, 1)
+
+		assert.Equal(t, plan.DiagnosticLevelFatal, got[0].Level)
+		assert.Equal(t, plan.TypesPath(typ.SourceType, typ.TargetType), got[0].Path)
+		assert.Equal(t, `target field "MissingName" does not exist or is not plannable`, got[0].Message)
+	})
+
+	t.Run("reports duplicate target fields", func(t *testing.T) {
+		sourceDecl := testStructDecl("module.test/from", "Recipe", map[string]types.Field{
+			"DisplayName":   testField("DisplayName", basicTestType("string")),
+			"SecondaryName": testField("SecondaryName", basicTestType("string")),
+		})
+		targetDecl := testStructDecl("module.test/to", "Recipe", map[string]types.Field{
+			"Name": testField("Name", basicTestType("string")),
+		})
+		typ := testStructPlanType(sourceDecl, targetDecl, spec.Struct{
+			Fields: map[string]string{
+				"DisplayName":   "Name",
+				"SecondaryName": "Name",
+			},
+		})
+
+		got := validateStructFieldMappings(&typ)
+		require.Len(t, got, 1)
+
+		assert.Equal(t, plan.DiagnosticLevelFatal, got[0].Level)
+		assert.Equal(t, plan.TypesPath(typ.SourceType, typ.TargetType), got[0].Path)
+		assert.Equal(t, `target field "Name" is mapped from multiple source fields ["DisplayName" "SecondaryName"]`, got[0].Message)
+	})
+}
+
 func TestInvertStructSpec(t *testing.T) {
 	t.Run("returns nil for nil struct specs", func(t *testing.T) {
 		assert.Nil(t, invertStructSpec(nil))

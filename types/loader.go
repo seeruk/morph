@@ -347,10 +347,6 @@ func (s *typeLoadState) loadType(typ types.Type) Type {
 	}
 }
 
-func loadInterfaceMethods(iface *types.Interface) map[string]Method {
-	return newTypeLoadState().loadInterfaceMethods(iface)
-}
-
 func (s *typeLoadState) loadInterfaceMethods(iface *types.Interface) map[string]Method {
 	methods := make(map[string]Method, iface.NumMethods())
 	for i := 0; i < iface.NumMethods(); i++ {
@@ -488,10 +484,6 @@ func (s *typeLoadState) loadTypeParams(params *types.TypeParamList) []TypeParam 
 	}
 
 	return out
-}
-
-func loadTypeArgs(list *types.TypeList) []Type {
-	return newTypeLoadState().loadTypeArgs(list)
 }
 
 func (s *typeLoadState) loadTypeArgs(list *types.TypeList) []Type {
