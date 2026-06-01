@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/seeruk/morph/internal/mapsx"
 	"github.com/seeruk/morph/internal/slicesx"
 	"github.com/seeruk/morph/plan"
 	"github.com/seeruk/morph/spec"
@@ -56,6 +57,9 @@ type Planner struct {
 	// plannedOutputFiles is a map of the logical paths of all output files Morph is planning to
 	// generate. This is useful for discovering functions in files we're about to generate.
 	plannedOutputFiles map[string]struct{}
+	// planningMappings contains mappings currently being planned. This prevents recursive nested
+	// struct mappings from repeatedly attempting to plan themselves.
+	planningMappings map[string]struct{}
 	// shallowMappings contains the type mapper keys of all mappings currently shallow planned.
 	// As shallow plans are made, they'll be added to this map.
 	// As these mappings are fully planned, they will be removed from this map.
@@ -75,6 +79,7 @@ func NewPlanner(specification Spec, workingDir, ident string) *Planner {
 		mappings:           make(map[string]*plan.Type),
 		plannedFunctions:   make(map[spec.CallableRef]string),
 		plannedOutputFiles: make(map[string]struct{}),
+		planningMappings:   make(map[string]struct{}),
 		shallowMappings:    make(map[string]struct{}),
 	}
 }
@@ -418,7 +423,10 @@ func (p *Planner) shallowTypePlan(
 	}
 
 	if typeSpec.Bidirectional != nil && *typeSpec.Bidirectional {
-		inverse, err = p.shallowRootPlan(targetDecl, sourceDecl, typeSpec, typeSpec.Mappers.Inverse)
+		inverseTypeSpec := typeSpec
+		inverseTypeSpec.Struct = invertStructSpec(typeSpec.Struct)
+
+		inverse, err = p.shallowRootPlan(targetDecl, sourceDecl, inverseTypeSpec, typeSpec.Mappers.Inverse)
 		if err != nil {
 			return nil, nil, fmt.Errorf("type %q -> %q inverse: %w", typeSpec.Source, typeSpec.Target, err)
 		}
@@ -470,6 +478,16 @@ func (p *Planner) shallowRootPlan(
 		EnumSpec:   *typeSpec.Enum,
 		StructSpec: structSpec,
 	}, nil
+}
+
+func invertStructSpec(in *spec.Struct) *spec.Struct {
+	if in == nil {
+		return nil
+	}
+
+	out := *in
+	out.Fields = mapsx.Invert(in.Fields)
+	return &out
 }
 
 // addExplicitRoot records an explicitly requested mapper in the shallow plan. It keeps one
@@ -608,12 +626,19 @@ func (p *Planner) planOutputGroup(outputGroup plan.OutputGroup) {
 func (p *Planner) planType(typ *plan.Type) {
 	key := plan.TypeMapperKey(typ.Source, typ.Target, typ.Signature)
 
+	if _, isPlanning := p.planningMappings[key]; isPlanning {
+		return
+	}
+
 	_, isMapped := p.mappings[key]
 	_, isShallow := p.shallowMappings[key]
 	if isMapped && !isShallow {
 		// This one is already done.
 		return
 	}
+
+	p.planningMappings[key] = struct{}{}
+	defer delete(p.planningMappings, key)
 
 	switch {
 	case isEnumType(typ.SourceDecl) && isEnumType(typ.TargetDecl):
@@ -625,6 +650,8 @@ func (p *Planner) planType(typ *plan.Type) {
 		//  error once and make people need to solve one problem at a time.
 		return
 	}
+
+	p.diagnostics = appendDiagnostic(p.diagnostics, typ.Diagnostics...)
 
 	// Mark this as fully planned.
 	delete(p.shallowMappings, key)

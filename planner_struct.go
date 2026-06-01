@@ -11,23 +11,25 @@ import (
 )
 
 func (p *Planner) planStruct(typ *plan.Type) {
-	targetFields := plannableFieldsByName(typ.TargetDecl)
+	targetFields := plannableFields(typ.TargetDecl)
 
 	var structPlan plan.Struct
 	for _, targetField := range targetFields {
 		sourceField, ok := matchingField(targetField, typ.SourceDecl, typ.StructSpec.Fields)
 		if !ok {
-			p.diagnostics = appendDiagnostic(p.diagnostics, plan.Diagnostic{
+			diagnostic := plan.Diagnostic{
 				Level:   plan.DiagnosticLevelWarning,
 				Path:    plan.TypesPath(typ.SourceType, typ.TargetType),
 				Message: fmt.Sprintf("no source field found for target field %q", targetField.Name),
-			})
+			}
+			typ.Diagnostics = appendDiagnostic(typ.Diagnostics, diagnostic)
 			continue
 		}
 
 		fieldPath := plan.FieldPath(typ.SourceType, typ.TargetType, sourceField)
 
 		valuePlan := p.planValue(sourceField.Type, targetField.Type, fieldPath)
+		typ.Diagnostics = appendDiagnostic(typ.Diagnostics, valuePlan.Diagnostics...)
 		if valuePlan.CanError {
 			// Once set to true by any value mapping, this is never set back to false
 			typ.CanError = true
@@ -177,21 +179,7 @@ func (p *Planner) planValue(sourceType, targetType types.Type, path string) plan
 // refer to it in the plan. We already have the shallow plan, really the key thing we need to know
 // is will this explicit root error, which can only identify if we fully plan it.
 func (p *Planner) planExplicitRoot(source, target types.Type) (plan.Value, bool) {
-	// Find the shallow plan, to do this we can't use the key.
-	// TODO: Can we map the same source and target types with different signatures? In which case,
-	//  would just prefer the best match here?
-
-	sourceRef := plan.TypeRefFromType(source)
-	targetRef := plan.TypeRefFromType(target)
-
-	var typePlan *plan.Type
-	for _, root := range p.explicitRoots {
-		if root.Source == sourceRef && root.Target == targetRef {
-			typePlan = root
-			break
-		}
-	}
-
+	typePlan := p.explicitRoot(source, target)
 	if typePlan == nil {
 		return plan.Value{}, false
 	}
@@ -199,7 +187,7 @@ func (p *Planner) planExplicitRoot(source, target types.Type) (plan.Value, bool)
 	p.planType(typePlan)
 
 	operation := plan.OperationStruct
-	if len(typePlan.Enum.Values) > 0 || isEnumType(typePlan.SourceDecl) && isEnumType(typePlan.TargetDecl) {
+	if typePlan.Enum != nil || isEnumType(typePlan.SourceDecl) && isEnumType(typePlan.TargetDecl) {
 		operation = plan.OperationEnum
 	}
 
@@ -211,6 +199,48 @@ func (p *Planner) planExplicitRoot(source, target types.Type) (plan.Value, bool)
 		CanError:    typePlan.CanError,
 		Diagnostics: typePlan.Diagnostics,
 	}, true
+}
+
+func (p *Planner) explicitRoot(source, target types.Type) *plan.Type {
+	sourceRef := plan.TypeRefFromType(source)
+	targetRef := plan.TypeRefFromType(target)
+
+	var candidates []*plan.Type
+	for _, root := range p.explicitRoots {
+		if root.Source == sourceRef && root.Target == targetRef {
+			candidates = append(candidates, root)
+		}
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	slices.SortFunc(candidates, func(a, b *plan.Type) int {
+		aRank := explicitRootSignatureRank(a.Signature)
+		bRank := explicitRootSignatureRank(b.Signature)
+		if aRank != bRank {
+			return aRank - bRank
+		}
+		if a.FunctionName != b.FunctionName {
+			return strings.Compare(a.FunctionName, b.FunctionName)
+		}
+		return strings.Compare(plan.SignatureKey(a.Signature), plan.SignatureKey(b.Signature))
+	})
+
+	return candidates[0]
+}
+
+func explicitRootSignatureRank(signature spec.MapperSignature) int {
+	signature = mapperSignatureWithDefaults(signature, defaultMapperSignature)
+
+	rank := 0
+	if *signature.Accepts == spec.ParameterKindPointer {
+		rank += 1
+	}
+	if *signature.Returns == spec.ParameterKindPointer {
+		rank += 2
+	}
+	return rank
 }
 
 func (p *Planner) planNestedStruct(source, target types.Type, path string) (plan.Value, bool) {
@@ -247,12 +277,27 @@ func (p *Planner) planNestedStruct(source, target types.Type, path string) (plan
 		// field mapping this type pair would have to be defined explicitly.
 	}
 
+	key := plan.TypeMapperKey(nested.Source, nested.Target, nested.Signature)
+	if existing, ok := p.mappings[key]; ok {
+		p.planType(existing)
+		return plan.Value{
+			Operation:   plan.OperationStruct,
+			Source:      source,
+			Target:      target,
+			Plan:        existing,
+			CanError:    existing.CanError,
+			Diagnostics: existing.Diagnostics,
+		}, true
+	}
+
 	var err error
 	nested.FunctionName, err = p.nestedFunctionName(sourceDecl, targetDecl)
 	if err != nil {
 		return unsupportedMapping(source, target, path, fmt.Sprintf("failed to generated nested function name: %v", err)), false
 	}
 
+	p.mappings[key] = &nested
+	p.shallowMappings[key] = struct{}{}
 	p.planType(&nested)
 
 	return plan.Value{
@@ -832,21 +877,27 @@ func matchingField(
 ) (field types.Field, ok bool) {
 	fields := plannableFieldsByName(typeDecl)
 
-	// Explicit field mapping takes precedence, as it's user-specified.
-	if mappedName, ok := mapping[needle.Name]; ok {
-		if field, ok = fields[mappedName]; ok {
-			return field, ok
+	// Explicit field mappings are source -> target, so search for a source field whose mapped
+	// target name matches this target field.
+	if len(mapping) > 0 {
+		for _, sourceField := range plannableFields(typeDecl) {
+			if mapping[sourceField.Name] == needle.Name {
+				return sourceField, true
+			}
 		}
 	}
 
 	// Then we'll fall back to exact name matching.
 	if field, ok = fields[needle.Name]; ok {
-		return field, ok
+		if fieldAvailableForTarget(field, needle.Name, mapping) {
+			return field, ok
+		}
 	}
 
 	// If that didn't work, we'll try case-insensitive matching.
-	for _, field := range fields {
-		if strings.EqualFold(field.Name, needle.Name) {
+	for _, field := range plannableFields(typeDecl) {
+		if strings.EqualFold(field.Name, needle.Name) &&
+			fieldAvailableForTarget(field, needle.Name, mapping) {
 			return field, true
 		}
 	}
@@ -858,6 +909,11 @@ func matchingField(
 	return field, false
 }
 
+func fieldAvailableForTarget(field types.Field, targetName string, mapping map[string]string) bool {
+	mappedName, ok := mapping[field.Name]
+	return !ok || mappedName == targetName
+}
+
 func operationForCallable(callable plan.CallableRef) plan.Operation {
 	if callable.Kind == plan.CallableKindMethod {
 		return plan.OperationMethod
@@ -865,13 +921,26 @@ func operationForCallable(callable plan.CallableRef) plan.Operation {
 	return plan.OperationFunction
 }
 
-func plannableFieldsByName(typeDecl types.TypeDecl) map[string]types.Field {
-	out := make(map[string]types.Field)
+func plannableFields(typeDecl types.TypeDecl) []types.Field {
+	out := make([]types.Field, 0, len(typeDecl.Fields))
 	for _, field := range typeDecl.Fields {
 		if !field.IsExported || field.IsEmbedded {
 			// We only support regular, exported fields currently.
 			continue
 		}
+		out = append(out, field)
+	}
+
+	slices.SortFunc(out, func(a, b types.Field) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+
+	return out
+}
+
+func plannableFieldsByName(typeDecl types.TypeDecl) map[string]types.Field {
+	out := make(map[string]types.Field)
+	for _, field := range plannableFields(typeDecl) {
 		out[field.Name] = field
 	}
 	return out
