@@ -499,6 +499,50 @@ func TestPlannerPlanRecursiveNestedStructs(t *testing.T) {
 	assert.Same(t, first, next.Mapping.Elem.Plan)
 }
 
+func TestPlannerPlanGenericNestedStructs(t *testing.T) {
+	engine := New(".")
+	out, err := engine.Plan(Spec{
+		Packages: []spec.Package{{
+			Source: "github.com/seeruk/morph/testdata/planner/from",
+			Target: "github.com/seeruk/morph/testdata/planner/to",
+			Types: []spec.Type{{
+				Name: "GenericContainer",
+			}},
+		}},
+	}, "morph.yaml")
+
+	require.NoError(t, err)
+	require.Len(t, out.OutputGroups, 1)
+	require.Len(t, out.OutputGroups[0].Roots, 1)
+
+	root := out.OutputGroups[0].Roots[0]
+	require.NotNil(t, root.StructPlan)
+
+	intBox := requirePlanField(t, root.StructPlan, "IntBox")
+	stringBox := requirePlanField(t, root.StructPlan, "StringBox")
+	require.NotNil(t, intBox.Mapping.Plan)
+	require.NotNil(t, stringBox.Mapping.Plan)
+
+	assert.NotSame(t, stringBox.Mapping.Plan, intBox.Mapping.Plan)
+	assert.NotEqual(t, stringBox.Mapping.Plan.FunctionName, intBox.Mapping.Plan.FunctionName)
+	assert.NotEqual(t, stringBox.Mapping.Plan.Source.Key, intBox.Mapping.Plan.Source.Key)
+	assert.NotEqual(t, stringBox.Mapping.Plan.Target.Key, intBox.Mapping.Plan.Target.Key)
+
+	intValue := requirePlanField(t, intBox.Mapping.Plan.StructPlan, "Value")
+	assert.Equal(t, plan.OperationConvert, intValue.Mapping.Operation)
+	assert.Equal(t, types.TypeKindBasic, intValue.Mapping.Source.Kind)
+	assert.Equal(t, "int", intValue.Mapping.Source.Name)
+	assert.Equal(t, types.TypeKindBasic, intValue.Mapping.Target.Kind)
+	assert.Equal(t, "int64", intValue.Mapping.Target.Name)
+
+	stringValue := requirePlanField(t, stringBox.Mapping.Plan.StructPlan, "Value")
+	assert.Equal(t, plan.OperationAssign, stringValue.Mapping.Operation)
+	assert.Equal(t, types.TypeKindBasic, stringValue.Mapping.Source.Kind)
+	assert.Equal(t, "string", stringValue.Mapping.Source.Name)
+	assert.Equal(t, types.TypeKindBasic, stringValue.Mapping.Target.Kind)
+	assert.Equal(t, "string", stringValue.Mapping.Target.Name)
+}
+
 func functionCandidates(sourceType, targetType types.Type, fns ...types.FunctionDecl) map[plan.CallableRef]callableCompatibility {
 	out := make(map[plan.CallableRef]callableCompatibility, len(fns))
 	for _, fn := range fns {
@@ -509,6 +553,20 @@ func functionCandidates(sourceType, targetType types.Type, fns ...types.Function
 		out[callable] = assessFunctionCompatibility(sourceType, targetType, fn)
 	}
 	return out
+}
+
+func requirePlanField(t *testing.T, structPlan *plan.Struct, targetName string) plan.Field {
+	t.Helper()
+
+	require.NotNil(t, structPlan)
+	for _, field := range structPlan.Fields {
+		if field.TargetField.Name == targetName {
+			return field
+		}
+	}
+
+	require.Failf(t, "field not planned", "target field %q was not planned", targetName)
+	return plan.Field{}
 }
 
 func testStructPlanType(sourceDecl, targetDecl types.TypeDecl, structSpec spec.Struct) plan.Type {

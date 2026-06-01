@@ -570,6 +570,9 @@ func (p *Planner) addExplicitRoot(
 		if existing.FunctionName != root.FunctionName {
 			return fmt.Errorf("conflicting mapper names %q and %q for %s", existing.FunctionName, root.FunctionName, mapperKey)
 		}
+		if !sameRootPlanningConfig(existing, root) {
+			return fmt.Errorf("conflicting mapper configuration for %s", mapperKey)
+		}
 		root = existing
 	} else {
 		p.explicitRoots[mapperKey] = root
@@ -598,6 +601,39 @@ func (p *Planner) addExplicitRoot(
 	outputGroup.Roots = append(outputGroup.Roots, root)
 	outputGroups[location] = outputGroup
 	return nil
+}
+
+func sameRootPlanningConfig(a, b *plan.Type) bool {
+	return sameEnumSpec(a.EnumSpec, b.EnumSpec) &&
+		sameStructSpec(a.StructSpec, b.StructSpec)
+}
+
+func sameEnumSpec(a, b spec.Enum) bool {
+	return ptrEqual(a.FailureMode, b.FailureMode) &&
+		sameEnumPatterns(a.Patterns, b.Patterns) &&
+		maps.Equal(a.Values, b.Values)
+}
+
+func sameEnumPatterns(a, b *spec.EnumPatterns) bool {
+	if a == nil || b == nil {
+		return enumPatternsEmpty(a) && enumPatternsEmpty(b)
+	}
+	return *a == *b
+}
+
+func enumPatternsEmpty(patterns *spec.EnumPatterns) bool {
+	return patterns == nil || *patterns == (spec.EnumPatterns{})
+}
+
+func sameStructSpec(a, b spec.Struct) bool {
+	return maps.Equal(a.Fields, b.Fields)
+}
+
+func ptrEqual[T comparable](a, b *T) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 func (p *Planner) isFunctionPendingGeneration(fn types.FunctionDecl, ref spec.CallableRef) bool {

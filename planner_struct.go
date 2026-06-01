@@ -11,11 +11,12 @@ import (
 )
 
 func (p *Planner) planStruct(typ *plan.Type) {
-	targetFields := plannableFields(typ.TargetDecl)
+	sourceFields := plannableFieldsForType(typ.SourceDecl, typ.SourceType)
+	targetFields := plannableFieldsForType(typ.TargetDecl, typ.TargetType)
 
 	var structPlan plan.Struct
 	for _, targetField := range targetFields {
-		sourceField, ok := matchingField(targetField, typ.SourceDecl, typ.StructSpec.Fields)
+		sourceField, ok := matchingField(targetField, sourceFields, typ.StructSpec.Fields)
 		if !ok {
 			diagnostic := plan.Diagnostic{
 				Level:   plan.DiagnosticLevelWarning,
@@ -264,13 +265,13 @@ func (p *Planner) planNestedStruct(source, target types.Type, path string) (plan
 	}
 
 	nested := plan.Type{
-		Source:     plan.TypeRefFromTypeDecl(sourceDecl),
-		Target:     plan.TypeRefFromTypeDecl(targetDecl),
+		Source:     plan.TypeRefFromType(source),
+		Target:     plan.TypeRefFromType(target),
 		SourceDecl: sourceDecl,
 		TargetDecl: targetDecl,
 		SourceType: source,
 		TargetType: target,
-		TypeParams: sourceDecl.Type.TypeParams,
+		TypeParams: concreteTypeParams(sourceDecl, source),
 		Signature:  defaultMapperSignature,
 		EnumSpec:   enumSpec,
 		// We can't set structSpec in this case, because it's just field mapping currently. To have
@@ -291,7 +292,7 @@ func (p *Planner) planNestedStruct(source, target types.Type, path string) (plan
 	}
 
 	var err error
-	nested.FunctionName, err = p.nestedFunctionName(sourceDecl, targetDecl)
+	nested.FunctionName, err = p.nestedFunctionName(source, target)
 	if err != nil {
 		return unsupportedMapping(source, target, path, fmt.Sprintf("failed to generated nested function name: %v", err)), false
 	}
@@ -836,13 +837,22 @@ func maxSafeNumericConversionBits(name string) (numericInfo, bool) {
 	}
 }
 
-func (p *Planner) nestedFunctionName(sourceDecl, targetDecl types.TypeDecl) (string, error) {
+func (p *Planner) nestedFunctionName(source, target types.Type) (string, error) {
+	runHash := p.runHash
+	if len(source.TypeArgs) > 0 || len(target.TypeArgs) > 0 {
+		typePairHash := stableTypePairHash(source, target)
+		if runHash == "" {
+			runHash = typePairHash
+		} else {
+			runHash += "_" + typePairHash
+		}
+	}
+
 	input := NameInput{
-		Source:     sourceDecl.Type,
-		Target:     targetDecl.Type,
-		TypeParams: sourceDecl.Type.TypeParams,
-		Signature:  mapperSignatureWithDefaults(spec.MapperSignature{}, defaultMapperSignature),
-		RunHash:    p.runHash,
+		Source:    source,
+		Target:    target,
+		Signature: mapperSignatureWithDefaults(spec.MapperSignature{}, defaultMapperSignature),
+		RunHash:   runHash,
 	}
 
 	return MapperName(input, defaultNestedMapperName)
@@ -872,15 +882,15 @@ func isStructType(typ types.TypeDecl) bool {
 
 func matchingField(
 	needle types.Field,
-	typeDecl types.TypeDecl,
+	fields []types.Field,
 	mapping map[string]string,
 ) (field types.Field, ok bool) {
-	fields := plannableFieldsByName(typeDecl)
+	fieldsByFieldName := fieldsByName(fields)
 
 	// Explicit field mappings are source -> target, so search for a source field whose mapped
 	// target name matches this target field.
 	if len(mapping) > 0 {
-		for _, sourceField := range plannableFields(typeDecl) {
+		for _, sourceField := range fields {
 			if mapping[sourceField.Name] == needle.Name {
 				return sourceField, true
 			}
@@ -888,14 +898,14 @@ func matchingField(
 	}
 
 	// Then we'll fall back to exact name matching.
-	if field, ok = fields[needle.Name]; ok {
+	if field, ok = fieldsByFieldName[needle.Name]; ok {
 		if fieldAvailableForTarget(field, needle.Name, mapping) {
 			return field, ok
 		}
 	}
 
 	// If that didn't work, we'll try case-insensitive matching.
-	for _, field := range plannableFields(typeDecl) {
+	for _, field := range fields {
 		if strings.EqualFold(field.Name, needle.Name) &&
 			fieldAvailableForTarget(field, needle.Name, mapping) {
 			return field, true
@@ -922,11 +932,19 @@ func operationForCallable(callable plan.CallableRef) plan.Operation {
 }
 
 func plannableFields(typeDecl types.TypeDecl) []types.Field {
+	return plannableFieldsForType(typeDecl, typeDecl.Type)
+}
+
+func plannableFieldsForType(typeDecl types.TypeDecl, typ types.Type) []types.Field {
+	bindings := concreteTypeParamBindings(typeDecl, typ)
 	out := make([]types.Field, 0, len(typeDecl.Fields))
 	for _, field := range typeDecl.Fields {
 		if !field.IsExported || field.IsEmbedded {
 			// We only support regular, exported fields currently.
 			continue
+		}
+		if len(bindings) > 0 {
+			field.Type = substituteTypeParams(field.Type, bindings)
 		}
 		out = append(out, field)
 	}
@@ -938,9 +956,80 @@ func plannableFields(typeDecl types.TypeDecl) []types.Field {
 	return out
 }
 
+func concreteTypeParamBindings(typeDecl types.TypeDecl, typ types.Type) map[string]types.Type {
+	typ = types.UnwrapAlias(typ)
+	if len(typeDecl.Type.TypeParams) == 0 || len(typeDecl.Type.TypeParams) != len(typ.TypeArgs) {
+		return nil
+	}
+
+	bindings := make(map[string]types.Type, len(typeDecl.Type.TypeParams))
+	for i, param := range typeDecl.Type.TypeParams {
+		bindings[param.Name] = typ.TypeArgs[i]
+	}
+	return bindings
+}
+
+func concreteTypeParams(typeDecl types.TypeDecl, typ types.Type) []types.TypeParam {
+	typ = types.UnwrapAlias(typ)
+	if len(typ.TypeArgs) == 0 {
+		return typeDecl.Type.TypeParams
+	}
+
+	paramsByName := make(map[string]types.TypeParam, len(typeDecl.Type.TypeParams))
+	for _, param := range typeDecl.Type.TypeParams {
+		paramsByName[param.Name] = param
+	}
+
+	var out []types.TypeParam
+	seen := make(map[string]struct{})
+	for _, arg := range typ.TypeArgs {
+		collectTypeParams(&out, seen, paramsByName, arg)
+	}
+	return out
+}
+
+func collectTypeParams(
+	out *[]types.TypeParam,
+	seen map[string]struct{},
+	paramsByName map[string]types.TypeParam,
+	typ types.Type,
+) {
+	typ = types.UnwrapAlias(typ)
+	if typ.Kind == types.TypeKindTypeParam {
+		if _, ok := seen[typ.Name]; ok {
+			return
+		}
+		seen[typ.Name] = struct{}{}
+
+		param, ok := paramsByName[typ.Name]
+		if !ok {
+			param = types.TypeParam{Name: typ.Name}
+		}
+		*out = append(*out, param)
+		return
+	}
+
+	if typ.Elem != nil {
+		collectTypeParams(out, seen, paramsByName, *typ.Elem)
+	}
+	if typ.Key != nil {
+		collectTypeParams(out, seen, paramsByName, *typ.Key)
+	}
+	if typ.Value != nil {
+		collectTypeParams(out, seen, paramsByName, *typ.Value)
+	}
+	for _, arg := range typ.TypeArgs {
+		collectTypeParams(out, seen, paramsByName, arg)
+	}
+}
+
 func plannableFieldsByName(typeDecl types.TypeDecl) map[string]types.Field {
-	out := make(map[string]types.Field)
-	for _, field := range plannableFields(typeDecl) {
+	return fieldsByName(plannableFields(typeDecl))
+}
+
+func fieldsByName(fields []types.Field) map[string]types.Field {
+	out := make(map[string]types.Field, len(fields))
+	for _, field := range fields {
 		out[field.Name] = field
 	}
 	return out

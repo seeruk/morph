@@ -51,6 +51,47 @@ func TestPlanner_addExplicitRoot(t *testing.T) {
 		assert.Same(t, root, outputGroups[location].Roots[0])
 	})
 
+	t.Run("should treat empty and omitted mapper configuration as matching", func(t *testing.T) {
+		planner := NewPlanner(Spec{}, ".", "morph.yaml")
+		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
+		location := testOutputLocation("github.com/seeruk/morph/out", "/repo/out/morph.gen.go")
+		root := testPlanType("source.User", "target.User", "MapUser")
+		duplicate := testPlanType("source.User", "target.User", "MapUser")
+		duplicate.StructSpec = spec.Struct{Fields: map[string]string{}}
+		duplicate.EnumSpec = spec.Enum{
+			Patterns: &spec.EnumPatterns{},
+			Values:   map[string]string{},
+		}
+
+		require.NoError(t, planner.addExplicitRoot(outputGroups, location, root))
+
+		err := planner.addExplicitRoot(outputGroups, location, duplicate)
+		require.NoError(t, err)
+
+		require.Len(t, outputGroups[location].Roots, 1)
+		assert.Same(t, root, outputGroups[location].Roots[0])
+	})
+
+	t.Run("should error when the same mapper has different configuration", func(t *testing.T) {
+		planner := NewPlanner(Spec{}, ".", "morph.yaml")
+		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
+		location := testOutputLocation("github.com/seeruk/morph/out", "/repo/out/morph.gen.go")
+		root := testPlanType("source.User", "target.User", "MapUser")
+		conflicting := testPlanType("source.User", "target.User", "MapUser")
+		conflicting.StructSpec = spec.Struct{
+			Fields: map[string]string{
+				"UserId": "ID",
+			},
+		}
+
+		require.NoError(t, planner.addExplicitRoot(outputGroups, location, root))
+
+		err := planner.addExplicitRoot(outputGroups, location, conflicting)
+		require.Error(t, err)
+
+		assert.ErrorContains(t, err, "conflicting mapper configuration")
+	})
+
 	t.Run("should error when the same mapper has different function names", func(t *testing.T) {
 		planner := NewPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)

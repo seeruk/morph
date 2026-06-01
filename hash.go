@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"github.com/seeruk/morph/types"
 )
 
 // stableRunHash attempts to build a stable hash for a run of Morph, which is unique to the module,
@@ -33,4 +35,18 @@ func stableRunHash(ws *Workspace, ident string) (string, error) {
 		EncodeToString(sum[:])
 
 	return strings.ToLower(encoded[:10]), nil
+}
+
+func stableTypePairHash(source, target types.Type) string {
+	fields := []string{
+		"morph-type-pair/v1",
+		types.TypeKey(source),
+		types.TypeKey(target),
+	}
+
+	sum := sha256.Sum256([]byte(strings.Join(fields, "\x00")))
+	encoded := base32.StdEncoding.WithPadding(base32.NoPadding).
+		EncodeToString(sum[:])
+
+	return strings.ToLower(encoded[:10])
 }
