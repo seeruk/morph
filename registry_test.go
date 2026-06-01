@@ -9,88 +9,88 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCallableFromMethod(t *testing.T) {
-	sourceType := types.Type{
-		Kind:    types.TypeKindNamed,
-		Name:    "UserID",
-		Package: types.PackageRef{Name: "from", ImportPath: "module.test/from"},
-	}
-	targetType := types.Type{
-		Kind:   types.TypeKindBasic,
-		Name:   "string",
-		String: "string",
-	}
+func TestFunctionRegistry(t *testing.T) {
+	sourceType := namedTestType("module.test/from", "User")
+	targetType := namedTestType("module.test/to", "User")
 
-	tests := []struct {
-		name   string
-		method types.Method
-	}{
-		{
-			name: "should reject methods without receivers",
-			method: types.Method{
-				Name:    "String",
-				Results: []types.Parameter{{Type: targetType}},
-			},
-		},
-		{
-			name: "should reject methods with explicit params",
-			method: types.Method{
-				Owner:    sourceType,
-				Receiver: &types.Parameter{Type: sourceType},
-				Name:     "Format",
-				Params:   []types.Parameter{{Type: targetType}},
-				Results:  []types.Parameter{{Type: targetType}},
-			},
-		},
-		{
-			name: "should reject methods without results",
-			method: types.Method{
-				Owner:    sourceType,
-				Receiver: &types.Parameter{Type: sourceType},
-				Name:     "Clear",
-			},
-		},
-	}
+	t.Run("should initialize and return registered candidates", func(t *testing.T) {
+		registry := newFunctionRegistry()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, ok := plan.CallableRefFromMethod(tt.method, plan.CallableSourceUser)
-			assert.False(t, ok)
-		})
-	}
+		fn := testFunctionDecl("MapUser", sourceType, targetType)
+		require.True(t, registry.Register(fn, plan.CallableSourceUser))
 
-	t.Run("should use the receiver as the source type", func(t *testing.T) {
-		callable, ok := plan.CallableRefFromMethod(types.Method{
-			Owner:    sourceType,
-			Receiver: &types.Parameter{Type: sourceType},
-			Name:     "String",
-			Results:  []types.Parameter{{Type: targetType}},
-		}, plan.CallableSourceUser)
-
-		require.True(t, ok)
-		assert.Equal(t, plan.CallableKindMethod, callable.Kind)
-		assert.Equal(t, plan.CallableSourceUser, callable.Source)
-		assert.Equal(t, "String", callable.Name)
-		assert.Equal(t, plan.TypeRefFromType(sourceType), callable.SourceType)
-		assert.Equal(t, plan.TypeRefFromType(targetType), callable.TargetType)
-		assert.Equal(t, sourceType.Package, callable.Package)
+		got := registry.Candidates(sourceType, targetType, plan.CallableSourceUser)
+		require.Len(t, got, 1)
+		assert.Equal(t, "MapUser", got[0].Name)
 	})
 
-	t.Run("should use the owner as the callable package for pointer receivers", func(t *testing.T) {
-		pointerSource := types.Type{
-			Kind: types.TypeKindPointer,
-			Elem: &sourceType,
-		}
+	t.Run("should look up candidates without generic arguments", func(t *testing.T) {
+		registry := newFunctionRegistry()
 
-		callable, ok := plan.CallableRefFromMethod(types.Method{
-			Owner:    sourceType,
-			Receiver: &types.Parameter{Type: pointerSource},
-			Name:     "String",
-			Results:  []types.Parameter{{Type: targetType}},
-		}, plan.CallableSourceUser)
+		typeParam := typeParamTestType("T")
+		stringType := basicTestType("string")
+		sourceGeneric := namedTestType("module.test/from", "Optional", typeParam)
+		targetGeneric := namedTestType("module.test/to", "Optional", typeParam)
+		sourceConcrete := namedTestType("module.test/from", "Optional", stringType)
+		targetConcrete := namedTestType("module.test/to", "Optional", stringType)
 
-		require.True(t, ok)
-		assert.Equal(t, plan.TypeRefFromType(pointerSource), callable.SourceType)
-		assert.Equal(t, sourceType.Package, callable.Package)
+		require.True(t, registry.Register(testFunctionDecl("MapOptional", sourceGeneric, targetGeneric), plan.CallableSourceDiscovered))
+
+		got := registry.Candidates(sourceConcrete, targetConcrete, plan.CallableSourceDiscovered)
+		require.Len(t, got, 1)
+		assert.Equal(t, "MapOptional", got[0].Name)
+	})
+
+	t.Run("should only return functions from the requested source", func(t *testing.T) {
+		registry := newFunctionRegistry()
+		require.True(t, registry.Register(testFunctionDecl("UserMap", sourceType, targetType), plan.CallableSourceUser))
+		require.True(t, registry.Register(testFunctionDecl("DiscoveredMap", sourceType, targetType), plan.CallableSourceDiscovered))
+
+		got := registry.Candidates(sourceType, targetType, plan.CallableSourceUser)
+		require.Len(t, got, 1)
+		assert.Equal(t, "UserMap", got[0].Name)
+	})
+
+	t.Run("should distinguish target packages", func(t *testing.T) {
+		registry := newFunctionRegistry()
+		otherTargetType := namedTestType("module.test/other", "User")
+		require.True(t, registry.Register(testFunctionDecl("MapToTarget", sourceType, targetType), plan.CallableSourceDiscovered))
+		require.True(t, registry.Register(testFunctionDecl("MapToOther", sourceType, otherTargetType), plan.CallableSourceDiscovered))
+
+		got := registry.Candidates(sourceType, targetType, plan.CallableSourceDiscovered)
+		require.Len(t, got, 1)
+		assert.Equal(t, "MapToTarget", got[0].Name)
+	})
+
+	t.Run("should return pointer input candidates", func(t *testing.T) {
+		registry := newFunctionRegistry()
+		require.True(t, registry.Register(testFunctionDecl("MapUserPtr", pointerTestType(sourceType), targetType), plan.CallableSourceDiscovered))
+
+		got := registry.Candidates(sourceType, targetType, plan.CallableSourceDiscovered)
+		require.Len(t, got, 1)
+		assert.Equal(t, "MapUserPtr", got[0].Name)
+	})
+
+	t.Run("should reject invalid functions", func(t *testing.T) {
+		registry := newFunctionRegistry()
+
+		assert.False(t, registry.Register(types.FunctionDecl{
+			Name:    "NoParams",
+			Results: []types.Parameter{{Type: targetType}},
+		}, plan.CallableSourceUser))
+
+		assert.False(t, registry.Register(types.FunctionDecl{
+			Name:   "NoResults",
+			Params: []types.Parameter{{Type: sourceType}},
+		}, plan.CallableSourceUser))
+
+		assert.False(t, registry.Register(types.FunctionDecl{
+			Name:       "Variadic",
+			Params:     []types.Parameter{{Type: sourceType}},
+			Results:    []types.Parameter{{Type: targetType}},
+			IsVariadic: true,
+		}, plan.CallableSourceUser))
+
+		assert.False(t, registry.Register(testFunctionDecl("Identity", typeParamTestType("T"), typeParamTestType("T")), plan.CallableSourceUser))
 	})
 }

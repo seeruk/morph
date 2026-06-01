@@ -196,6 +196,24 @@ type TypeParam struct {
 	Constraint Type
 }
 
+// PointerElem unwraps aliased types, and returns the type and whether it's a pointer.
+func PointerElem(typ Type) (Type, bool) {
+	typ = UnwrapAlias(typ)
+	if typ.Kind != TypeKindPointer || typ.Elem == nil {
+		return typ, false
+	}
+	return UnwrapAlias(*typ.Elem), true
+}
+
+// PointerTo unwraps aliased types, and returns a type representing a pointer to the given type.
+func PointerTo(typ Type) Type {
+	typ = UnwrapAlias(typ)
+	return Type{
+		Kind: TypeKindPointer,
+		Elem: &typ,
+	}
+}
+
 // TypeKey returns a string key that uniquely identifies a type, including its structure and type
 // arguments. This is used for caching and comparison purposes.
 //

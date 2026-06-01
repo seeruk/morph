@@ -47,19 +47,12 @@ func (p *Planner) planValue(sourceType, targetType types.Type, path string) plan
 	sourceType = types.UnwrapAlias(sourceType)
 	targetType = types.UnwrapAlias(targetType)
 
-	// If there's a user-supplied, explicit function to use for this pair of types, prefer it.
-	if fn, ok := p.registry.Find(sourceType, targetType, plan.CallableSourceUser); ok {
-		return plan.Value{
-			Operation: operationForCallable(fn),
-			Source:    sourceType,
-			Target:    targetType,
-			Callable:  new(fn),
-			CanError:  fn.ReturnsError,
-		}
+	if sourceType.Kind == types.TypeKindPointer || targetType.Kind == types.TypeKindPointer {
+		return p.planPointerMapping(sourceType, targetType, path)
 	}
 
-	// If we discovered a suitable function to use for this pair of types, use that.
-	if fn, ok := p.registry.Find(sourceType, targetType, plan.CallableSourceDiscovered); ok {
+	// If there's a user-supplied, explicit function to use for this pair of types, prefer it.
+	if fn, ok := p.discoverFunctionCallable(sourceType, targetType, plan.CallableSourceUser); ok {
 		return plan.Value{
 			Operation: operationForCallable(fn),
 			Source:    sourceType,
@@ -73,8 +66,15 @@ func (p *Planner) planValue(sourceType, targetType types.Type, path string) plan
 		return explicit
 	}
 
-	if sourceType.Kind == types.TypeKindPointer || targetType.Kind == types.TypeKindPointer {
-		return p.planPointerMapping(sourceType, targetType, path)
+	// If we discovered a suitable function to use for this pair of types, use that.
+	if fn, ok := p.discoverFunctionCallable(sourceType, targetType, plan.CallableSourceDiscovered); ok {
+		return plan.Value{
+			Operation: operationForCallable(fn),
+			Source:    sourceType,
+			Target:    targetType,
+			Callable:  new(fn),
+			CanError:  fn.ReturnsError,
+		}
 	}
 
 	if callable, ok := p.discoverMethodCallable(sourceType, targetType); ok {
@@ -280,6 +280,7 @@ func (p *Planner) planPointerMapping(source, target types.Type, path string) pla
 	}
 
 	elem := p.planValue(sourceElem, targetElem, path)
+
 	operation := plan.OperationPointer
 	if len(elem.Diagnostics) > 0 {
 		operation = plan.OperationUnsupported
@@ -297,13 +298,35 @@ func (p *Planner) planPointerMapping(source, target types.Type, path string) pla
 	}
 }
 
+func (p *Planner) discoverFunctionCallable(
+	sourceType, targetType types.Type,
+	source plan.CallableSource,
+) (plan.CallableRef, bool) {
+	candidates := make(map[plan.CallableRef]callableCompatibility)
+	for _, fn := range p.registry.Candidates(sourceType, targetType, source) {
+		callable, ok := plan.CallableRefFromFunctionDecl(fn, source)
+		if !ok {
+			continue
+		}
+
+		compatibility := assessFunctionCompatibility(sourceType, targetType, fn)
+		if !compatibility.Compatible() {
+			continue
+		}
+
+		candidates[callable] = compatibility
+	}
+
+	return bestCallableCandidate(candidates)
+}
+
 func (p *Planner) discoverMethodCallable(sourceType, targetType types.Type) (plan.CallableRef, bool) {
 	methodTypeDecl, _, ok := p.methodTypeDecl(sourceType)
 	if !ok {
 		return plan.CallableRef{}, false
 	}
 
-	candidates := make(map[plan.CallableRef]methodCompatibility)
+	candidates := make(map[plan.CallableRef]callableCompatibility)
 	for _, method := range methodTypeDecl.Methods {
 		callable, ok := plan.CallableRefFromMethod(method, plan.CallableSourceDiscovered)
 		if !ok {
@@ -331,7 +354,7 @@ func (p *Planner) discoverMethodCallable(sourceType, targetType types.Type) (pla
 		candidates[callable] = compatibility
 	}
 
-	return bestMethodCandidate(candidates)
+	return bestCallableCandidate(candidates)
 }
 
 // methodTypeDecl attempts to unwrap a types.Type to the underlying named type (unaliased, not a \
@@ -353,186 +376,219 @@ func (p *Planner) methodTypeDecl(typ types.Type) (types.TypeDecl, types.Type, bo
 	return types.TypeDecl{}, types.Type{}, false
 }
 
-// methodCompatibility is a type used to help prioritize compatible methods, allowing Morph to
-// select, in theory, the most appropriate method for a pair of types.
-type methodCompatibility struct {
-	Receiver     methodReceiverCompatibility
-	Result       methodResultCompatibility
+// callableCompatibility is a type used to help prioritize compatible callables, allowing Morph to
+// select, in theory, the most appropriate callable for a pair of types.
+type callableCompatibility struct {
+	Input        callableInputCompatibility
+	Result       callableResultCompatibility
 	ReturnsError bool
 
-	// Only set when Result is MethodResultGeneric.
+	// Only set when Result is callableResultGeneric.
 	TypeBindings map[string]types.Type
 }
 
-// Compatible returns whether this method is compatible at all.
-func (c methodCompatibility) Compatible() bool {
-	return c.Receiver.Compatible() && c.Result.Compatible()
+// Compatible returns whether this callable is compatible at all.
+func (c callableCompatibility) Compatible() bool {
+	return c.Input.Compatible() && c.Result.Compatible()
 }
 
-// methodReceiverCompatibility enumerates the possible levels of compatibility between a method's
-// receiver and the source type Morph is trying to map from.
-type methodReceiverCompatibility uint
+// callableInputCompatibility enumerates the possible levels of compatibility between a callable's
+// input and the source type Morph is trying to map from.
+type callableInputCompatibility uint
 
-// Possible methodReceiverCompatibility values. These are ordered in priority order.
+// Possible callableInputCompatibility values. These are ordered in priority order.
 const (
-	methodReceiverIncompatible methodReceiverCompatibility = iota
-	methodReceiverExact
-	methodReceiverAutoAddress // source T, receiver *T
-	methodReceiverAutoDeref   // source *T, receiver T
-	methodReceiverMax
+	callableInputIncompatible callableInputCompatibility = iota
+	callableInputExact
+	callableInputAutoAddress // source T, input *T
+	callableInputAutoDeref   // source *T, input T
+	callableInputMax
 )
 
-func (c methodReceiverCompatibility) Compatible() bool {
-	return c != methodReceiverIncompatible
+func (c callableInputCompatibility) Compatible() bool {
+	return c != callableInputIncompatible
 }
 
-// methodResultCompatibility enumerates the possible levels of compatibility between a method's
+// callableResultCompatibility enumerates the possible levels of compatibility between a callable's
 // result and the target type Morph is trying to map to.
-type methodResultCompatibility uint
+type callableResultCompatibility uint
 
-// Possible methodResultCompatibility values. These are ordered in priority order.
+// Possible callableResultCompatibility values. These are ordered in priority order.
 const (
-	methodResultIncompatible methodResultCompatibility = iota
-	methodResultExact
-	methodResultGeneric // e.g. receiver binds T=string, result T matches target string
-	methodResultMax
+	callableResultIncompatible callableResultCompatibility = iota
+	callableResultExact
+	callableResultGeneric // e.g. input binds T=string, result T matches target string
+	callableResultMax
 )
 
-func (c methodResultCompatibility) Compatible() bool {
-	return c != methodResultIncompatible
+func (c callableResultCompatibility) Compatible() bool {
+	return c != callableResultIncompatible
+}
+
+func assessFunctionCompatibility(
+	sourceType, targetType types.Type,
+	fn types.FunctionDecl,
+) callableCompatibility {
+	returnsError, ok := plan.CallableResults(fn.Results)
+	if !ok || fn.IsVariadic || len(fn.Params) != 1 {
+		return callableCompatibility{}
+	}
+
+	return assessCallableCompatibility(sourceType, targetType, fn.Params[0].Type, fn.Results[0].Type, returnsError)
 }
 
 func assessMethodCompatibility(
 	sourceType, targetType types.Type,
 	method types.Method,
-) methodCompatibility {
+) callableCompatibility {
 	if !method.IsExported {
-		return methodCompatibility{} // Zero is incompatible.
+		return callableCompatibility{} // Zero is incompatible.
 	}
 
-	// At this point, we already know this is a method on the source type, so we don't need to check
-	// anything like that. So we can start with a very basic check; is the target type the same as
-	// the first result of the method?
 	returnsError, ok := plan.CallableResults(method.Results)
-	if !ok {
-		return methodCompatibility{}
+	if !ok || method.Receiver == nil {
+		return callableCompatibility{}
 	}
 
-	receiver := assessMethodReceiverCompatibility(sourceType, method)
-	if !receiver.Compatible() {
-		return methodCompatibility{}
+	return assessCallableCompatibility(sourceType, targetType, method.Receiver.Type, method.Results[0].Type, returnsError)
+}
+
+func assessCallableCompatibility(
+	sourceType, targetType types.Type,
+	inputType, resultType types.Type,
+	returnsError bool,
+) callableCompatibility {
+	input := assessCallableInputCompatibility(sourceType, inputType)
+	if !input.Compatible() {
+		return callableCompatibility{}
 	}
 
-	result, bindings := assessMethodResultCompatibility(sourceType, targetType, method)
+	bindings, _ := callableInputTypeBindings(sourceType, inputType)
+	result, bindings := assessCallableResultCompatibility(targetType, resultType, bindings)
 
-	return methodCompatibility{
-		Receiver:     receiver,
+	return callableCompatibility{
+		Input:        input,
 		Result:       result,
 		ReturnsError: returnsError,
 		TypeBindings: bindings,
 	}
 }
 
-func assessMethodReceiverCompatibility(sourceType types.Type, method types.Method) methodReceiverCompatibility {
-	if method.Receiver == nil {
-		return methodReceiverIncompatible
-	}
-
+func assessCallableInputCompatibility(sourceType, inputType types.Type) callableInputCompatibility {
 	sourceType = types.UnwrapAlias(sourceType)
-	receiverType := types.UnwrapAlias(method.Receiver.Type)
+	inputType = types.UnwrapAlias(inputType)
 
-	if sameReceiverType(sourceType, receiverType) {
-		return methodReceiverExact
+	if sameCallableInputType(sourceType, inputType) {
+		return callableInputExact
 	}
 
-	sourceElem, sourcePointer := pointerElem(sourceType)
-	receiverElem, receiverPointer := pointerElem(receiverType)
+	sourceElem, sourcePointer := types.PointerElem(sourceType)
+	inputElem, inputPointer := types.PointerElem(inputType)
 
-	if !sourcePointer && receiverPointer && sameReceiverType(sourceType, receiverElem) {
-		return methodReceiverAutoAddress
+	if !sourcePointer && inputPointer && sameCallableInputType(sourceType, inputElem) {
+		return callableInputAutoAddress
 	}
 
-	if sourcePointer && !receiverPointer && sameReceiverType(sourceElem, receiverType) {
-		return methodReceiverAutoDeref
+	if sourcePointer && !inputPointer && sameCallableInputType(sourceElem, inputType) {
+		return callableInputAutoDeref
 	}
 
-	return methodReceiverIncompatible
+	return callableInputIncompatible
 }
 
-func sameReceiverType(sourceType, receiverType types.Type) bool {
-	if sameType(sourceType, receiverType) {
+func sameCallableInputType(sourceType, inputType types.Type) bool {
+	if sameType(sourceType, inputType) {
 		return true
 	}
 
-	_, ok := typeParamBindings(sourceType, receiverType)
+	_, ok := typeParamBindings(sourceType, inputType)
 	return ok
 }
 
-func assessMethodResultCompatibility(
-	sourceType, targetType types.Type,
-	method types.Method,
-) (methodResultCompatibility, map[string]types.Type) {
-	resultType := method.Results[0].Type
-
+func assessCallableResultCompatibility(
+	targetType, resultType types.Type,
+	bindings map[string]types.Type,
+) (callableResultCompatibility, map[string]types.Type) {
 	if sameType(targetType, resultType) {
-		return methodResultExact, nil
+		return callableResultExact, nil
 	}
 
-	bindings, ok := receiverTypeBindings(sourceType, method)
-	if !ok || len(bindings) == 0 {
-		return methodResultIncompatible, nil
+	if len(bindings) == 0 {
+		return callableResultIncompatible, nil
 	}
 
 	resultType = substituteTypeParams(resultType, bindings)
 	if sameType(targetType, resultType) {
-		return methodResultGeneric, bindings
+		return callableResultGeneric, bindings
 	}
 
-	return methodResultIncompatible, nil
+	return callableResultIncompatible, nil
 }
 
-// receiverTypeBindings returns a mapping of generic type parameter (name, e.g. `T`) to the actual
-// type that the source field had there. For example, if a source field is an `Optional[string]`,
-// the receiver will be `Optional[T]`, so this would return `T` -> `string`. Of course, generic
-// types can have multiple type parameters, hence returning a map.
-func receiverTypeBindings(sourceType types.Type, method types.Method) (map[string]types.Type, bool) {
-	if method.Receiver == nil {
-		return nil, false
-	}
+func callableInputTypeBindings(sourceType, inputType types.Type) (map[string]types.Type, bool) {
+	sourceType, _ = types.PointerElem(sourceType)
+	inputType, _ = types.PointerElem(inputType)
 
-	sourceType, _ = pointerElem(sourceType)
-	receiverType, _ := pointerElem(method.Receiver.Type)
-
-	return typeParamBindings(sourceType, receiverType)
+	return typeParamBindings(sourceType, inputType)
 }
 
 func typeParamBindings(sourceType, templateType types.Type) (map[string]types.Type, bool) {
-	sourceType = types.UnwrapAlias(sourceType)
-	templateType = types.UnwrapAlias(templateType)
-
-	if sourceType.Kind != templateType.Kind ||
-		sourceType.Name != templateType.Name ||
-		sourceType.Package.ImportPath != templateType.Package.ImportPath ||
-		len(sourceType.TypeArgs) != len(templateType.TypeArgs) {
+	bindings := make(map[string]types.Type)
+	if !bindTypeParams(bindings, sourceType, templateType) {
 		return nil, false
 	}
 
-	bindings := make(map[string]types.Type)
+	return bindings, true
+}
 
-	for i, templateArg := range templateType.TypeArgs {
-		templateArg = types.UnwrapAlias(templateArg)
+func bindTypeParams(bindings map[string]types.Type, sourceType, templateType types.Type) bool {
+	sourceType = types.UnwrapAlias(sourceType)
+	templateType = types.UnwrapAlias(templateType)
 
-		if templateArg.Kind != types.TypeKindTypeParam {
-			if !sameType(templateArg, sourceType.TypeArgs[i]) {
-				return nil, false
-			}
-			continue
+	if templateType.Kind == types.TypeKindTypeParam {
+		if existing, ok := bindings[templateType.Name]; ok {
+			return sameType(existing, sourceType)
 		}
-
-		bindings[templateArg.Name] = sourceType.TypeArgs[i]
+		bindings[templateType.Name] = sourceType
+		return true
 	}
 
-	return bindings, true
+	if sourceType.Kind != templateType.Kind {
+		return false
+	}
+
+	switch templateType.Kind {
+	case types.TypeKindNamed:
+		if sourceType.Name != templateType.Name ||
+			sourceType.Package.ImportPath != templateType.Package.ImportPath ||
+			len(sourceType.TypeArgs) != len(templateType.TypeArgs) {
+			return false
+		}
+		for i, templateArg := range templateType.TypeArgs {
+			if !bindTypeParams(bindings, sourceType.TypeArgs[i], templateArg) {
+				return false
+			}
+		}
+		return true
+	case types.TypeKindPointer, types.TypeKindSlice, types.TypeKindArray:
+		if templateType.Kind == types.TypeKindArray && sourceType.Len != templateType.Len {
+			return false
+		}
+		if sourceType.Elem == nil || templateType.Elem == nil {
+			return sourceType.Elem == nil && templateType.Elem == nil
+		}
+		return bindTypeParams(bindings, *sourceType.Elem, *templateType.Elem)
+	case types.TypeKindMap:
+		if sourceType.Key == nil || sourceType.Value == nil ||
+			templateType.Key == nil || templateType.Value == nil {
+			return sourceType.Key == nil && sourceType.Value == nil &&
+				templateType.Key == nil && templateType.Value == nil
+		}
+		return bindTypeParams(bindings, *sourceType.Key, *templateType.Key) &&
+			bindTypeParams(bindings, *sourceType.Value, *templateType.Value)
+	default:
+		return sameType(sourceType, templateType)
+	}
 }
 
 // substituteTypeParams walks a type, substituting generic type parameters with the provided types
@@ -576,13 +632,13 @@ func substituteTypeParams(typ types.Type, bindings map[string]types.Type) types.
 	return typ
 }
 
-func bestMethodCandidate(candidates map[plan.CallableRef]methodCompatibility) (plan.CallableRef, bool) {
+func bestCallableCandidate(candidates map[plan.CallableRef]callableCompatibility) (plan.CallableRef, bool) {
 	var best plan.CallableRef
 	var bestRank int
 	var found bool
 
 	for callable, compatibility := range candidates {
-		rank, ok := methodCompatibilityRank(compatibility)
+		rank, ok := callableCompatibilityRank(compatibility)
 		if !ok {
 			continue
 		}
@@ -599,32 +655,30 @@ func bestMethodCandidate(candidates map[plan.CallableRef]methodCompatibility) (p
 }
 
 const (
-	methodReceiverRankCount = int(methodReceiverMax - 1)
-	methodErrorRankCount    = 2
+	callableInputRankCount = int(callableInputMax - 1)
+	callableErrorRankCount = 2
 )
 
-// methodCompatibilityRank calculates a rank used to prioritize which method to select when multiple
-// candidate methods are available for discovery. Exact result matches are preferred, within which
-// methods that don't error are preferred, within which methods that have greater receiver
+// callableCompatibilityRank calculates a rank used to prioritize which callable to select when
+// multiple candidates are available for discovery. Exact result matches are preferred, within which
+// callables that don't error are preferred, within which callables that have greater input
 // compatibility are preferred. The lower the returned rank, the better.
-func methodCompatibilityRank(c methodCompatibility) (int, bool) {
+func callableCompatibilityRank(c callableCompatibility) (int, bool) {
 	if !c.Compatible() {
 		return 0, false
 	}
 
 	resultRank := int(c.Result) - 1
-	receiverRank := int(c.Receiver) - 1
+	inputRank := int(c.Input) - 1
 
 	errorRank := 0
 	if c.ReturnsError {
 		errorRank = 1
 	}
 
-	rank := (resultRank * methodErrorRankCount * methodReceiverRankCount) +
-		(errorRank * methodReceiverRankCount) +
-		receiverRank
-
-	return rank, true
+	return (resultRank * callableErrorRankCount * callableInputRankCount) +
+		(errorRank * callableInputRankCount) +
+		inputRank, true
 }
 
 func (p *Planner) canConvertByBasicType(source types.Type, target types.Type) bool {
@@ -759,15 +813,6 @@ func callableLess(a, b plan.CallableRef) bool {
 		return a.SourceType.Key < b.SourceType.Key
 	}
 	return a.Name < b.Name
-}
-
-// pointerElem unwraps aliased types, and returns the type and whether it's a pointer.
-func pointerElem(typ types.Type) (types.Type, bool) {
-	typ = types.UnwrapAlias(typ)
-	if typ.Kind != types.TypeKindPointer || typ.Elem == nil {
-		return typ, false
-	}
-	return types.UnwrapAlias(*typ.Elem), true
 }
 
 func sameType(a, b types.Type) bool {
