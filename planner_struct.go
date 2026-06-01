@@ -112,7 +112,7 @@ func (p *Planner) planValue(sourceType, targetType types.Type, path string) plan
 
 		elemPlan := p.planValue(*sourceType.Elem, *targetType.Elem, path+"[]")
 
-		operation := plan.OperationMap
+		operation := plan.OperationArray
 		if len(elemPlan.Diagnostics) > 0 {
 			operation = plan.OperationUnsupported
 		}
