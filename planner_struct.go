@@ -13,6 +13,7 @@ import (
 func (p *Planner) planStruct(typ *plan.Type) {
 	sourceFields := plannableFieldsForType(typ.SourceDecl, typ.SourceType)
 	targetFields := plannableFieldsForType(typ.TargetDecl, typ.TargetType)
+	typeParams := typeParamScopeFrom(typ.TypeParams)
 
 	var structPlan plan.Struct
 	for _, targetField := range targetFields {
@@ -29,7 +30,7 @@ func (p *Planner) planStruct(typ *plan.Type) {
 
 		fieldPath := plan.FieldPath(typ.SourceType, typ.TargetType, sourceField)
 
-		valuePlan := p.planValue(sourceField.Type, targetField.Type, fieldPath)
+		valuePlan := p.planValueScoped(sourceField.Type, targetField.Type, fieldPath, typeParams)
 		typ.Diagnostics = appendDiagnostic(typ.Diagnostics, valuePlan.Diagnostics...)
 		if valuePlan.CanError {
 			// Once set to true by any value mapping, this is never set back to false
@@ -47,6 +48,14 @@ func (p *Planner) planStruct(typ *plan.Type) {
 }
 
 func (p *Planner) planValue(sourceType, targetType types.Type, path string) plan.Value {
+	return p.planValueScoped(sourceType, targetType, path, nil)
+}
+
+func (p *Planner) planValueScoped(
+	sourceType, targetType types.Type,
+	path string,
+	typeParams typeParamScope,
+) plan.Value {
 	sourceType = types.UnwrapAlias(sourceType)
 	targetType = types.UnwrapAlias(targetType)
 
@@ -87,12 +96,12 @@ func (p *Planner) planValue(sourceType, targetType types.Type, path string) plan
 	}
 
 	if sourceType.Kind == types.TypeKindPointer || targetType.Kind == types.TypeKindPointer {
-		return p.planPointerMapping(sourceType, targetType, path)
+		return p.planPointerMappingScoped(sourceType, targetType, path, typeParams)
 	}
 
 	switch {
 	case sourceType.Kind == types.TypeKindSlice && targetType.Kind == types.TypeKindSlice:
-		elemPlan := p.planValue(*sourceType.Elem, *targetType.Elem, path+"[]")
+		elemPlan := p.planValueScoped(*sourceType.Elem, *targetType.Elem, path+"[]", typeParams)
 
 		operation := plan.OperationSlice
 		if len(elemPlan.Diagnostics) > 0 {
@@ -113,7 +122,7 @@ func (p *Planner) planValue(sourceType, targetType types.Type, path string) plan
 			return unsupportedMapping(sourceType, targetType, path, "array lengths differ")
 		}
 
-		elemPlan := p.planValue(*sourceType.Elem, *targetType.Elem, path+"[]")
+		elemPlan := p.planValueScoped(*sourceType.Elem, *targetType.Elem, path+"[]", typeParams)
 
 		operation := plan.OperationArray
 		if len(elemPlan.Diagnostics) > 0 {
@@ -130,8 +139,8 @@ func (p *Planner) planValue(sourceType, targetType types.Type, path string) plan
 		}
 
 	case sourceType.Kind == types.TypeKindMap && targetType.Kind == types.TypeKindMap:
-		key := p.planValue(*sourceType.Key, *targetType.Key, path+"[key]")
-		value := p.planValue(*sourceType.Value, *targetType.Value, path+"[value]")
+		key := p.planValueScoped(*sourceType.Key, *targetType.Key, path+"[key]", typeParams)
+		value := p.planValueScoped(*sourceType.Value, *targetType.Value, path+"[value]", typeParams)
 
 		diagnostics := append([]plan.Diagnostic{}, key.Diagnostics...)
 		diagnostics = append(diagnostics, value.Diagnostics...)
@@ -152,7 +161,7 @@ func (p *Planner) planValue(sourceType, targetType types.Type, path string) plan
 		}
 	}
 
-	if nested, ok := p.planNestedStruct(sourceType, targetType, path); ok {
+	if nested, ok := p.planNestedStructScoped(sourceType, targetType, path, typeParams); ok {
 		return nested
 	}
 
@@ -244,7 +253,11 @@ func explicitRootSignatureRank(signature spec.MapperSignature) int {
 	return rank
 }
 
-func (p *Planner) planNestedStruct(source, target types.Type, path string) (plan.Value, bool) {
+func (p *Planner) planNestedStructScoped(
+	source, target types.Type,
+	path string,
+	typeParams typeParamScope,
+) (plan.Value, bool) {
 	sourceDecl, sourceOK := p.resolveStructType(source)
 	targetDecl, targetOK := p.resolveStructType(target)
 	if !sourceOK || !targetOK {
@@ -265,13 +278,13 @@ func (p *Planner) planNestedStruct(source, target types.Type, path string) (plan
 	}
 
 	nested := plan.Type{
-		Source:     plan.TypeRefFromType(source),
-		Target:     plan.TypeRefFromType(target),
+		Source:     scopedTypeRef(source, typeParams),
+		Target:     scopedTypeRef(target, typeParams),
 		SourceDecl: sourceDecl,
 		TargetDecl: targetDecl,
 		SourceType: source,
 		TargetType: target,
-		TypeParams: concreteTypeParams(sourceDecl, source),
+		TypeParams: concreteTypeParams(sourceDecl, source, typeParams),
 		Signature:  defaultMapperSignature,
 		EnumSpec:   enumSpec,
 		// We can't set structSpec in this case, because it's just field mapping currently. To have
@@ -292,7 +305,7 @@ func (p *Planner) planNestedStruct(source, target types.Type, path string) (plan
 	}
 
 	var err error
-	nested.FunctionName, err = p.nestedFunctionName(source, target)
+	nested.FunctionName, err = p.nestedFunctionName(source, target, nested.Source.Key, nested.Target.Key)
 	if err != nil {
 		return unsupportedMapping(source, target, path, fmt.Sprintf("failed to generated nested function name: %v", err)), false
 	}
@@ -311,7 +324,11 @@ func (p *Planner) planNestedStruct(source, target types.Type, path string) (plan
 	}, true
 }
 
-func (p *Planner) planPointerMapping(source, target types.Type, path string) plan.Value {
+func (p *Planner) planPointerMappingScoped(
+	source, target types.Type,
+	path string,
+	typeParams typeParamScope,
+) plan.Value {
 	sourcePointer := source.Kind == types.TypeKindPointer
 	targetPointer := target.Kind == types.TypeKindPointer
 
@@ -325,7 +342,7 @@ func (p *Planner) planPointerMapping(source, target types.Type, path string) pla
 		targetElem = *target.Elem
 	}
 
-	elem := p.planValue(sourceElem, targetElem, path)
+	elem := p.planValueScoped(sourceElem, targetElem, path, typeParams)
 
 	operation := plan.OperationPointer
 	if len(elem.Diagnostics) > 0 {
@@ -837,10 +854,10 @@ func maxSafeNumericConversionBits(name string) (numericInfo, bool) {
 	}
 }
 
-func (p *Planner) nestedFunctionName(source, target types.Type) (string, error) {
+func (p *Planner) nestedFunctionName(source, target types.Type, sourceKey, targetKey string) (string, error) {
 	runHash := p.runHash
 	if len(source.TypeArgs) > 0 || len(target.TypeArgs) > 0 {
-		typePairHash := stableTypePairHash(source, target)
+		typePairHash := stableTypePairKeyHash(sourceKey, targetKey)
 		if runHash == "" {
 			runHash = typePairHash
 		} else {
@@ -872,6 +889,85 @@ func callableLess(a, b plan.CallableRef) bool {
 
 func sameType(a, b types.Type) bool {
 	return types.TypeKey(a) == types.TypeKey(b)
+}
+
+type typeParamScope map[string]types.TypeParam
+
+func typeParamScopeFrom(params []types.TypeParam) typeParamScope {
+	if len(params) == 0 {
+		return nil
+	}
+
+	out := make(typeParamScope, len(params))
+	for _, param := range params {
+		out[param.Name] = param
+	}
+	return out
+}
+
+func scopedTypeRef(typ types.Type, scope typeParamScope) plan.TypeRef {
+	ref := plan.TypeRefFromType(typ)
+	ref.Key = scopedTypeKey(typ, scope)
+	return ref
+}
+
+func scopedTypeKey(typ types.Type, scope typeParamScope) string {
+	typ = types.UnwrapAlias(typ)
+	if len(scope) == 0 {
+		return types.TypeKey(typ)
+	}
+
+	switch typ.Kind {
+	case types.TypeKindNamed, types.TypeKindAlias:
+		name := typ.Name
+		if typ.Package.ImportPath != "" {
+			name = typ.Package.ImportPath + "." + name
+		}
+		if len(typ.TypeArgs) == 0 {
+			return types.TypeKey(typ)
+		}
+
+		args := make([]string, 0, len(typ.TypeArgs))
+		for _, arg := range typ.TypeArgs {
+			args = append(args, scopedTypeKey(arg, scope))
+		}
+		return name + "[" + strings.Join(args, ", ") + "]"
+	case types.TypeKindTypeParam:
+		return scopedTypeParamKey(typ, scope)
+	case types.TypeKindPointer:
+		if typ.Elem != nil {
+			return "*" + scopedTypeKey(*typ.Elem, scope)
+		}
+	case types.TypeKindSlice:
+		if typ.Elem != nil {
+			return "[]" + scopedTypeKey(*typ.Elem, scope)
+		}
+	case types.TypeKindArray:
+		if typ.Elem != nil {
+			return fmt.Sprintf("[%d]%s", typ.Len, scopedTypeKey(*typ.Elem, scope))
+		}
+	case types.TypeKindMap:
+		if typ.Key != nil && typ.Value != nil {
+			return fmt.Sprintf("map[%s]%s", scopedTypeKey(*typ.Key, scope), scopedTypeKey(*typ.Value, scope))
+		}
+	}
+
+	return types.TypeKey(typ)
+}
+
+func scopedTypeParamKey(typ types.Type, scope typeParamScope) string {
+	name := types.TypeKey(typ)
+	param, ok := scope[typ.Name]
+	if !ok {
+		return name
+	}
+
+	constraint := types.TypeKey(param.Constraint)
+	if constraint == "" {
+		return name
+	}
+
+	return name + "{" + constraint + "}"
 }
 
 // isStructType returns true if the given type declaration looks like a struct type, i.e. its
@@ -969,7 +1065,11 @@ func concreteTypeParamBindings(typeDecl types.TypeDecl, typ types.Type) map[stri
 	return bindings
 }
 
-func concreteTypeParams(typeDecl types.TypeDecl, typ types.Type) []types.TypeParam {
+func concreteTypeParams(
+	typeDecl types.TypeDecl,
+	typ types.Type,
+	typeParams typeParamScope,
+) []types.TypeParam {
 	typ = types.UnwrapAlias(typ)
 	if len(typ.TypeArgs) == 0 {
 		return typeDecl.Type.TypeParams
@@ -983,7 +1083,7 @@ func concreteTypeParams(typeDecl types.TypeDecl, typ types.Type) []types.TypePar
 	var out []types.TypeParam
 	seen := make(map[string]struct{})
 	for _, arg := range typ.TypeArgs {
-		collectTypeParams(&out, seen, paramsByName, arg)
+		collectTypeParams(&out, seen, paramsByName, typeParams, arg)
 	}
 	return out
 }
@@ -992,6 +1092,7 @@ func collectTypeParams(
 	out *[]types.TypeParam,
 	seen map[string]struct{},
 	paramsByName map[string]types.TypeParam,
+	typeParams typeParamScope,
 	typ types.Type,
 ) {
 	typ = types.UnwrapAlias(typ)
@@ -1001,7 +1102,10 @@ func collectTypeParams(
 		}
 		seen[typ.Name] = struct{}{}
 
-		param, ok := paramsByName[typ.Name]
+		param, ok := typeParams[typ.Name]
+		if !ok {
+			param, ok = paramsByName[typ.Name]
+		}
 		if !ok {
 			param = types.TypeParam{Name: typ.Name}
 		}
@@ -1010,16 +1114,16 @@ func collectTypeParams(
 	}
 
 	if typ.Elem != nil {
-		collectTypeParams(out, seen, paramsByName, *typ.Elem)
+		collectTypeParams(out, seen, paramsByName, typeParams, *typ.Elem)
 	}
 	if typ.Key != nil {
-		collectTypeParams(out, seen, paramsByName, *typ.Key)
+		collectTypeParams(out, seen, paramsByName, typeParams, *typ.Key)
 	}
 	if typ.Value != nil {
-		collectTypeParams(out, seen, paramsByName, *typ.Value)
+		collectTypeParams(out, seen, paramsByName, typeParams, *typ.Value)
 	}
 	for _, arg := range typ.TypeArgs {
-		collectTypeParams(out, seen, paramsByName, arg)
+		collectTypeParams(out, seen, paramsByName, typeParams, arg)
 	}
 }
 

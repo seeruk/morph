@@ -543,6 +543,47 @@ func TestPlannerPlanGenericNestedStructs(t *testing.T) {
 	assert.Equal(t, "string", stringValue.Mapping.Target.Name)
 }
 
+func TestPlannerPlanNestedStructsWithScopedGenericConstraints(t *testing.T) {
+	engine := New(".")
+	out, err := engine.Plan(Spec{
+		Packages: []spec.Package{{
+			Source: "github.com/seeruk/morph/testdata/planner/from",
+			Target: "github.com/seeruk/morph/testdata/planner/to",
+			Types: []spec.Type{
+				{Name: "NumberContainer"},
+				{Name: "StringContainer"},
+			},
+		}},
+	}, "morph.yaml")
+
+	require.NoError(t, err)
+	require.Len(t, out.OutputGroups, 1)
+	require.Len(t, out.OutputGroups[0].Roots, 2)
+
+	numberRoot := requireRootByTargetName(t, out.OutputGroups[0].Roots, "NumberContainer")
+	stringRoot := requireRootByTargetName(t, out.OutputGroups[0].Roots, "StringContainer")
+
+	numberBox := requirePlanField(t, numberRoot.StructPlan, "Box").Mapping.Plan
+	stringBox := requirePlanField(t, stringRoot.StructPlan, "Box").Mapping.Plan
+	require.NotNil(t, numberBox)
+	require.NotNil(t, stringBox)
+
+	assert.NotSame(t, numberBox, stringBox)
+	assert.NotEqual(t, numberBox.FunctionName, stringBox.FunctionName)
+	assert.NotEqual(t, numberBox.Source.Key, stringBox.Source.Key)
+	assert.NotEqual(t, numberBox.Target.Key, stringBox.Target.Key)
+
+	require.Len(t, numberBox.TypeParams, 1)
+	assert.Equal(t, "U", numberBox.TypeParams[0].Name)
+	assert.Equal(t, types.TypeKindInterface, numberBox.TypeParams[0].Constraint.Kind)
+	assert.Contains(t, numberBox.TypeParams[0].Constraint.String, "~int")
+
+	require.Len(t, stringBox.TypeParams, 1)
+	assert.Equal(t, "U", stringBox.TypeParams[0].Name)
+	assert.Equal(t, types.TypeKindInterface, stringBox.TypeParams[0].Constraint.Kind)
+	assert.Contains(t, stringBox.TypeParams[0].Constraint.String, "~string")
+}
+
 func functionCandidates(sourceType, targetType types.Type, fns ...types.FunctionDecl) map[plan.CallableRef]callableCompatibility {
 	out := make(map[plan.CallableRef]callableCompatibility, len(fns))
 	for _, fn := range fns {
@@ -553,6 +594,19 @@ func functionCandidates(sourceType, targetType types.Type, fns ...types.Function
 		out[callable] = assessFunctionCompatibility(sourceType, targetType, fn)
 	}
 	return out
+}
+
+func requireRootByTargetName(t *testing.T, roots []*plan.Type, targetName string) *plan.Type {
+	t.Helper()
+
+	for _, root := range roots {
+		if root.Target.Name == targetName {
+			return root
+		}
+	}
+
+	require.Failf(t, "root not planned", "target root %q was not planned", targetName)
+	return nil
 }
 
 func requirePlanField(t *testing.T, structPlan *plan.Struct, targetName string) plan.Field {
