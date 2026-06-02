@@ -33,6 +33,19 @@ func typeParamTestType(name string) types.Type {
 	}
 }
 
+func signatureTestType(params []types.Type, results ...types.Type) types.Type {
+	out := types.Type{
+		Kind: types.TypeKindSignature,
+	}
+	for _, param := range params {
+		out.Params = append(out.Params, types.Parameter{Type: param})
+	}
+	for _, result := range results {
+		out.Results = append(out.Results, types.Parameter{Type: result})
+	}
+	return out
+}
+
 func errorTestType() types.Type {
 	return types.Type{
 		Kind: types.TypeKindNamed,

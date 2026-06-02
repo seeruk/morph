@@ -74,6 +74,7 @@ type Value struct {
 	Source        types.Type
 	Target        types.Type
 	Callable      *CallableRef
+	CallableArgs  []CallableArg
 	Plan          *Type
 	Elem          *Value
 	Key           *Value
@@ -82,6 +83,12 @@ type Value struct {
 	TargetPointer bool
 	CanError      bool
 	Diagnostics   []Diagnostic
+}
+
+// CallableArg describes an argument passed alongside a source value when invoking a callable.
+type CallableArg struct {
+	Mapping      Value
+	ReturnsError bool
 }
 
 // Operation describes the operation used for a mapping node.

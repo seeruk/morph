@@ -93,3 +93,66 @@ func TestCallableRefFromMethod(t *testing.T) {
 		assert.Equal(t, sourceType.Package, callable.Package)
 	})
 }
+
+func TestCallableRefFromFunctionDecl(t *testing.T) {
+	sourceType := types.Type{
+		Kind:    types.TypeKindNamed,
+		Name:    "Optional",
+		Package: types.PackageRef{Name: "from", ImportPath: "module.test/from"},
+	}
+	targetType := types.Type{
+		Kind:    types.TypeKindNamed,
+		Name:    "Optional",
+		Package: types.PackageRef{Name: "to", ImportPath: "module.test/to"},
+	}
+	mapperType := types.Type{
+		Kind: types.TypeKindSignature,
+		Params: []types.Parameter{{
+			Type: sourceType,
+		}},
+		Results: []types.Parameter{{
+			Type: targetType,
+		}},
+	}
+
+	t.Run("should allow additional parameters", func(t *testing.T) {
+		callable, ok := CallableRefFromFunctionDecl(types.FunctionDecl{
+			Name:    "MapOptional",
+			Package: types.PackageRef{Name: "mapping", ImportPath: "module.test/mapping"},
+			Params: []types.Parameter{
+				{Type: sourceType},
+				{Type: mapperType},
+			},
+			Results: []types.Parameter{{Type: targetType}},
+		}, CallableSourceUser)
+
+		require.True(t, ok)
+		assert.Equal(t, CallableKindFunction, callable.Kind)
+		assert.Equal(t, CallableSourceUser, callable.Source)
+		assert.Equal(t, "MapOptional", callable.Name)
+		assert.Equal(t, TypeRefFromType(sourceType), callable.SourceType)
+		assert.Equal(t, TypeRefFromType(targetType), callable.TargetType)
+	})
+
+	t.Run("should reject functions without parameters", func(t *testing.T) {
+		_, ok := CallableRefFromFunctionDecl(types.FunctionDecl{
+			Name:    "MapOptional",
+			Results: []types.Parameter{{Type: targetType}},
+		}, CallableSourceUser)
+
+		assert.False(t, ok)
+	})
+
+	t.Run("should reject additional non-callable parameters", func(t *testing.T) {
+		_, ok := CallableRefFromFunctionDecl(types.FunctionDecl{
+			Name: "MapOptional",
+			Params: []types.Parameter{
+				{Type: sourceType},
+				{Type: targetType},
+			},
+			Results: []types.Parameter{{Type: targetType}},
+		}, CallableSourceUser)
+
+		assert.False(t, ok)
+	})
+}

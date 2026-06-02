@@ -41,6 +41,34 @@ func TestFunctionRegistry(t *testing.T) {
 		assert.Equal(t, "MapOptional", got[0].Name)
 	})
 
+	t.Run("should look up higher-order candidates by first parameter and result", func(t *testing.T) {
+		registry := newFunctionRegistry()
+
+		inputParam := typeParamTestType("I")
+		outputParam := typeParamTestType("O")
+		stringType := basicTestType("string")
+		intType := basicTestType("int")
+		sourceGeneric := namedTestType("module.test/from", "Optional", inputParam)
+		targetGeneric := namedTestType("module.test/to", "Optional", outputParam)
+		sourceConcrete := namedTestType("module.test/from", "Optional", stringType)
+		targetConcrete := namedTestType("module.test/to", "Optional", intType)
+		mapperType := signatureTestType([]types.Type{inputParam}, outputParam)
+
+		require.True(t, registry.Register(types.FunctionDecl{
+			Package: types.PackageRef{Name: "mapping", ImportPath: "module.test/mapping"},
+			Name:    "MapOptional",
+			Params: []types.Parameter{
+				{Type: sourceGeneric},
+				{Type: mapperType},
+			},
+			Results: []types.Parameter{{Type: targetGeneric}},
+		}, plan.CallableSourceDiscovered))
+
+		got := registry.Candidates(sourceConcrete, targetConcrete, plan.CallableSourceDiscovered)
+		require.Len(t, got, 1)
+		assert.Equal(t, "MapOptional", got[0].Name)
+	})
+
 	t.Run("should only return functions from the requested source", func(t *testing.T) {
 		registry := newFunctionRegistry()
 		require.True(t, registry.Register(testFunctionDecl("UserMap", sourceType, targetType), plan.CallableSourceUser))

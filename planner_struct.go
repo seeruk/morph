@@ -2,6 +2,7 @@ package morph
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -70,6 +71,16 @@ func (p *Planner) planValueScoped(
 		}
 	}
 
+	if value, ok := p.planHigherOrderFunctionCallable(
+		sourceType,
+		targetType,
+		path,
+		typeParams,
+		plan.CallableSourceUser,
+	); ok {
+		return value
+	}
+
 	if explicit, ok := p.planExplicitRoot(sourceType, targetType); ok {
 		return explicit
 	}
@@ -93,6 +104,16 @@ func (p *Planner) planValueScoped(
 			Callable:  new(callable),
 			CanError:  callable.ReturnsError,
 		}
+	}
+
+	if value, ok := p.planHigherOrderFunctionCallable(
+		sourceType,
+		targetType,
+		path,
+		typeParams,
+		plan.CallableSourceDiscovered,
+	); ok {
+		return value
 	}
 
 	if sourceType.Kind == types.TypeKindPointer || targetType.Kind == types.TypeKindPointer {
@@ -383,6 +404,76 @@ func (p *Planner) discoverFunctionCallable(
 	return bestCallableCandidate(candidates)
 }
 
+func (p *Planner) planHigherOrderFunctionCallable(
+	sourceType, targetType types.Type,
+	path string,
+	typeParams typeParamScope,
+	source plan.CallableSource,
+) (plan.Value, bool) {
+	candidates := make(map[plan.CallableRef]callableCompatibility)
+	for _, fn := range p.registry.Candidates(sourceType, targetType, source) {
+		callable, ok := plan.CallableRefFromFunctionDecl(fn, source)
+		if !ok {
+			continue
+		}
+
+		compatibility := assessHigherOrderFunctionCompatibility(sourceType, targetType, fn)
+		if !compatibility.Compatible() {
+			continue
+		}
+
+		candidates[callable] = compatibility
+	}
+
+	for _, candidate := range rankedCallableCandidates(candidates) {
+		args, diagnostics, ok := p.planCallableArgs(candidate.Compatibility.MapperArgs, path, typeParams)
+		if !ok {
+			continue
+		}
+
+		callable := candidate.Callable
+		return plan.Value{
+			Operation:    plan.OperationFunction,
+			Source:       sourceType,
+			Target:       targetType,
+			Callable:     &callable,
+			CallableArgs: args,
+			CanError:     callable.ReturnsError,
+			Diagnostics:  diagnostics,
+		}, true
+	}
+
+	return plan.Value{}, false
+}
+
+func (p *Planner) planCallableArgs(
+	args []callableMapperArgCompatibility,
+	path string,
+	typeParams typeParamScope,
+) ([]plan.CallableArg, []plan.Diagnostic, bool) {
+	out := make([]plan.CallableArg, 0, len(args))
+	var diagnostics []plan.Diagnostic
+
+	for i, arg := range args {
+		argPath := fmt.Sprintf("%s :: callable argument %d", path, i+1)
+		mapping := p.planValueScoped(arg.Source, arg.Target, argPath, typeParams)
+		if mapping.Operation == plan.OperationUnsupported || hasFatalDiagnostics(mapping.Diagnostics) {
+			return nil, nil, false
+		}
+		if mapping.CanError && !arg.ReturnsError {
+			return nil, nil, false
+		}
+
+		out = append(out, plan.CallableArg{
+			Mapping:      mapping,
+			ReturnsError: arg.ReturnsError,
+		})
+		diagnostics = appendDiagnostic(diagnostics, mapping.Diagnostics...)
+	}
+
+	return out, diagnostics, true
+}
+
 func (p *Planner) discoverMethodCallable(sourceType, targetType types.Type) (plan.CallableRef, bool) {
 	methodTypeDecl, _, ok := p.methodTypeDecl(sourceType)
 	if !ok {
@@ -446,13 +537,25 @@ type callableCompatibility struct {
 	Result       callableResultCompatibility
 	ReturnsError bool
 
-	// Only set when Result is callableResultGeneric.
+	// TypeBindings is populated when generic type parameters are bound while assessing the callable.
 	TypeBindings map[string]types.Type
+	MapperArgs   []callableMapperArgCompatibility
 }
 
 // Compatible returns whether this callable is compatible at all.
 func (c callableCompatibility) Compatible() bool {
 	return c.Input.Compatible() && c.Result.Compatible()
+}
+
+type callableMapperArgCompatibility struct {
+	Source       types.Type
+	Target       types.Type
+	ReturnsError bool
+}
+
+type callableCandidate struct {
+	Callable      plan.CallableRef
+	Compatibility callableCompatibility
 }
 
 // callableInputCompatibility enumerates the possible levels of compatibility between a callable's
@@ -498,6 +601,44 @@ func assessFunctionCompatibility(
 	}
 
 	return assessCallableCompatibility(sourceType, targetType, fn.Params[0].Type, fn.Results[0].Type, returnsError)
+}
+
+func assessHigherOrderFunctionCompatibility(
+	sourceType, targetType types.Type,
+	fn types.FunctionDecl,
+) callableCompatibility {
+	returnsError, ok := plan.CallableResults(fn.Results)
+	if !ok || fn.IsVariadic || len(fn.Params) < 2 {
+		return callableCompatibility{}
+	}
+
+	input := assessCallableInputCompatibility(sourceType, fn.Params[0].Type)
+	if !input.Compatible() {
+		return callableCompatibility{}
+	}
+
+	bindings, ok := callableInputTypeBindings(sourceType, fn.Params[0].Type)
+	if !ok {
+		return callableCompatibility{}
+	}
+
+	result, bindings := assessCallableResultCompatibilityWithBindings(targetType, fn.Results[0].Type, bindings)
+	if !result.Compatible() {
+		return callableCompatibility{}
+	}
+
+	args, ok := callableMapperArgCompatibilities(fn.Params[1:], bindings)
+	if !ok {
+		return callableCompatibility{}
+	}
+
+	return callableCompatibility{
+		Input:        input,
+		Result:       result,
+		ReturnsError: returnsError,
+		TypeBindings: bindings,
+		MapperArgs:   args,
+	}
 }
 
 func assessMethodCompatibility(
@@ -586,6 +727,59 @@ func assessCallableResultCompatibility(
 	}
 
 	return callableResultIncompatible, nil
+}
+
+func assessCallableResultCompatibilityWithBindings(
+	targetType, resultType types.Type,
+	bindings map[string]types.Type,
+) (callableResultCompatibility, map[string]types.Type) {
+	if sameType(targetType, resultType) {
+		return callableResultExact, bindings
+	}
+
+	out := maps.Clone(bindings)
+	if !bindTypeParams(out, targetType, resultType) {
+		return callableResultIncompatible, nil
+	}
+
+	resultType = substituteTypeParams(resultType, out)
+	if sameType(targetType, resultType) {
+		return callableResultGeneric, out
+	}
+
+	return callableResultIncompatible, nil
+}
+
+func callableMapperArgCompatibilities(
+	params []types.Parameter,
+	bindings map[string]types.Type,
+) ([]callableMapperArgCompatibility, bool) {
+	args := make([]callableMapperArgCompatibility, 0, len(params))
+	for _, param := range params {
+		signature := types.UnwrapAlias(param.Type)
+		if signature.Kind != types.TypeKindSignature || signature.IsVariadic || len(signature.Params) != 1 {
+			return nil, false
+		}
+
+		returnsError, ok := plan.CallableResults(signature.Results)
+		if !ok {
+			return nil, false
+		}
+
+		source := substituteTypeParams(signature.Params[0].Type, bindings)
+		target := substituteTypeParams(signature.Results[0].Type, bindings)
+		if hasTypeParams(source) || hasTypeParams(target) {
+			return nil, false
+		}
+
+		args = append(args, callableMapperArgCompatibility{
+			Source:       source,
+			Target:       target,
+			ReturnsError: returnsError,
+		})
+	}
+
+	return args, true
 }
 
 func callableInputTypeBindings(sourceType, inputType types.Type) (map[string]types.Type, bool) {
@@ -695,6 +889,39 @@ func substituteTypeParams(typ types.Type, bindings map[string]types.Type) types.
 	return typ
 }
 
+func hasTypeParams(typ types.Type) bool {
+	typ = types.UnwrapAlias(typ)
+	if typ.Kind == types.TypeKindTypeParam {
+		return true
+	}
+
+	if typ.Elem != nil && hasTypeParams(*typ.Elem) {
+		return true
+	}
+	if typ.Key != nil && hasTypeParams(*typ.Key) {
+		return true
+	}
+	if typ.Value != nil && hasTypeParams(*typ.Value) {
+		return true
+	}
+	for _, arg := range typ.TypeArgs {
+		if hasTypeParams(arg) {
+			return true
+		}
+	}
+	for _, param := range typ.Params {
+		if hasTypeParams(param.Type) {
+			return true
+		}
+	}
+	for _, result := range typ.Results {
+		if hasTypeParams(result.Type) {
+			return true
+		}
+	}
+	return false
+}
+
 func bestCallableCandidate(candidates map[plan.CallableRef]callableCompatibility) (plan.CallableRef, bool) {
 	var best plan.CallableRef
 	var bestRank int
@@ -715,6 +942,37 @@ func bestCallableCandidate(candidates map[plan.CallableRef]callableCompatibility
 	}
 
 	return best, found
+}
+
+func rankedCallableCandidates(candidates map[plan.CallableRef]callableCompatibility) []callableCandidate {
+	out := make([]callableCandidate, 0, len(candidates))
+	for callable, compatibility := range candidates {
+		if _, ok := callableCompatibilityRank(compatibility); !ok {
+			continue
+		}
+		out = append(out, callableCandidate{
+			Callable:      callable,
+			Compatibility: compatibility,
+		})
+	}
+
+	slices.SortFunc(out, func(a, b callableCandidate) int {
+		aRank, _ := callableCompatibilityRank(a.Compatibility)
+		bRank, _ := callableCompatibilityRank(b.Compatibility)
+		if aRank != bRank {
+			return aRank - bRank
+		}
+		switch {
+		case callableLess(a.Callable, b.Callable):
+			return 1
+		case callableLess(b.Callable, a.Callable):
+			return -1
+		default:
+			return 0
+		}
+	})
+
+	return out
 }
 
 const (
@@ -1149,4 +1407,13 @@ func unsupportedMapping(source, target types.Type, path string, message string) 
 			Message: fmt.Sprintf("cannot map %s to %s: %s", source.String, target.String, message),
 		}},
 	}
+}
+
+func hasFatalDiagnostics(diagnostics []plan.Diagnostic) bool {
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Level == plan.DiagnosticLevelFatal {
+			return true
+		}
+	}
+	return false
 }

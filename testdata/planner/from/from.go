@@ -1,5 +1,7 @@
 package from
 
+import to "github.com/seeruk/morph/testdata/planner/to"
+
 type Container struct {
 	First  Node
 	Second Node
@@ -18,6 +20,34 @@ type StringContainer[U ~string] struct {
 	Box Box[U]
 }
 
+type OptionalContainer struct {
+	Maybe Optional[OptionalThing]
+}
+
+type FallibleOptionalContainer struct {
+	Maybe FallibleOptional[FallibleThing]
+}
+
+type EitherContainer struct {
+	Result Either[EitherLeft, EitherRight]
+}
+
+type OptionalThing struct {
+	Name string
+}
+
+type FallibleThing struct {
+	Name string
+}
+
+type EitherLeft struct {
+	Code string
+}
+
+type EitherRight struct {
+	Name string
+}
+
 type Node struct {
 	Name string
 	Next *Node
@@ -25,4 +55,73 @@ type Node struct {
 
 type Box[T any] struct {
 	Value T
+}
+
+type Optional[T any] struct {
+	Value T
+	OK    bool
+}
+
+type FallibleOptional[T any] struct {
+	Value T
+	OK    bool
+}
+
+type Either[L, R any] struct {
+	Left    L
+	Right   R
+	IsRight bool
+}
+
+func MapOptional[I, O any](in Optional[I], mapValue func(I) O) to.Optional[O] {
+	if !in.OK {
+		return to.Optional[O]{}
+	}
+
+	return to.Optional[O]{
+		Value: mapValue(in.Value),
+		OK:    true,
+	}
+}
+
+func MapFallibleThing(in FallibleThing) (to.FallibleThing, error) {
+	return to.FallibleThing{
+		Name: in.Name,
+	}, nil
+}
+
+func MapFallibleOptional[I, O any](
+	in FallibleOptional[I],
+	mapValue func(I) (O, error),
+) (to.FallibleOptional[O], error) {
+	if !in.OK {
+		return to.FallibleOptional[O]{}, nil
+	}
+
+	value, err := mapValue(in.Value)
+	if err != nil {
+		return to.FallibleOptional[O]{}, err
+	}
+
+	return to.FallibleOptional[O]{
+		Value: value,
+		OK:    true,
+	}, nil
+}
+
+func MapEither[LI, RI, LO, RO any](
+	in Either[LI, RI],
+	mapLeft func(LI) LO,
+	mapRight func(RI) RO,
+) to.Either[LO, RO] {
+	if in.IsRight {
+		return to.Either[LO, RO]{
+			Right:   mapRight(in.Right),
+			IsRight: true,
+		}
+	}
+
+	return to.Either[LO, RO]{
+		Left: mapLeft(in.Left),
+	}
 }

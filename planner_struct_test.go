@@ -84,6 +84,138 @@ func TestAssessFunctionCompatibility(t *testing.T) {
 	})
 }
 
+func TestAssessHigherOrderFunctionCompatibility(t *testing.T) {
+	inputParam := typeParamTestType("I")
+	outputParam := typeParamTestType("O")
+	stringType := basicTestType("string")
+	intType := basicTestType("int")
+	sourceType := namedTestType("module.test/from", "Optional", stringType)
+	targetType := namedTestType("module.test/to", "Optional", intType)
+	sourceGeneric := namedTestType("module.test/from", "Optional", inputParam)
+	targetGeneric := namedTestType("module.test/to", "Optional", outputParam)
+
+	got := assessHigherOrderFunctionCompatibility(sourceType, targetType, types.FunctionDecl{
+		Name: "MapOptional",
+		Params: []types.Parameter{
+			{Type: sourceGeneric},
+			{Type: signatureTestType([]types.Type{inputParam}, outputParam)},
+		},
+		Results: []types.Parameter{{Type: targetGeneric}},
+	})
+
+	require.True(t, got.Compatible())
+
+	t.Run("matches the container signature", func(t *testing.T) {
+		assert.Equal(t, callableInputExact, got.Input)
+		assert.Equal(t, callableResultGeneric, got.Result)
+	})
+
+	t.Run("binds input and output type parameters", func(t *testing.T) {
+		assert.Equal(t, stringType, got.TypeBindings["I"])
+		assert.Equal(t, intType, got.TypeBindings["O"])
+	})
+
+	t.Run("describes the mapper argument", func(t *testing.T) {
+		require.Len(t, got.MapperArgs, 1)
+		assert.Equal(t, stringType, got.MapperArgs[0].Source)
+		assert.Equal(t, intType, got.MapperArgs[0].Target)
+		assert.False(t, got.MapperArgs[0].ReturnsError)
+	})
+}
+
+func TestAssessHigherOrderFunctionCompatibilityWithErrors(t *testing.T) {
+	inputParam := typeParamTestType("I")
+	outputParam := typeParamTestType("O")
+	stringType := basicTestType("string")
+	intType := basicTestType("int")
+	sourceType := namedTestType("module.test/from", "FallibleOptional", stringType)
+	targetType := namedTestType("module.test/to", "FallibleOptional", intType)
+	sourceGeneric := namedTestType("module.test/from", "FallibleOptional", inputParam)
+	targetGeneric := namedTestType("module.test/to", "FallibleOptional", outputParam)
+
+	got := assessHigherOrderFunctionCompatibility(sourceType, targetType, types.FunctionDecl{
+		Name: "MapFallibleOptional",
+		Params: []types.Parameter{
+			{Type: sourceGeneric},
+			{Type: signatureTestType([]types.Type{inputParam}, outputParam, errorTestType())},
+		},
+		Results: []types.Parameter{
+			{Type: targetGeneric},
+			{Type: errorTestType()},
+		},
+	})
+
+	require.True(t, got.Compatible())
+
+	t.Run("marks the container callable as erroring", func(t *testing.T) {
+		assert.True(t, got.ReturnsError)
+	})
+
+	t.Run("binds input and output type parameters", func(t *testing.T) {
+		assert.Equal(t, stringType, got.TypeBindings["I"])
+		assert.Equal(t, intType, got.TypeBindings["O"])
+	})
+
+	t.Run("describes the erroring mapper argument", func(t *testing.T) {
+		require.Len(t, got.MapperArgs, 1)
+		assert.Equal(t, stringType, got.MapperArgs[0].Source)
+		assert.Equal(t, intType, got.MapperArgs[0].Target)
+		assert.True(t, got.MapperArgs[0].ReturnsError)
+	})
+}
+
+func TestAssessHigherOrderFunctionCompatibilityWithMultipleMapperArgs(t *testing.T) {
+	leftInputParam := typeParamTestType("LI")
+	rightInputParam := typeParamTestType("RI")
+	leftOutputParam := typeParamTestType("LO")
+	rightOutputParam := typeParamTestType("RO")
+	leftSourceType := namedTestType("module.test/from", "Left")
+	rightSourceType := namedTestType("module.test/from", "Right")
+	leftTargetType := namedTestType("module.test/to", "Left")
+	rightTargetType := namedTestType("module.test/to", "Right")
+	sourceType := namedTestType("module.test/from", "Either", leftSourceType, rightSourceType)
+	targetType := namedTestType("module.test/to", "Either", leftTargetType, rightTargetType)
+	sourceGeneric := namedTestType("module.test/from", "Either", leftInputParam, rightInputParam)
+	targetGeneric := namedTestType("module.test/to", "Either", leftOutputParam, rightOutputParam)
+
+	got := assessHigherOrderFunctionCompatibility(sourceType, targetType, types.FunctionDecl{
+		Name: "MapEither",
+		Params: []types.Parameter{
+			{Type: sourceGeneric},
+			{Type: signatureTestType([]types.Type{leftInputParam}, leftOutputParam)},
+			{Type: signatureTestType([]types.Type{rightInputParam}, rightOutputParam)},
+		},
+		Results: []types.Parameter{{Type: targetGeneric}},
+	})
+
+	require.True(t, got.Compatible())
+
+	t.Run("matches the container signature", func(t *testing.T) {
+		assert.Equal(t, callableInputExact, got.Input)
+		assert.Equal(t, callableResultGeneric, got.Result)
+	})
+
+	t.Run("binds all input and output type parameters", func(t *testing.T) {
+		assert.Equal(t, leftSourceType, got.TypeBindings["LI"])
+		assert.Equal(t, rightSourceType, got.TypeBindings["RI"])
+		assert.Equal(t, leftTargetType, got.TypeBindings["LO"])
+		assert.Equal(t, rightTargetType, got.TypeBindings["RO"])
+	})
+
+	require.Len(t, got.MapperArgs, 2)
+	t.Run("describes the left mapper argument", func(t *testing.T) {
+		assert.Equal(t, leftSourceType, got.MapperArgs[0].Source)
+		assert.Equal(t, leftTargetType, got.MapperArgs[0].Target)
+		assert.False(t, got.MapperArgs[0].ReturnsError)
+	})
+
+	t.Run("describes the right mapper argument", func(t *testing.T) {
+		assert.Equal(t, rightSourceType, got.MapperArgs[1].Source)
+		assert.Equal(t, rightTargetType, got.MapperArgs[1].Target)
+		assert.False(t, got.MapperArgs[1].ReturnsError)
+	})
+}
+
 func TestBestCallableCandidate(t *testing.T) {
 	typeParam := typeParamTestType("T")
 	stringType := basicTestType("string")
@@ -582,6 +714,169 @@ func TestPlannerPlanNestedStructsWithScopedGenericConstraints(t *testing.T) {
 	assert.Equal(t, "U", stringBox.TypeParams[0].Name)
 	assert.Equal(t, types.TypeKindInterface, stringBox.TypeParams[0].Constraint.Kind)
 	assert.Contains(t, stringBox.TypeParams[0].Constraint.String, "~string")
+}
+
+func TestPlannerPlanHigherOrderGenericFunction(t *testing.T) {
+	engine := New(".")
+	out, err := engine.Plan(Spec{
+		Discovery: spec.Discovery{
+			Packages: []string{
+				"github.com/seeruk/morph/testdata/planner/from",
+			},
+		},
+		Packages: []spec.Package{{
+			Source: "github.com/seeruk/morph/testdata/planner/from",
+			Target: "github.com/seeruk/morph/testdata/planner/to",
+			Types: []spec.Type{{
+				Name: "OptionalContainer",
+			}},
+		}},
+	}, "morph.yaml")
+
+	require.NoError(t, err)
+	require.Len(t, out.OutputGroups, 1)
+	require.Len(t, out.OutputGroups[0].Roots, 1)
+
+	root := out.OutputGroups[0].Roots[0]
+	require.NotNil(t, root.StructPlan)
+
+	maybe := requirePlanField(t, root.StructPlan, "Maybe")
+	require.NotNil(t, maybe.Mapping.Callable)
+	require.Len(t, maybe.Mapping.CallableArgs, 1)
+	arg := maybe.Mapping.CallableArgs[0]
+	require.NotNil(t, arg.Mapping.Plan)
+	require.NotNil(t, arg.Mapping.Plan.StructPlan)
+
+	t.Run("selects the discovered container function", func(t *testing.T) {
+		assert.Equal(t, plan.OperationFunction, maybe.Mapping.Operation)
+		assert.Equal(t, "MapOptional", maybe.Mapping.Callable.Name)
+		assert.False(t, maybe.Mapping.CanError)
+	})
+
+	t.Run("plans the mapper argument", func(t *testing.T) {
+		assert.False(t, arg.ReturnsError)
+		assert.Equal(t, plan.OperationStruct, arg.Mapping.Operation)
+		assert.Equal(t, "OptionalThing", arg.Mapping.Source.Name)
+		assert.Equal(t, "OptionalThing", arg.Mapping.Target.Name)
+	})
+
+	t.Run("plans the mapper argument fields", func(t *testing.T) {
+		name := requirePlanField(t, arg.Mapping.Plan.StructPlan, "Name")
+		assert.Equal(t, plan.OperationAssign, name.Mapping.Operation)
+	})
+}
+
+func TestPlannerPlanHigherOrderGenericFunctionWithErrors(t *testing.T) {
+	engine := New(".")
+	out, err := engine.Plan(Spec{
+		Discovery: spec.Discovery{
+			Packages: []string{
+				"github.com/seeruk/morph/testdata/planner/from",
+			},
+		},
+		Packages: []spec.Package{{
+			Source: "github.com/seeruk/morph/testdata/planner/from",
+			Target: "github.com/seeruk/morph/testdata/planner/to",
+			Types: []spec.Type{{
+				Name: "FallibleOptionalContainer",
+			}},
+		}},
+	}, "morph.yaml")
+
+	require.NoError(t, err)
+	require.Len(t, out.OutputGroups, 1)
+	require.Len(t, out.OutputGroups[0].Roots, 1)
+
+	root := out.OutputGroups[0].Roots[0]
+	require.NotNil(t, root.StructPlan)
+
+	maybe := requirePlanField(t, root.StructPlan, "Maybe")
+	require.NotNil(t, maybe.Mapping.Callable)
+	require.Len(t, maybe.Mapping.CallableArgs, 1)
+	arg := maybe.Mapping.CallableArgs[0]
+	require.NotNil(t, arg.Mapping.Callable)
+
+	t.Run("propagates errors to the root and field mapping", func(t *testing.T) {
+		assert.True(t, root.CanError)
+		assert.True(t, maybe.Mapping.CanError)
+	})
+
+	t.Run("selects the discovered erroring container function", func(t *testing.T) {
+		assert.Equal(t, plan.OperationFunction, maybe.Mapping.Operation)
+		assert.Equal(t, "MapFallibleOptional", maybe.Mapping.Callable.Name)
+		assert.True(t, maybe.Mapping.Callable.ReturnsError)
+	})
+
+	t.Run("plans the erroring mapper argument", func(t *testing.T) {
+		assert.True(t, arg.ReturnsError)
+		assert.Equal(t, plan.OperationFunction, arg.Mapping.Operation)
+		assert.Equal(t, "MapFallibleThing", arg.Mapping.Callable.Name)
+		assert.True(t, arg.Mapping.Callable.ReturnsError)
+		assert.True(t, arg.Mapping.CanError)
+	})
+}
+
+func TestPlannerPlanHigherOrderGenericFunctionWithMultipleTypeArgs(t *testing.T) {
+	engine := New(".")
+	out, err := engine.Plan(Spec{
+		Discovery: spec.Discovery{
+			Packages: []string{
+				"github.com/seeruk/morph/testdata/planner/from",
+			},
+		},
+		Packages: []spec.Package{{
+			Source: "github.com/seeruk/morph/testdata/planner/from",
+			Target: "github.com/seeruk/morph/testdata/planner/to",
+			Types: []spec.Type{{
+				Name: "EitherContainer",
+			}},
+		}},
+	}, "morph.yaml")
+
+	require.NoError(t, err)
+	require.Len(t, out.OutputGroups, 1)
+	require.Len(t, out.OutputGroups[0].Roots, 1)
+
+	root := out.OutputGroups[0].Roots[0]
+	require.NotNil(t, root.StructPlan)
+
+	result := requirePlanField(t, root.StructPlan, "Result")
+	require.NotNil(t, result.Mapping.Callable)
+	require.Len(t, result.Mapping.CallableArgs, 2)
+
+	leftArg := result.Mapping.CallableArgs[0]
+	require.NotNil(t, leftArg.Mapping.Plan)
+	require.NotNil(t, leftArg.Mapping.Plan.StructPlan)
+
+	rightArg := result.Mapping.CallableArgs[1]
+	require.NotNil(t, rightArg.Mapping.Plan)
+	require.NotNil(t, rightArg.Mapping.Plan.StructPlan)
+
+	t.Run("selects the discovered container function", func(t *testing.T) {
+		assert.Equal(t, plan.OperationFunction, result.Mapping.Operation)
+		assert.Equal(t, "MapEither", result.Mapping.Callable.Name)
+		assert.False(t, result.Mapping.CanError)
+	})
+
+	t.Run("plans the left mapper argument", func(t *testing.T) {
+		assert.False(t, leftArg.ReturnsError)
+		assert.Equal(t, plan.OperationStruct, leftArg.Mapping.Operation)
+		assert.Equal(t, "EitherLeft", leftArg.Mapping.Source.Name)
+		assert.Equal(t, "EitherLeft", leftArg.Mapping.Target.Name)
+
+		leftCode := requirePlanField(t, leftArg.Mapping.Plan.StructPlan, "Code")
+		assert.Equal(t, plan.OperationAssign, leftCode.Mapping.Operation)
+	})
+
+	t.Run("plans the right mapper argument", func(t *testing.T) {
+		assert.False(t, rightArg.ReturnsError)
+		assert.Equal(t, plan.OperationStruct, rightArg.Mapping.Operation)
+		assert.Equal(t, "EitherRight", rightArg.Mapping.Source.Name)
+		assert.Equal(t, "EitherRight", rightArg.Mapping.Target.Name)
+
+		rightName := requirePlanField(t, rightArg.Mapping.Plan.StructPlan, "Name")
+		assert.Equal(t, plan.OperationAssign, rightName.Mapping.Operation)
+	})
 }
 
 func functionCandidates(sourceType, targetType types.Type, fns ...types.FunctionDecl) map[plan.CallableRef]callableCompatibility {
