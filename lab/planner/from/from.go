@@ -6,6 +6,16 @@ import (
 	"github.com/seeruk/morph/lab/planner/to"
 )
 
+type Difficulty uint
+
+const (
+	DifficultyEasy Difficulty = iota
+	DifficultyMedium
+	DifficultyHard
+	DifficultyUltra
+	difficultyMax
+)
+
 type Single struct {
 	Foo    string
 	Bar    Optional[string]

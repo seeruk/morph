@@ -9,22 +9,22 @@
           "forward": {
             "name": "Map{{ .Source.Type }}To{{ .Target.Type }}",
             "signature": {
-              "accepts": 0,
-              "returns": 1
+              "accepts": "value",
+              "returns": "pointer"
             }
           },
           "inverse": {
             "name": "Map{{ .Target.Type }}To{{ .Source.Type }}",
             "signature": {
-              "accepts": 1,
-              "returns": 0
+              "accepts": "pointer",
+              "returns": "value"
             }
           }
         },
         "bidirectional": true
       },
       "output": {
-        "strategy": 0,
+        "strategy": "single_package",
         "path": "internal/mapping",
         "package": "mapping",
         "filename": "mapping.morph.go"
@@ -36,28 +36,12 @@
       "module.test/shared/conversions"
     ],
     "functions": [
-      {
-        "ImportPath": "module.test/shared/conversions",
-        "TypeName": "",
-        "Name": "CheckedIntToSmallInt"
-      },
-      {
-        "ImportPath": "module.test/shared/conversions",
-        "TypeName": "UserID",
-        "Name": "String"
-      }
+      "module.test/shared/conversions.CheckedIntToSmallInt",
+      "module.test/shared/conversions.UserID.String"
     ],
     "exclusions": [
-      {
-        "ImportPath": "module.test/shared/conversions",
-        "TypeName": "",
-        "Name": "LegacyUserToUser"
-      },
-      {
-        "ImportPath": "module.test/shared/conversions",
-        "TypeName": "LegacyStatus",
-        "Name": "ToStatus"
-      }
+      "module.test/shared/conversions.LegacyUserToUser",
+      "module.test/shared/conversions.LegacyStatus.ToStatus"
     ]
   },
   "packages": [
@@ -82,15 +66,15 @@
             "forward": {
               "name": "MapSourceUserToTargetUser",
               "signature": {
-                "accepts": 1,
-                "returns": 0
+                "accepts": "pointer",
+                "returns": "value"
               }
             },
             "inverse": {
               "name": "MapTargetUserToSourceUser",
               "signature": {
-                "accepts": 0,
-                "returns": 1
+                "accepts": "value",
+                "returns": "pointer"
               }
             }
           },
@@ -104,8 +88,8 @@
           "enum": {
             "failureMode": "zero",
             "patterns": {
-              "Source": "SourceStatus_\u003cSCREAMING_VALUE\u003e",
-              "Target": "TargetStatus\u003cPascalValue\u003e"
+              "source": "SourceStatus_\u003cSCREAMING_VALUE\u003e",
+              "target": "TargetStatus\u003cPascalValue\u003e"
             },
             "values": {
               "SourceStatus_ACTIVE": "TargetStatusActive",
@@ -176,15 +160,15 @@
         "forward": {
           "name": "Map{{ .Target.Package }}{{ .Target.Type }}FromAPI",
           "signature": {
-            "accepts": 1,
-            "returns": 0
+            "accepts": "pointer",
+            "returns": "value"
           }
         },
         "inverse": {
           "name": "Map{{ .Target.Package}}{{ .Target.Type }}ToAPI",
           "signature": {
-            "accepts": 0,
-            "returns": 1
+            "accepts": "value",
+            "returns": "pointer"
           }
         }
       },

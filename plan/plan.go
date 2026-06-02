@@ -40,7 +40,7 @@ type Type struct {
 	EnumSpec   spec.Enum
 	StructSpec spec.Struct
 	// Plan
-	Enum       *Enum
+	EnumPlan   *Enum
 	StructPlan *Struct
 	// Debugging information
 	Diagnostics []Diagnostic

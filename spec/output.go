@@ -3,6 +3,8 @@ package spec
 import (
 	"fmt"
 	"strings"
+
+	"github.com/seeruk/morph/internal/mapsx"
 )
 
 type Output struct {
@@ -27,7 +29,11 @@ var outputStrategyNames = map[OutputStrategy]string{
 	OutputStrategyTargetPackage: "target_package",
 }
 
-var outputStrategiesByName = invertMap(outputStrategyNames)
+var outputStrategiesByName = mapsx.Invert(outputStrategyNames)
+
+func (s OutputStrategy) MarshalText() ([]byte, error) {
+	return []byte(s.String()), nil
+}
 
 func (s *OutputStrategy) UnmarshalText(text []byte) error {
 	value, ok := outputStrategiesByName[strings.ToLower(string(text))]

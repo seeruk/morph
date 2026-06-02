@@ -37,6 +37,10 @@ func CallableRefFromMethod(method types.Method) (CallableRef, bool) {
 	}, true
 }
 
+func (r CallableRef) MarshalText() ([]byte, error) {
+	return []byte(r.String()), nil
+}
+
 func (r *CallableRef) UnmarshalText(text []byte) error {
 	value := string(text)
 	if value == "" {
@@ -81,12 +85,4 @@ func (r *CallableRef) String() string {
 	sb.WriteString(".")
 	sb.WriteString(r.Name)
 	return sb.String()
-}
-
-func invertMap[K, V comparable](in map[K]V) map[V]K {
-	out := make(map[V]K, len(in))
-	for k, v := range in {
-		out[v] = k
-	}
-	return out
 }

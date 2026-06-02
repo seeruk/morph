@@ -218,7 +218,7 @@ func (p *Planner) planExplicitRoot(source, target types.Type) (plan.Value, bool)
 	p.planType(typePlan)
 
 	operation := plan.OperationStruct
-	if typePlan.Enum != nil || isEnumType(typePlan.SourceDecl) && isEnumType(typePlan.TargetDecl) {
+	if typePlan.EnumPlan != nil || isEnumType(typePlan.SourceDecl) && isEnumType(typePlan.TargetDecl) {
 		operation = plan.OperationEnum
 	}
 
@@ -328,7 +328,7 @@ func (p *Planner) planNestedStructScoped(
 	var err error
 	nested.FunctionName, err = p.nestedFunctionName(source, target, nested.Source.Key, nested.Target.Key)
 	if err != nil {
-		return unsupportedMapping(source, target, path, fmt.Sprintf("failed to generated nested function name: %v", err)), false
+		return unsupportedMapping(source, target, path, fmt.Sprintf("failed to generate nested function name: %v", err)), false
 	}
 
 	p.mappings[key] = &nested
@@ -1014,7 +1014,7 @@ func (p *Planner) canConvertByBasicType(source types.Type, target types.Type) bo
 	return canConvertNumericLosslessly(sourceUnderlying.Name, targetUnderlying.Name)
 }
 
-// basicUnderlying recursively unwraps a type and/or it's underlying type to find a basic type. If
+// basicUnderlying recursively unwraps a type and/or its underlying type to find a basic type. If
 // the underlying type is basic, we can (probably) try to convert it.
 // TODO: This may be too permissive, maybe it should be just basic types and aliases of them?
 func (p *Planner) basicUnderlying(typ types.Type, seen map[plan.TypeRef]bool) (types.Type, bool) {
@@ -1267,7 +1267,7 @@ func matchingField(
 	}
 
 	// NOTE: We don't try any more strategies here because they can be easily explicitly specified,
-	// and any more advanced patterns would be too likely to retunr false positives, I think.
+	// and any more advanced patterns would be too likely to return false positives, I think.
 
 	// Otherwise, we failed...
 	return field, false

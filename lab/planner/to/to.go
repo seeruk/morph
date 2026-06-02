@@ -1,5 +1,15 @@
 package to
 
+type RecipeDifficulty uint
+
+const (
+	RecipeDifficultyEasy RecipeDifficulty = iota
+	RecipeDifficultyMedium
+	RecipeDifficultyHard
+	RecipeDifficultyInsane
+	recipeDifficultyMax
+)
+
 type Single struct {
 	Foo    string
 	Bar    Optional[string]

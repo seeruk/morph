@@ -20,3 +20,11 @@ func Map[I, O any](s []I, fn func(I) O) []O {
 	}
 	return out
 }
+
+// Reduce takes a slice and a reducer function, returning the accumulated result.
+func Reduce[I, O any](s []I, acc O, fn func(O, I) O) O {
+	for _, v := range s {
+		acc = fn(acc, v)
+	}
+	return acc
+}

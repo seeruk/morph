@@ -53,6 +53,16 @@ func errorTestType() types.Type {
 	}
 }
 
+func testConstantDecl(typeName, name, value string) types.ConstantDecl {
+	return types.ConstantDecl{
+		Package:    types.PackageRef{Name: "mapping", ImportPath: "module.test/mapping"},
+		Name:       name,
+		Type:       basicTestType(typeName),
+		Value:      value,
+		IsExported: true,
+	}
+}
+
 func testFunctionDecl(name string, param, result types.Type, extraResults ...types.Type) types.FunctionDecl {
 	results := []types.Parameter{{Type: result}}
 	for _, extra := range extraResults {

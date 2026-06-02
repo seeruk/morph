@@ -23,7 +23,7 @@ type Spec struct {
 }
 
 // OutputFile is an in-memory representation of a generated file, ready to be written, detailing
-// where the file should be written to, and it's contents.
+// where the file should be written to, and its contents.
 type OutputFile struct {
 	LogicalPath string
 	PackageName string // Used for debugging

@@ -3,6 +3,8 @@ package spec
 import (
 	"fmt"
 	"strings"
+
+	"github.com/seeruk/morph/internal/mapsx"
 )
 
 // Package represents the mapping configuration of a pair of packages, and types within them.
@@ -48,12 +50,37 @@ func (e *Enum) ApplyDefaults(preset EnumDefaults) {
 }
 
 // EnumFailureMode enumerates the possible failure modes for an enum mapping function.
-type EnumFailureMode string
+type EnumFailureMode uint
 
 const (
-	EnumFailureModeError EnumFailureMode = "error"
-	EnumFailureModeZero  EnumFailureMode = "zero"
+	EnumFailureModeError EnumFailureMode = iota
+	EnumFailureModeZero
+	enumFailureModeMax
 )
+
+var enumFailureModeNames = map[EnumFailureMode]string{
+	EnumFailureModeError: "error",
+	EnumFailureModeZero:  "zero",
+}
+
+var enumFailureModesByName = mapsx.Invert(enumFailureModeNames)
+
+func (e EnumFailureMode) MarshalText() ([]byte, error) {
+	return []byte(e.String()), nil
+}
+
+func (e *EnumFailureMode) UnmarshalText(text []byte) error {
+	value, ok := enumFailureModesByName[strings.ToLower(string(text))]
+	if !ok {
+		return fmt.Errorf("unknown enum failure mode: %q", string(text))
+	}
+	*e = value
+	return nil
+}
+
+func (e EnumFailureMode) String() string {
+	return enumFailureModeNames[e]
+}
 
 // EnumPatterns allows patterns to be configured for matching enums, this can be used to explicitly
 // handle difficult to infer mappings.
@@ -71,8 +98,8 @@ const (
 //
 // TODO: Do we need more template options? Or something more custom, or lenient?
 type EnumPatterns struct {
-	Source string
-	Target string
+	Source string `json:"source"`
+	Target string `json:"target"`
 }
 
 type Struct struct {
@@ -122,7 +149,11 @@ var parameterKindNames = map[ParameterKind]string{
 	ParameterKindPointer: "pointer",
 }
 
-var parameterKindsByName = invertMap(parameterKindNames)
+var parameterKindsByName = mapsx.Invert(parameterKindNames)
+
+func (k ParameterKind) MarshalText() ([]byte, error) {
+	return []byte(k.String()), nil
+}
 
 func (k *ParameterKind) UnmarshalText(data []byte) error {
 	value, ok := parameterKindsByName[strings.ToLower(string(data))]
