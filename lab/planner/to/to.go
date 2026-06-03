@@ -10,11 +10,18 @@ const (
 	recipeDifficultyMax
 )
 
+type Stringy string
+
+func (s Stringy) String() string {
+	return string(s)
+}
+
 type Single struct {
 	Foo    string
 	Bar    Optional[string]
 	Baz    []Optional[string]
 	Nested Nested
+	Bla    Stringy
 }
 
 type Generic[T any] struct {

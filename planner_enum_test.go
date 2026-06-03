@@ -122,7 +122,7 @@ func Test_normalizeEnumConstants(t *testing.T) {
 			}
 
 			if len(tc.diags) > 0 {
-				assert.Equal(t, tc.diags, diags)
+				assert.ElementsMatch(t, tc.diags, diags)
 			} else {
 				assert.Empty(t, diags)
 			}

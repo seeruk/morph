@@ -21,6 +21,7 @@ type Single struct {
 	Bar    Optional[string]
 	Baz    []Optional[string]
 	Nested Nested
+	Bla    string
 }
 
 type Generic[T any] struct {
@@ -36,6 +37,21 @@ type Nested struct {
 type Optional[T any] struct {
 	Value T
 	Valid bool
+}
+
+func (o Optional[T]) Unwrap() T {
+	return o.Value
+}
+
+func OptionalOfString(s *string) Optional[string] {
+	if s == nil {
+		return Optional[string]{Valid: false}
+	}
+
+	return Optional[string]{
+		Value: *s,
+		Valid: true,
+	}
 }
 
 func (o Optional[T]) AsOtherOptional() to.Optional[T] {
