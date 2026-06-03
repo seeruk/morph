@@ -66,9 +66,9 @@ type functionKey struct {
 // createFunctionKeys returns a slice of all possible function keys that could be used for the given
 // source and target types, and callable source.
 func createFunctionKeys(sourceType, targetType types.Type, source plan.CallableSource) []functionKey {
-	distinct := make(map[functionKey]struct{}, 2)
+	distinct := make(map[functionKey]struct{}, 4)
 
-	add := func(sourceType types.Type) {
+	add := func(sourceType, targetType types.Type) {
 		key, ok := createFunctionKey(sourceType, targetType, source)
 		if !ok {
 			return
@@ -76,16 +76,23 @@ func createFunctionKeys(sourceType, targetType types.Type, source plan.CallableS
 		distinct[key] = struct{}{}
 	}
 
-	add(sourceType)
-
-	sourceElem, sourcePointer := types.PointerElem(sourceType)
-	if sourcePointer {
-		add(sourceElem)
-	} else {
-		add(types.PointerTo(sourceType))
+	for _, sourceCandidate := range pointerValueVariants(sourceType) {
+		for _, targetCandidate := range pointerValueVariants(targetType) {
+			add(sourceCandidate, targetCandidate)
+		}
 	}
 
 	return slices.Collect(maps.Keys(distinct))
+}
+
+func pointerValueVariants(typ types.Type) []types.Type {
+	variants := []types.Type{typ}
+	if elem, ok := types.PointerElem(typ); ok {
+		variants = append(variants, elem)
+	} else {
+		variants = append(variants, types.PointerTo(typ))
+	}
+	return variants
 }
 
 // createFunctionKey returns a functionKey for the given source and target types, and callable

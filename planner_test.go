@@ -57,9 +57,9 @@ func TestPlanner_addExplicitRoot(t *testing.T) {
 		location := testOutputLocation("github.com/seeruk/morph/out", "/repo/out/morph.gen.go")
 		root := testPlanType("source.User", "target.User", "MapUser")
 		duplicate := testPlanType("source.User", "target.User", "MapUser")
-		duplicate.StructSpec = spec.Struct{Fields: map[string]string{}}
+		duplicate.StructSpec = spec.Struct{Fields: map[string]spec.Field{}}
 		duplicate.EnumSpec = spec.Enum{
-			Patterns: &spec.EnumPatterns{},
+			Patterns: spec.EnumPatterns{},
 			Values:   map[string]string{},
 		}
 
@@ -79,8 +79,8 @@ func TestPlanner_addExplicitRoot(t *testing.T) {
 		root := testPlanType("source.User", "target.User", "MapUser")
 		conflicting := testPlanType("source.User", "target.User", "MapUser")
 		conflicting.StructSpec = spec.Struct{
-			Fields: map[string]string{
-				"UserId": "ID",
+			Fields: map[string]spec.Field{
+				"UserId": {Target: "ID"},
 			},
 		}
 
@@ -200,31 +200,6 @@ func TestPlanner_isFunctionPendingGeneration(t *testing.T) {
 	}
 }
 
-func TestOutputWithDefaults(t *testing.T) {
-	t.Run("should allow single package override", func(t *testing.T) {
-		defaults := spec.Output{
-			Strategy: new(spec.OutputStrategySourcePackage),
-			Path:     "source",
-			Package:  "source",
-			Filename: "source.gen.go",
-		}
-		output := spec.Output{
-			Strategy: new(spec.OutputStrategySinglePackage),
-			Path:     "morph",
-			Package:  "morph",
-			Filename: "morph.gen.go",
-		}
-
-		got := outputWithDefaults(output, defaults)
-
-		require.NotNil(t, got.Strategy)
-		assert.Equal(t, spec.OutputStrategySinglePackage, *got.Strategy)
-		assert.Equal(t, "morph", got.Path)
-		assert.Equal(t, "morph", got.Package)
-		assert.Equal(t, "morph.gen.go", got.Filename)
-	})
-}
-
 func TestSortedOutputGroups(t *testing.T) {
 	t.Run("should order groups by location", func(t *testing.T) {
 		locationB := testOutputLocation("module.test/b", "/repo/b/morph.gen.go")
@@ -330,13 +305,14 @@ func testPlanType(sourceKey, targetKey, functionName string) *plan.Type {
 		},
 		FunctionName: functionName,
 		Signature:    testMapperSignature(),
+		Optionality:  defaultOptionality(),
 	}
 }
 
 func testMapperSignature() spec.MapperSignature {
 	return spec.MapperSignature{
-		Accepts: new(spec.ParameterKindValue),
-		Returns: new(spec.ParameterKindValue),
+		Accepts: spec.ParameterKindValue,
+		Returns: spec.ParameterKindValue,
 	}
 }
 

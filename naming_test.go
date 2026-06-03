@@ -27,8 +27,8 @@ func TestMapperName(t *testing.T) {
 			},
 		},
 		Signature: spec.MapperSignature{
-			Accepts: new(spec.ParameterKindPointer),
-			Returns: new(spec.ParameterKindValue),
+			Accepts: spec.ParameterKindPointer,
+			Returns: spec.ParameterKindValue,
 		},
 	}
 
@@ -68,7 +68,7 @@ func TestMapperName(t *testing.T) {
 		})
 	}
 
-	t.Run("should default missing signature parts", func(t *testing.T) {
+	t.Run("should use zero-value signature parts as value", func(t *testing.T) {
 		input := morph.NameInput{
 			Source: types.Type{Name: "User"},
 			Target: types.Type{Name: "Person"},
@@ -86,8 +86,8 @@ func TestMapperName_Error(t *testing.T) {
 		Source: types.Type{Name: "User"},
 		Target: types.Type{Name: "Person"},
 		Signature: spec.MapperSignature{
-			Accepts: new(spec.ParameterKindPointer),
-			Returns: new(spec.ParameterKindValue),
+			Accepts: spec.ParameterKindPointer,
+			Returns: spec.ParameterKindValue,
 		},
 	}
 

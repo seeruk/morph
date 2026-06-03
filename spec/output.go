@@ -8,10 +8,10 @@ import (
 )
 
 type Output struct {
-	Strategy *OutputStrategy `json:"strategy"`
-	Path     string          `json:"path"`
-	Package  string          `json:"package"`
-	Filename string          `json:"filename"`
+	Strategy OutputStrategy
+	Path     string
+	Package  string
+	Filename string
 }
 
 type OutputStrategy uint

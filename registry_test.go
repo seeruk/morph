@@ -99,6 +99,15 @@ func TestFunctionRegistry(t *testing.T) {
 		assert.Equal(t, "MapUserPtr", got[0].Name)
 	})
 
+	t.Run("should return pointer result candidates", func(t *testing.T) {
+		registry := newFunctionRegistry()
+		require.True(t, registry.Register(testFunctionDecl("MapUserPtrResult", sourceType, pointerTestType(targetType)), plan.CallableSourceDiscovered))
+
+		got := registry.Candidates(sourceType, targetType, plan.CallableSourceDiscovered)
+		require.Len(t, got, 1)
+		assert.Equal(t, "MapUserPtrResult", got[0].Name)
+	})
+
 	t.Run("should reject invalid functions", func(t *testing.T) {
 		registry := newFunctionRegistry()
 

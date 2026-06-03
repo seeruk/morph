@@ -31,12 +31,11 @@ type nameTemplateData struct {
 }
 
 func nameTemplateDataFromInput(input NameInput) nameTemplateData {
-	signature := mapperSignatureWithDefaults(input.Signature, defaultMapperSignature)
 	return nameTemplateData{
 		Source:     nameTypeFromType(input.Source),
 		Target:     nameTypeFromType(input.Target),
 		TypeParams: slicesx.Map(input.TypeParams, nameTypeParamFromTypeParam),
-		Signature:  nameSignatureFromType(signature),
+		Signature:  nameSignatureFromType(input.Signature),
 		RunHash:    input.RunHash,
 	}
 }
@@ -84,11 +83,10 @@ func nameSignatureFromType(sig spec.MapperSignature) nameSignature {
 // MapperName attempts to return a name for the given NameInput using Go's text/template library,
 // with NameInput as the template data.
 func MapperName(input NameInput, templ string) (string, error) {
-	signature := mapperSignatureWithDefaults(input.Signature, defaultMapperSignature)
 	temp := template.New(plan.TypeMapperKey(
 		plan.TypeRefFromType(input.Source),
 		plan.TypeRefFromType(input.Target),
-		signature,
+		input.Signature,
 	))
 
 	temp, err := temp.Parse(templ)

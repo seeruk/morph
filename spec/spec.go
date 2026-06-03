@@ -7,6 +7,13 @@ import (
 	"github.com/seeruk/morph/types"
 )
 
+// Spec is Morph's fully resolved semantic model. It is the shape consumed by the planner.
+type Spec struct {
+	Defaults  Defaults
+	Discovery Discovery
+	Packages  []Package
+}
+
 // CallableRef is a structured representation of a reference to a particular callable, i.e. a
 // function or method.
 type CallableRef struct {

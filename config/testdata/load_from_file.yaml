@@ -41,8 +41,10 @@ packages:
   - name: User
     struct:
       fields:
-        ID: UserID
-        DisplayName: Name
+        ID:
+          target: UserID
+        DisplayName:
+          target: Name
     mappers:
       forward:
         name: MapSourceUserToTargetUser
@@ -77,18 +79,18 @@ packages:
         DBRoleAdmin: RoleAdmin
 
 presets:
-- name: api
-  bidirectional: true
-  enum:
-    failureMode: error
-  mappers:
-    forward:
-      name: Map{{ .Target.Package }}{{ .Target.Type }}FromAPI
-      signature:
-        accepts: pointer
-        returns: value
-    inverse:
-      name: Map{{ .Target.Package}}{{ .Target.Type }}ToAPI
-      signature:
-        accepts: value
-        returns: pointer
+  api:
+    bidirectional: true
+    enum:
+      failureMode: error
+    mappers:
+      forward:
+        name: Map{{ .Target.Package }}{{ .Target.Type }}FromAPI
+        signature:
+          accepts: pointer
+          returns: value
+      inverse:
+        name: Map{{ .Target.Package}}{{ .Target.Type }}ToAPI
+        signature:
+          accepts: value
+          returns: pointer

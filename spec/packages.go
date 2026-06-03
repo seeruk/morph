@@ -7,46 +7,35 @@ import (
 	"github.com/seeruk/morph/internal/mapsx"
 )
 
-// Package represents the mapping configuration of a pair of packages, and types within them.
+// Package represents a resolved mapping configuration for a pair of packages, and the directional
+// type mappings within them.
 type Package struct {
-	Source        string `json:"source"`
-	Target        string `json:"target"`
-	Preset        string `json:"preset"`
-	Types         []Type `json:"types"`
-	Output        Output `json:"output"`
-	Bidirectional *bool  `json:"bidirectional"`
+	Source string
+	Target string
+	Output Output
+	Types  []Type
 }
 
-// Type represents the mapping configuration for a specific pair of types.
+// Type represents resolved configuration for one directional type mapping.
 type Type struct {
-	Name          string   `json:"name"`
-	Source        string   `json:"source"`
-	Target        string   `json:"target"`
-	Preset        string   `json:"preset"`
-	Enum          *Enum    `json:"enum"`
-	Struct        *Struct  `json:"struct"`
-	Mappers       *Mappers `json:"mappers"`
-	Bidirectional *bool    `json:"bidirectional"`
+	Source      string
+	Target      string
+	Enum        Enum
+	Struct      Struct
+	Mapper      Mapper
+	Optionality Optionality
 }
 
 // Enum represents configuration for how an enum mapping function should be generated,
 // allowing customization of generated output and explicit clarification of ambiguities that the
 // planner may not be able to resolve on its own.
 type Enum struct {
-	FailureMode *EnumFailureMode `json:"failureMode"`
-	Patterns    *EnumPatterns    `json:"patterns"`
+	FailureMode EnumFailureMode
+	Patterns    EnumPatterns
 	// Values is an explicit mapping from source enum value name to target enum value name. Only
 	// explicit mappings need be placed in this map, as the planner will attempt to infer mappings
 	// for values with similar names.
-	Values map[string]string `json:"values"`
-}
-
-func (e *Enum) ApplyDefaults(preset EnumDefaults) {
-	if e == nil || e.FailureMode != nil || preset.FailureMode == nil {
-		return
-	}
-
-	e.FailureMode = new(*preset.FailureMode)
+	Values map[string]string
 }
 
 // EnumFailureMode enumerates the possible failure modes for an enum mapping function.
@@ -84,54 +73,114 @@ func (e EnumFailureMode) String() string {
 
 // EnumPatterns allows patterns to be configured for matching enums, this can be used to explicitly
 // handle difficult to infer mappings.
-//
-// The format supported is similar how mapping function names can be configured. Available template
-// placeholders are based around different casing options for possible elements of the name:
-// - <SCREAMING_TYPE>
-// - <SCREAMING_VALUE>
-// - <PascalType>
-// - <PascalValue>
-// - <camelValue>
-// - <camelValue>
-// - <snake_value>
-// - <snake_value>
-//
-// TODO: Do we need more template options? Or something more custom, or lenient?
 type EnumPatterns struct {
-	Source string `json:"source"`
-	Target string `json:"target"`
+	Source string
+	Target string
 }
 
+// Struct holds configuration for how a struct should be mapped.
 type Struct struct {
-	// Fields is a map from source field name to target field name. Only explicit mappings need to
+	// Fields is a map from source field name to target field config. Only explicit mappings need to
 	// be placed in this map, the planner will attempt to infer mappings for similarly named fields.
-	Fields map[string]string `json:"fields"`
+	Fields map[string]Field
 }
 
-// Mappers represents configuration for how mapper functions should be generated for a type
-// pair. For bidirectional mapping, both forward and inverse mapper configuration may be provided,
-// otherwise only forward mapping configuration is necessary.
+// Field holds configuration for how a specific field should be mapped, allowing more explicit
+// control over mapping behaviour.
+type Field struct {
+	Target      string
+	Optionality Optionality
+}
+
+// Mappers holds resolved configuration for how mapper functions should be generated for a type pair.
 type Mappers struct {
-	Forward Mapper `json:"forward"`
-	Inverse Mapper `json:"inverse"`
+	Forward Mapper
+	Inverse Mapper
 }
 
-// Mapper represents configuration for how the mapper function should be generated, allowing
-// customization of things like naming, and the signature of the function.
+// Mapper represents resolved configuration for how a mapper function should be generated.
 type Mapper struct {
-	// Name can be used to provide an exact name, but also supports a template. We use Go's built-in
-	// text/template, and the template data is morph.NameInput
-	Name string `json:"name"`
-
-	// Signature allows the signature of a generated mapper function to be customized.
-	Signature MapperSignature `json:"signature"`
+	Name      string
+	Signature MapperSignature
 }
 
-// MapperSignature configures the signature of a generated mapper function, allowing for
-// customization of the generated code.
+// MapperSignature configures the resolved signature of a generated mapper function.
 type MapperSignature struct {
-	Accepts *ParameterKind `json:"accepts"`
-	Returns *ParameterKind `json:"returns"`
+	Accepts ParameterKind
+	Returns ParameterKind
+}
+
+// Optionality configures how Morph handles pointer/value optionality boundaries after all defaults
+// have been resolved.
+type Optionality struct {
+	OnNilSourcePointer PointerOptionality
+	OnZeroSourceValue  ValueOptionality
+}
+
+type PointerOptionality uint
+
+const (
+	PointerOptionalityZero PointerOptionality = iota
+	PointerOptionalityError
+	pointerOptionalityMax
+)
+
+var pointerOptionalityNames = map[PointerOptionality]string{
+	PointerOptionalityZero:  "zero",
+	PointerOptionalityError: "error",
+}
+
+var pointerOptionalitiesByName = mapsx.Invert(pointerOptionalityNames)
+
+func (p PointerOptionality) MarshalText() ([]byte, error) {
+	return []byte(p.String()), nil
+}
+
+func (p *PointerOptionality) UnmarshalText(data []byte) error {
+	value, ok := pointerOptionalitiesByName[strings.ToLower(string(data))]
+	if !ok {
+		return fmt.Errorf("unknown pointer optionality: %q", string(data))
+	}
+
+	*p = value
+	return nil
+}
+
+func (p PointerOptionality) String() string {
+	return pointerOptionalityNames[p]
+}
+
+type ValueOptionality uint
+
+const (
+	ValueOptionalityNil ValueOptionality = iota
+	ValueOptionalityAddress
+	valueOptionalityMax
+)
+
+var valueOptionalityNames = map[ValueOptionality]string{
+	ValueOptionalityNil:     "nil",
+	ValueOptionalityAddress: "address",
+}
+
+var valueOptionalitiesByName = mapsx.Invert(valueOptionalityNames)
+
+func (v ValueOptionality) MarshalText() ([]byte, error) {
+	return []byte(v.String()), nil
+}
+
+func (v *ValueOptionality) UnmarshalText(data []byte) error {
+	value, ok := valueOptionalitiesByName[strings.ToLower(string(data))]
+	if !ok {
+		return fmt.Errorf("unknown value optionality: %q", string(data))
+	}
+
+	*v = value
+	return nil
+}
+
+func (v ValueOptionality) String() string {
+	return valueOptionalityNames[v]
 }
 
 // ParameterKind enumerates the different kinds of parameters that can be passed to a mapper

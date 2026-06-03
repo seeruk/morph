@@ -21,6 +21,7 @@
             }
           }
         },
+        "optionality": null,
         "bidirectional": true
       },
       "output": {
@@ -58,8 +59,14 @@
           "enum": null,
           "struct": {
             "fields": {
-              "DisplayName": "Name",
-              "ID": "UserID"
+              "DisplayName": {
+                "target": "Name",
+                "optionality": null
+              },
+              "ID": {
+                "target": "UserID",
+                "optionality": null
+              }
             }
           },
           "mappers": {
@@ -78,6 +85,7 @@
               }
             }
           },
+          "optionality": null,
           "bidirectional": null
         },
         {
@@ -98,6 +106,7 @@
           },
           "struct": null,
           "mappers": null,
+          "optionality": null,
           "bidirectional": null
         }
       ],
@@ -107,6 +116,9 @@
         "package": "",
         "filename": ""
       },
+      "enum": null,
+      "mappers": null,
+      "optionality": null,
       "bidirectional": true
     },
     {
@@ -122,6 +134,7 @@
           "enum": null,
           "struct": null,
           "mappers": null,
+          "optionality": null,
           "bidirectional": null
         },
         {
@@ -138,6 +151,7 @@
           },
           "struct": null,
           "mappers": null,
+          "optionality": null,
           "bidirectional": null
         }
       ],
@@ -147,12 +161,14 @@
         "package": "",
         "filename": ""
       },
+      "enum": null,
+      "mappers": null,
+      "optionality": null,
       "bidirectional": null
     }
   ],
-  "presets": [
-    {
-      "name": "api",
+  "presets": {
+    "api": {
       "enum": {
         "failureMode": "error"
       },
@@ -172,7 +188,8 @@
           }
         }
       },
+      "optionality": null,
       "bidirectional": true
     }
-  ]
+  }
 }

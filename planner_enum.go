@@ -17,19 +17,10 @@ import (
 )
 
 func (p *Planner) planEnum(typ *plan.Type) {
-	if typ.EnumSpec.FailureMode == nil {
-		typ.Diagnostics = appendDiagnostic(typ.Diagnostics, plan.Diagnostic{
-			Level:   plan.DiagnosticLevelFatal,
-			Path:    plan.TypesPath(typ.SourceType, typ.TargetType),
-			Message: "expected enum failure mode to already be set",
-		})
-		return // Can't continue or we might panic
-	}
-
 	values, diagnostics := p.planEnumValues(typ)
 
 	typ.EnumPlan = &plan.Enum{
-		FailureMode: *typ.EnumSpec.FailureMode,
+		FailureMode: typ.EnumSpec.FailureMode,
 		Values:      values,
 	}
 
@@ -44,11 +35,8 @@ func (p *Planner) planEnumValues(typ *plan.Type) ([]plan.EnumValue, []plan.Diagn
 	sourceConstants := collectExportedConstants(typ.SourceDecl.Constants)
 	targetConstants := collectExportedConstants(typ.TargetDecl.Constants)
 
-	var sourcePattern, targetPattern string
-	if typ.EnumSpec.Patterns != nil {
-		sourcePattern = typ.EnumSpec.Patterns.Source
-		targetPattern = typ.EnumSpec.Patterns.Target
-	}
+	sourcePattern := typ.EnumSpec.Patterns.Source
+	targetPattern := typ.EnumSpec.Patterns.Target
 
 	targetsByNormalizedName, ambiguousTargets, targetDiagnostics := constantsByNormalizedName(targetConstants, targetPattern)
 	diagnostics = appendDiagnostic(diagnostics, targetDiagnostics...)

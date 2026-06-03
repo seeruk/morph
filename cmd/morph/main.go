@@ -10,7 +10,12 @@ import (
 func main() {
 	fmt.Println("Hello, World!")
 
-	spec, err := config.LoadFromFile("lab/planner/morph.yaml")
+	cfg, err := config.LoadFromFile("lab/planner/morph.yaml")
+	if err != nil {
+		panic(err)
+	}
+
+	spec, err := morph.ResolveConfig(cfg)
 	if err != nil {
 		panic(err)
 	}

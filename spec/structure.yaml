@@ -6,6 +6,9 @@ defaults:
       enum:
         failureMode: error
       bidirectional: true
+      optionality:
+        onNilSourcePointer: zero # or error
+        onZeroSourceValue: address # or nil
     output:
       strategy: target_package    # Or source_package, or single_package
       path: internal/mapping      # Only relevant for single_package strategy
@@ -34,6 +37,9 @@ packages:
 - source: github.com/seeruk/nextmealplease/internal/nmppb
   target: github.com/seeruk/nextmealplease/internal/nmp
   preset: protobuf
+  mappers:
+    forward:
+      name: Map{{ .Target.Package }}{{ .Target.Type }}FromProto
   types:
   - source: Toughness
     target: Difficulty
@@ -50,7 +56,8 @@ packages:
   - name: Recipe
     struct:
       fields:
-        RecipeId: ID
+        RecipeId:
+          target: ID
 
 - source: github.com/seeruk/nextmealplease/internal/db
   target: github.com/seeruk/nextmealplease/internal/nmp
@@ -59,11 +66,13 @@ packages:
   - name: Difficulty
 
 # Presets are used to reduce repetition and noise elsewhere in the config. They can be applied to
-# packages, or individual type-pairs. All options available here are available at the package and
-# type level and will be overridden by any options specified there.
+# packages, or individual type-pairs. Preset options are available at the package or type level
+# where applicable, and will be overridden by any more local options specified there.
 presets:
 - name: protobuf
   bidirectional: true
+  enum:
+    failureMode: error
   mappers:
     forward:
       name: Map{{ .Target.Package }}{{ .Target.Type }}FromProto
@@ -75,5 +84,6 @@ presets:
       signature:
         accepts: value
         returns: pointer
-  enum:
-    failureMode: error
+  optionality:
+    onNilSourcePointer: zero
+    onZeroSourceValue: address

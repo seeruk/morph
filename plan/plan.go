@@ -37,8 +37,9 @@ type Type struct {
 	Signature    spec.MapperSignature
 	CanError     bool
 	// Spec
-	EnumSpec   spec.Enum
-	StructSpec spec.Struct
+	EnumSpec    spec.Enum
+	StructSpec  spec.Struct
+	Optionality spec.Optionality
 	// Plan
 	EnumPlan   *Enum
 	StructPlan *Struct
@@ -70,19 +71,22 @@ type Field struct {
 // Value describes how to map one value to another. Compound mappings point to child mappings for
 // elements, keys, or values (i.e. for nested types).
 type Value struct {
-	Operation     Operation
-	Source        types.Type
-	Target        types.Type
-	Callable      *CallableRef
-	CallableArgs  []CallableArg
-	Plan          *Type
-	Elem          *Value
-	Key           *Value
-	Value         *Value
-	SourcePointer bool
-	TargetPointer bool
-	CanError      bool
-	Diagnostics   []Diagnostic
+	Operation                   Operation
+	Source                      types.Type
+	Target                      types.Type
+	Callable                    *CallableRef
+	CallableArgs                []CallableArg
+	CallableParameterAdaptation ValueAdaptation
+	CallableResultAdaptation    ValueAdaptation
+	Plan                        *Type
+	Elem                        *Value
+	Key                         *Value
+	Value                       *Value
+	Optionality                 spec.Optionality
+	SourcePointer               bool
+	TargetPointer               bool
+	CanError                    bool
+	Diagnostics                 []Diagnostic
 }
 
 // CallableArg describes an argument passed alongside a source value when invoking a callable.
@@ -106,6 +110,15 @@ const (
 	OperationSlice       Operation = "slice"
 	OperationArray       Operation = "array"
 	OperationMap         Operation = "map"
+)
+
+// ValueAdaptation describes how Morph should adapt a value across a pointer/value boundary.
+type ValueAdaptation string
+
+const (
+	ValueAdaptationNone    ValueAdaptation = "none"
+	ValueAdaptationAddress ValueAdaptation = "address"
+	ValueAdaptationDeref   ValueAdaptation = "deref"
 )
 
 // Diagnostic is a generalized type used for presenting helpful messages to Morph consumers to help

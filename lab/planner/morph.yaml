@@ -2,10 +2,6 @@ defaults:
   packages:
     output:
       strategy: single_package
-    types:
-      optionality:
-        onNilSourcePointer: zero | error
-        onZeroSourceValue: address | nil
 
 discovery:
   functions:

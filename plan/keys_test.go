@@ -153,37 +153,37 @@ func TestSignatureKey(t *testing.T) {
 		{
 			name: "value to value",
 			signature: spec.MapperSignature{
-				Accepts: new(spec.ParameterKindValue),
-				Returns: new(spec.ParameterKindValue),
+				Accepts: spec.ParameterKindValue,
+				Returns: spec.ParameterKindValue,
 			},
 			want: "value->value",
 		},
 		{
 			name: "pointer to value",
 			signature: spec.MapperSignature{
-				Accepts: new(spec.ParameterKindPointer),
-				Returns: new(spec.ParameterKindValue),
+				Accepts: spec.ParameterKindPointer,
+				Returns: spec.ParameterKindValue,
 			},
 			want: "pointer->value",
 		},
 		{
 			name: "value to pointer",
 			signature: spec.MapperSignature{
-				Accepts: new(spec.ParameterKindValue),
-				Returns: new(spec.ParameterKindPointer),
+				Accepts: spec.ParameterKindValue,
+				Returns: spec.ParameterKindPointer,
 			},
 			want: "value->pointer",
 		},
 		{
 			name: "pointer to pointer",
 			signature: spec.MapperSignature{
-				Accepts: new(spec.ParameterKindPointer),
-				Returns: new(spec.ParameterKindPointer),
+				Accepts: spec.ParameterKindPointer,
+				Returns: spec.ParameterKindPointer,
 			},
 			want: "pointer->pointer",
 		},
 		{
-			name:      "should default nil signature parts to value",
+			name:      "should treat zero-value signature parts as value",
 			signature: spec.MapperSignature{},
 			want:      "value->value",
 		},
@@ -209,8 +209,8 @@ func TestTypeMapperKey(t *testing.T) {
 			source: TypeRef{Key: "module.test/source.User"},
 			target: TypeRef{Key: "module.test/target.User"},
 			signature: spec.MapperSignature{
-				Accepts: new(spec.ParameterKindPointer),
-				Returns: new(spec.ParameterKindValue),
+				Accepts: spec.ParameterKindPointer,
+				Returns: spec.ParameterKindValue,
 			},
 			want: "module.test/source.User->module.test/target.User|pointer->value",
 		},

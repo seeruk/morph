@@ -15,8 +15,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/seeruk/morph/internal/mapsx"
-	"github.com/seeruk/morph/internal/slicesx"
 	"github.com/seeruk/morph/plan"
 	"github.com/seeruk/morph/spec"
 	"github.com/seeruk/morph/types"
@@ -41,8 +39,6 @@ type Planner struct {
 	registry *functionRegistry
 
 	// Prepared state:
-	// presetsByName is a map of presets in the spec, by name
-	presetsByName map[string]spec.Preset
 	// workspace contains the module and filesystem environment Morph is planning within
 	workspace *Workspace
 
@@ -86,11 +82,6 @@ func NewPlanner(specification Spec, workingDir, ident string) *Planner {
 
 // Plan attempts to produce a Plan for the Spec assigned to this Planner.
 func (p *Planner) Plan() (Plan, error) {
-	// Filter out empty packages
-	p.spec.Packages = slicesx.Filter(p.spec.Packages, func(pkg spec.Package) bool {
-		return len(pkg.Types) > 0
-	})
-
 	var out Plan
 	if err := p.prepare(); err != nil {
 		return out, fmt.Errorf("failed to prepare planner: %w", err)
@@ -149,7 +140,6 @@ func (p *Planner) prepare() error {
 		return fmt.Errorf("failed to prepare workspace: %w", err)
 	}
 
-	p.preparePresets()
 	return nil
 }
 
@@ -230,13 +220,6 @@ func (p *Planner) registerDiscovery() error {
 	return nil
 }
 
-func (p *Planner) preparePresets() {
-	p.presetsByName = make(map[string]spec.Preset, len(p.spec.Presets))
-	for _, preset := range p.spec.Presets {
-		p.presetsByName[preset.Name] = preset
-	}
-}
-
 func (p *Planner) registerDiscoveryFunctions(registry *functionRegistry, pkgs map[string]types.Package) error {
 	for _, discoveryFn := range p.spec.Discovery.Functions {
 		pkg, ok := pkgs[discoveryFn.ImportPath]
@@ -300,14 +283,9 @@ func (p *Planner) registerDiscoveryPackages(registry *functionRegistry, pkgs map
 // mappings, instead just determining the output groups and the explicitly requested mapping
 // functions that need to be generated.
 func (p *Planner) shallowPlan() (map[plan.OutputLocation]plan.OutputGroup, error) {
-	// Prepare the top-level defaults, based on Morph defaults, overridden by user-specified
-	// defaults from within the spec. We'll override these again as we go per-package, per-type...
-	defaultOutput := outputWithDefaults(p.spec.Defaults.Packages.Output, defaultOutput)
-	defaultTypes := typesDefaultsWithDefaults(p.spec.Defaults.Packages.Types, defaultTypesDefaults)
-
 	outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
 	for _, pkgSpec := range p.spec.Packages {
-		if err := p.shallowPackagePlan(outputGroups, pkgSpec, defaultOutput, defaultTypes); err != nil {
+		if err := p.shallowPackagePlan(outputGroups, pkgSpec); err != nil {
 			return nil, fmt.Errorf("failed to shallow plan package %q -> %q: %w", pkgSpec.Source, pkgSpec.Target, err)
 		}
 	}
@@ -316,12 +294,7 @@ func (p *Planner) shallowPlan() (map[plan.OutputLocation]plan.OutputGroup, error
 }
 
 // shallowPackagePlan does a shallow planning pass for the given package spec.
-func (p *Planner) shallowPackagePlan(
-	outputGroups map[plan.OutputLocation]plan.OutputGroup,
-	pkgSpec spec.Package,
-	outputDefaults spec.Output,
-	typeDefaults spec.TypesDefaults,
-) error {
+func (p *Planner) shallowPackagePlan(outputGroups map[plan.OutputLocation]plan.OutputGroup, pkgSpec spec.Package) error {
 	pkgs := p.loader.Packages()
 
 	sourcePkg, ok := pkgs[pkgSpec.Source]
@@ -334,133 +307,59 @@ func (p *Planner) shallowPackagePlan(
 		return fmt.Errorf("target package not found %q", pkgSpec.Target)
 	}
 
-	if pkgSpec.Preset != "" {
-		// If a preset is set, attempt to find it by name
-		preset, ok := p.presetsByName[pkgSpec.Preset]
-		if !ok {
-			return fmt.Errorf("preset not found %q", pkgSpec.Preset)
-		}
-		// And if found, apply it to the type defaults
-		typeDefaults = typesDefaultsWithPreset(typeDefaults, preset)
-	}
-
-	// Always override the lower-level defaults with details from the package, at this point.
-	typeDefaults = typesDefaultsWithPackageSpec(typeDefaults, pkgSpec)
-
-	output := outputWithDefaults(pkgSpec.Output, outputDefaults)
-	location, err := p.outputLocationForPackages(sourcePkg, targetPkg, output)
+	location, err := p.outputLocationForPackages(sourcePkg, targetPkg, pkgSpec.Output)
 	if err != nil {
 		return fmt.Errorf("failed to determine output location for packages %q -> %q: %w", pkgSpec.Source, pkgSpec.Target, err)
 	}
 
 	for _, typeSpec := range pkgSpec.Types {
-		typeSpec.Source = cmp.Or(typeSpec.Source, typeSpec.Name)
-		typeSpec.Target = cmp.Or(typeSpec.Target, typeSpec.Name)
-		if typeSpec.Source == "" && typeSpec.Target == "" {
-			return fmt.Errorf("type %q: either name, or source and target type name is required", typeSpec.Name)
-		}
-
-		// Forward should always be set, inverse may not be.
-		forward, inverse, err := p.shallowTypePlan(sourcePkg, targetPkg, typeSpec, typeDefaults)
+		root, err := p.shallowTypePlan(sourcePkg, targetPkg, typeSpec)
 		if err != nil {
 			return fmt.Errorf("failed to shallow plan type for packages %q -> %q: %w", pkgSpec.Source, pkgSpec.Target, err)
 		}
 
-		if err = p.addExplicitRoot(outputGroups, location, forward); err != nil {
-			return fmt.Errorf("failed to add explicit root forward plan for packages %q -> %q: %w", pkgSpec.Source, pkgSpec.Target, err)
+		if err = p.addExplicitRoot(outputGroups, location, root); err != nil {
+			return fmt.Errorf("failed to add explicit root plan for packages %q -> %q: %w", pkgSpec.Source, pkgSpec.Target, err)
 		}
 
-		forwardKey := plan.TypeMapperKey(forward.Source, forward.Target, forward.Signature)
-		p.shallowMappings[forwardKey] = struct{}{}
-
-		if inverse != nil {
-			if err = p.addExplicitRoot(outputGroups, location, inverse); err != nil {
-				return fmt.Errorf("failed to add explicit root inverse plan for packages %q -> %q: %w", pkgSpec.Source, pkgSpec.Target, err)
-			}
-
-			inverseKey := plan.TypeMapperKey(inverse.Source, inverse.Target, inverse.Signature)
-			p.shallowMappings[inverseKey] = struct{}{}
-		}
+		rootKey := plan.TypeMapperKey(root.Source, root.Target, root.Signature)
+		p.shallowMappings[rootKey] = struct{}{}
 	}
 
 	return nil
 }
 
-func (p *Planner) shallowTypePlan(
-	sourcePkg, targetPkg types.Package,
-	typeSpec spec.Type,
-	typeDefaults spec.TypesDefaults,
-) (*plan.Type, *plan.Type, error) {
-	if typeSpec.Preset != "" {
-		// If a preset is set, attempt to find it by name
-		preset, ok := p.presetsByName[typeSpec.Preset]
-		if !ok {
-			return nil, nil, fmt.Errorf("preset not found %q", typeSpec.Preset)
-		}
-		// And if found, apply it to the type defaults
-		typeDefaults = typesDefaultsWithPreset(typeDefaults, preset)
-	}
-
-	// Resolve the final spec for this type, with all layered defaults. The defaults should not
-	// be used from this point on.
-	typeSpec = specTypeWithTypesDefaults(typeSpec, typeDefaults)
-
+func (p *Planner) shallowTypePlan(sourcePkg, targetPkg types.Package, typeSpec spec.Type) (*plan.Type, error) {
 	sourceDecl, ok := sourcePkg.Types[typeSpec.Source]
 	if !ok {
-		return nil, nil, fmt.Errorf("source type not found %q in package %q", typeSpec.Source, sourcePkg.ImportPath)
+		return nil, fmt.Errorf("source type not found %q in package %q", typeSpec.Source, sourcePkg.ImportPath)
 	}
 
 	targetDecl, ok := targetPkg.Types[typeSpec.Target]
 	if !ok {
-		return nil, nil, fmt.Errorf("target type not found %q in package %q", typeSpec.Target, targetPkg.ImportPath)
+		return nil, fmt.Errorf("target type not found %q in package %q", typeSpec.Target, targetPkg.ImportPath)
 	}
 
-	var forward, inverse *plan.Type
-
-	forward, err := p.shallowRootPlan(sourceDecl, targetDecl, typeSpec, typeSpec.Mappers.Forward)
+	root, err := p.shallowRootPlan(sourceDecl, targetDecl, typeSpec)
 	if err != nil {
-		return nil, nil, fmt.Errorf("type %q -> %q: %w", typeSpec.Source, typeSpec.Target, err)
+		return nil, fmt.Errorf("type %q -> %q: %w", typeSpec.Source, typeSpec.Target, err)
 	}
 
-	if typeSpec.Bidirectional != nil && *typeSpec.Bidirectional {
-		inverseTypeSpec := typeSpec
-		inverseTypeSpec.Struct = invertStructSpec(typeSpec.Struct)
-
-		inverse, err = p.shallowRootPlan(targetDecl, sourceDecl, inverseTypeSpec, typeSpec.Mappers.Inverse)
-		if err != nil {
-			return nil, nil, fmt.Errorf("type %q -> %q inverse: %w", typeSpec.Source, typeSpec.Target, err)
-		}
-	}
-
-	return forward, inverse, nil
+	return root, nil
 }
 
 // shallowRootPlan prepares a shallow plan for a particular type mapping.
-func (p *Planner) shallowRootPlan(
-	sourceDecl, targetDecl types.TypeDecl,
-	typeSpec spec.Type,
-	mapper spec.Mapper,
-) (*plan.Type, error) {
+func (p *Planner) shallowRootPlan(sourceDecl, targetDecl types.TypeDecl, typeSpec spec.Type) (*plan.Type, error) {
 	nameInput := NameInput{
 		Source:     sourceDecl.Type,
 		Target:     targetDecl.Type,
 		TypeParams: sourceDecl.Type.TypeParams,
-		Signature:  mapper.Signature,
+		Signature:  typeSpec.Mapper.Signature,
 	}
 
-	functionName, err := MapperName(nameInput, mapper.Name)
+	functionName, err := MapperName(nameInput, typeSpec.Mapper.Name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine mapper name: %w", err)
-	}
-
-	if typeSpec.Enum == nil {
-		return nil, errors.New("expected type spec to at least have defaults applied")
-	}
-
-	// The struct spec can be nil, because there are no defaults for it
-	var structSpec spec.Struct
-	if typeSpec.Struct != nil {
-		structSpec = *typeSpec.Struct
 	}
 
 	root := &plan.Type{
@@ -472,11 +371,10 @@ func (p *Planner) shallowRootPlan(
 		TargetType:   targetDecl.Type,
 		FunctionName: functionName,
 		TypeParams:   sourceDecl.Type.TypeParams,
-		Signature:    mapper.Signature,
-		// We store these in the plan, because we've already done the work assigning defaults and
-		// resolving presets by this point, but we need to use that later.
-		EnumSpec:   *typeSpec.Enum,
-		StructSpec: structSpec,
+		Signature:    typeSpec.Mapper.Signature,
+		EnumSpec:     typeSpec.Enum,
+		StructSpec:   typeSpec.Struct,
+		Optionality:  typeSpec.Optionality,
 	}
 
 	root.Diagnostics = appendDiagnostic(root.Diagnostics, validateStructFieldMappings(root)...)
@@ -490,7 +388,12 @@ func invertStructSpec(in *spec.Struct) *spec.Struct {
 	}
 
 	out := *in
-	out.Fields = mapsx.Invert(in.Fields)
+	out.Fields = make(map[string]spec.Field, len(in.Fields))
+	for sourceName, field := range in.Fields {
+		targetName := structFieldTarget(sourceName, field)
+		field.Target = sourceName
+		out.Fields[targetName] = field
+	}
 	return &out
 }
 
@@ -514,7 +417,8 @@ func validateStructFieldMappings(typ *plan.Type) []plan.Diagnostic {
 	targetFieldNames := make([]string, 0, len(sourceFieldNames))
 
 	for _, sourceName := range sourceFieldNames {
-		targetName := typ.StructSpec.Fields[sourceName]
+		fieldSpec := typ.StructSpec.Fields[sourceName]
+		targetName := structFieldTarget(sourceName, fieldSpec)
 
 		if _, ok := sourceFields[sourceName]; !ok {
 			out = append(out, plan.Diagnostic{
@@ -605,35 +509,18 @@ func (p *Planner) addExplicitRoot(
 
 func sameRootPlanningConfig(a, b *plan.Type) bool {
 	return sameEnumSpec(a.EnumSpec, b.EnumSpec) &&
-		sameStructSpec(a.StructSpec, b.StructSpec)
+		sameStructSpec(a.StructSpec, b.StructSpec) &&
+		a.Optionality == b.Optionality
 }
 
 func sameEnumSpec(a, b spec.Enum) bool {
-	return ptrEqual(a.FailureMode, b.FailureMode) &&
-		sameEnumPatterns(a.Patterns, b.Patterns) &&
+	return a.FailureMode == b.FailureMode &&
+		a.Patterns == b.Patterns &&
 		maps.Equal(a.Values, b.Values)
-}
-
-func sameEnumPatterns(a, b *spec.EnumPatterns) bool {
-	if a == nil || b == nil {
-		return enumPatternsEmpty(a) && enumPatternsEmpty(b)
-	}
-	return *a == *b
-}
-
-func enumPatternsEmpty(patterns *spec.EnumPatterns) bool {
-	return patterns == nil || *patterns == (spec.EnumPatterns{})
 }
 
 func sameStructSpec(a, b spec.Struct) bool {
 	return maps.Equal(a.Fields, b.Fields)
-}
-
-func ptrEqual[T comparable](a, b *T) bool {
-	if a == nil || b == nil {
-		return a == b
-	}
-	return *a == *b
 }
 
 func (p *Planner) isFunctionPendingGeneration(fn types.FunctionDecl, ref spec.CallableRef) bool {
@@ -647,11 +534,7 @@ func (p *Planner) outputLocationForPackages(
 	targetPkg types.Package,
 	output spec.Output,
 ) (plan.OutputLocation, error) {
-	if output.Strategy == nil {
-		return plan.OutputLocation{}, errors.New("missing output strategy")
-	}
-
-	switch *output.Strategy {
+	switch output.Strategy {
 	case spec.OutputStrategySinglePackage:
 		return p.outputLocationForPackage(output)
 	case spec.OutputStrategySourcePackage:

@@ -1,24 +1,14 @@
 package spec
 
-// Defaults represents available options for configuring Morph defaults.
+// Defaults represents resolved top-level defaults used by Morph while planning implicit mappings.
 type Defaults struct {
-	Packages PackagesDefaults `json:"packages"`
+	Types TypeDefaults
 }
 
-// PackagesDefaults represents available options for configuring Packages-level defaults.
-type PackagesDefaults struct {
-	Types  TypesDefaults `json:"types"`
-	Output Output        `json:"output"`
-}
-
-// TypesDefaults represents available options for configuring type-pair-level defaults.
-type TypesDefaults struct {
-	Enum          *EnumDefaults `json:"enum"`
-	Mappers       *Mappers      `json:"mappers"`
-	Bidirectional *bool         `json:"bidirectional"`
-}
-
-// EnumDefaults represents available options for configuring enum mapping defaults.
-type EnumDefaults struct {
-	FailureMode *EnumFailureMode `json:"failureMode"`
+// TypeDefaults represents resolved defaults used when Morph has to create implicit type mappings
+// that were not present as explicit package type mappings.
+type TypeDefaults struct {
+	Enum        Enum
+	Mappers     Mappers
+	Optionality Optionality
 }
