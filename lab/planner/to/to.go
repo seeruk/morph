@@ -29,6 +29,10 @@ type Generic[T any] struct {
 	Bar T
 }
 
+type Explicit struct {
+	Foo string
+}
+
 type Optional[T any] struct {
 	Value T
 	Valid bool

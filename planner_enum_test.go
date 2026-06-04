@@ -9,7 +9,42 @@ import (
 	"github.com/seeruk/morph/plan"
 	"github.com/seeruk/morph/types"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestPlanner_planEnumValues(t *testing.T) {
+	t.Run("does not mark normalized names as seen source constants", func(t *testing.T) {
+		sourceDecl := testEnumTypeDecl(
+			"Status",
+			testConstantDecl("Status", "OK", "ok"),
+			testConstantDecl("Status", "StatusOK", "ok"),
+		)
+		targetDecl := testEnumTypeDecl(
+			"Status",
+			testConstantDecl("Status", "OK", "ok"),
+		)
+		typ := plan.Type{
+			SourceDecl: sourceDecl,
+			TargetDecl: targetDecl,
+			SourceType: sourceDecl.Type,
+			TargetType: targetDecl.Type,
+		}
+		planner := &Planner{}
+
+		values, diagnostics := planner.planEnumValues(&typ)
+
+		require.Empty(t, diagnostics)
+		require.Len(t, values, 2)
+
+		sourceNames := make([]string, 0, len(values))
+		for _, value := range values {
+			sourceNames = append(sourceNames, value.Source.Name)
+			assert.Equal(t, "OK", value.Target.Name)
+		}
+
+		assert.Equal(t, []string{"OK", "StatusOK"}, sourceNames)
+	})
+}
 
 func Test_normalizeEnumConstants(t *testing.T) {
 	tt := []struct {
@@ -127,6 +162,21 @@ func Test_normalizeEnumConstants(t *testing.T) {
 				assert.Empty(t, diags)
 			}
 		})
+	}
+}
+
+func testEnumTypeDecl(name string, constants ...types.ConstantDecl) types.TypeDecl {
+	typ := basicTestType(name)
+	constantsByName := make(map[string]types.ConstantDecl, len(constants))
+	for _, constant := range constants {
+		constantsByName[constant.Name] = constant
+	}
+
+	return types.TypeDecl{
+		Name:       name,
+		Type:       typ,
+		Underlying: typ,
+		Constants:  constantsByName,
 	}
 }
 

@@ -76,7 +76,8 @@ func (p *Planner) planEnumValues(typ *plan.Type) ([]plan.EnumValue, []plan.Diagn
 		seenSources[sourceName] = struct{}{}
 	}
 
-	for _, sourceConstant := range sourceConstants {
+	for _, sourceName := range sourceNames {
+		sourceConstant := sourceConstants[sourceName]
 		if _, ok := seenSources[sourceConstant.Name]; ok {
 			continue
 		}
@@ -124,7 +125,7 @@ func (p *Planner) planEnumValues(typ *plan.Type) ([]plan.EnumValue, []plan.Diagn
 			Target: targetConstant,
 		})
 
-		seenSources[normalizedSourceName] = struct{}{}
+		seenSources[sourceConstant.Name] = struct{}{}
 	}
 
 	slices.SortFunc(values, func(a, b plan.EnumValue) int {

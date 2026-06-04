@@ -29,6 +29,10 @@ type Generic[T any] struct {
 	Bar T
 }
 
+type Explicit struct {
+	Foo Optional[string]
+}
+
 type Nested struct {
 	Foo Optional[string]
 	Bar int64
@@ -52,6 +56,10 @@ func OptionalOfString(s *string) Optional[string] {
 		Value: *s,
 		Valid: true,
 	}
+}
+
+func OptionalOfString2(s *string) Optional[string] {
+	return OptionalOfString(s)
 }
 
 func (o Optional[T]) AsOtherOptional() to.Optional[T] {
