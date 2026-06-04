@@ -330,9 +330,9 @@ func (g importGraph) addEdge(from, to string) {
 	g[from][to] = struct{}{}
 }
 
-// path returns one import path from from to to by following existing direct imports. An empty slice
-// means no path exists. Self-imports and empty package paths are ignored because Go does not emit
-// imports for references within the generated file's own package.
+// path returns one import path from `from` to `to` by following existing direct imports. An empty
+// slice means no path exists. Self-imports and empty package paths are ignored because Go does not
+// emit imports for references within the generated file's own package.
 func (g importGraph) path(from, to string) []string {
 	if from == "" || to == "" {
 		return nil
