@@ -1,5 +1,10 @@
 package to
 
+type Tuple[A, B any] struct {
+	A A
+	B B
+}
+
 type RecipeDifficulty uint
 
 const (
@@ -18,7 +23,7 @@ func (s Stringy) String() string {
 
 type Single struct {
 	Foo    string
-	Bar    Optional[string]
+	Bar    Optional[Stringy]
 	Baz    []Optional[string]
 	Nested Nested
 	Bla    Stringy

@@ -131,6 +131,17 @@ type Diagnostic struct {
 	Message string
 }
 
+// HasFatalDiagnostics returns whether the supplied diagnostics contain at least one fatal
+// diagnostic.
+func HasFatalDiagnostics(diagnostics []Diagnostic) bool {
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Level == DiagnosticLevelFatal {
+			return true
+		}
+	}
+	return false
+}
+
 // String returns this Diagnostic as a string.
 func (d Diagnostic) String() string {
 	if d.Path == "" {

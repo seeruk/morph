@@ -4,6 +4,7 @@ defaults:
       strategy: single_package
     types:
       callables:
+      - github.com/seeruk/morph/lab/planner/from.OtoO
       - github.com/seeruk/morph/lab/planner/from.OptionalOfString
       - github.com/seeruk/morph/lab/planner/from.Optional.Unwrap
 
@@ -23,12 +24,8 @@ packages:
   bidirectional: true
   types:
   - name: Single
-  - name: Generic
   - source: Difficulty
     target: RecipeDifficulty
-    enum:
-      values:
-        DifficultyUltra: RecipeDifficultyInsane
 
 #- source: github.com/seeruk/morph/lab/planner/from
 #  target: github.com/seeruk/morph/lab/planner/to

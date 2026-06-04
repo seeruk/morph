@@ -15,7 +15,6 @@ import (
 func (p *Planner) planStruct(typ *plan.Type) {
 	sourceFields := plannableFieldsForType(typ.SourceDecl, typ.SourceType)
 	targetFields := plannableFieldsForType(typ.TargetDecl, typ.TargetType)
-	typeParams := typeParamScopeFrom(typ.TypeParams)
 
 	var structPlan plan.Struct
 	for _, targetField := range targetFields {
@@ -23,14 +22,14 @@ func (p *Planner) planStruct(typ *plan.Type) {
 		if !ok {
 			diagnostic := plan.Diagnostic{
 				Level:   plan.DiagnosticLevelWarning,
-				Path:    plan.TypesPath(typ.SourceType, typ.TargetType),
-				Message: fmt.Sprintf("no source field found for target field %q", targetField.Name),
+				Path:    plan.TargetFieldPath(typ.SourceType, typ.TargetType, targetField.Name),
+				Message: fmt.Sprintf("no source field found for target field %q; configure struct.fields to map it explicitly", targetField.Name),
 			}
 			typ.Diagnostics = appendDiagnostic(typ.Diagnostics, diagnostic)
 			continue
 		}
 
-		fieldPath := plan.FieldPath(typ.SourceType, typ.TargetType, sourceField)
+		fieldPath := plan.FieldPath(typ.SourceType, typ.TargetType, sourceField, targetField)
 		optionality := typ.Optionality
 		conversion := typ.Conversions
 		if mapped {
@@ -44,7 +43,6 @@ func (p *Planner) planStruct(typ *plan.Type) {
 				sourceField.Type,
 				targetField.Type,
 				fieldPath,
-				typeParams,
 				optionality,
 				conversion,
 				*fieldSpec.Callable,
@@ -55,7 +53,6 @@ func (p *Planner) planStruct(typ *plan.Type) {
 				sourceField.Type,
 				targetField.Type,
 				fieldPath,
-				typeParams,
 				optionality,
 				conversion,
 				typ.Callables,
@@ -81,7 +78,6 @@ func (p *Planner) planStruct(typ *plan.Type) {
 func (p *Planner) planValue(
 	sourceType, targetType types.Type,
 	path string,
-	typeParams typeParamScope,
 	optionality spec.Optionality,
 	conversion spec.ConversionsPolicy,
 	callables []spec.TieredCallables,
@@ -89,8 +85,12 @@ func (p *Planner) planValue(
 	sourceType = types.UnwrapAlias(sourceType)
 	targetType = types.UnwrapAlias(targetType)
 
-	if value, ok := p.planTieredCallables(sourceType, targetType, path, typeParams, optionality, conversion, callables); ok {
+	var deferredDiagnostics []plan.Diagnostic
+
+	if value, diagnostics, ok := p.planTieredCallables(sourceType, targetType, path, optionality, conversion, callables); ok {
 		return value
+	} else {
+		deferredDiagnostics = appendDiagnostic(deferredDiagnostics, diagnostics...)
 	}
 
 	if explicit, ok := p.planExplicitRoot(sourceType, targetType); ok {
@@ -102,21 +102,23 @@ func (p *Planner) planValue(
 		return planCallableValue(sourceType, targetType, fn, compatibility, optionality)
 	}
 
-	if value, ok := p.planHigherOrderFunctionCallable(
+	if value, diagnostics, ok := p.planHigherOrderFunctionCallable(
 		sourceType,
 		targetType,
 		path,
-		typeParams,
 		optionality,
 		conversion,
 		plan.CallableSourceDiscovered,
 		callables,
 	); ok {
 		return value
+	} else {
+		deferredDiagnostics = appendDiagnostic(deferredDiagnostics, diagnostics...)
 	}
 
 	if sourceType.Kind == types.TypeKindPointer || targetType.Kind == types.TypeKindPointer {
-		return p.planPointerMapping(sourceType, targetType, path, typeParams, optionality, conversion, callables)
+		value := p.planPointerMapping(sourceType, targetType, path, optionality, conversion, callables)
+		return appendDiagnosticsOnFailure(value, deferredDiagnostics...)
 	}
 
 	switch {
@@ -125,18 +127,17 @@ func (p *Planner) planValue(
 			*sourceType.Elem,
 			*targetType.Elem,
 			path+"[]",
-			typeParams,
 			optionality,
 			conversion,
 			callables,
 		)
 
 		operation := plan.OperationSlice
-		if len(elemPlan.Diagnostics) > 0 {
+		if valueMappingFailed(elemPlan) {
 			operation = plan.OperationUnsupported
 		}
 
-		return plan.Value{
+		value := plan.Value{
 			Operation:   operation,
 			Source:      sourceType,
 			Target:      targetType,
@@ -145,28 +146,33 @@ func (p *Planner) planValue(
 			CanError:    elemPlan.CanError,
 			Diagnostics: elemPlan.Diagnostics,
 		}
+		return appendDiagnosticsOnFailure(value, deferredDiagnostics...)
 
 	case sourceType.Kind == types.TypeKindArray && targetType.Kind == types.TypeKindArray:
 		if sourceType.Len != targetType.Len {
-			return unsupportedMapping(sourceType, targetType, path, "array lengths differ")
+			return appendUnsupportedDiagnostics(unsupportedMapping(
+				sourceType,
+				targetType,
+				path,
+				fmt.Sprintf("array lengths differ (%d != %d)", sourceType.Len, targetType.Len),
+			), deferredDiagnostics...)
 		}
 
 		elemPlan := p.planValue(
 			*sourceType.Elem,
 			*targetType.Elem,
 			path+"[]",
-			typeParams,
 			optionality,
 			conversion,
 			callables,
 		)
 
 		operation := plan.OperationArray
-		if len(elemPlan.Diagnostics) > 0 {
+		if valueMappingFailed(elemPlan) {
 			operation = plan.OperationUnsupported
 		}
 
-		return plan.Value{
+		value := plan.Value{
 			Operation:   operation,
 			Source:      sourceType,
 			Target:      targetType,
@@ -175,13 +181,13 @@ func (p *Planner) planValue(
 			CanError:    elemPlan.CanError,
 			Diagnostics: elemPlan.Diagnostics,
 		}
+		return appendDiagnosticsOnFailure(value, deferredDiagnostics...)
 
 	case sourceType.Kind == types.TypeKindMap && targetType.Kind == types.TypeKindMap:
 		key := p.planValue(
 			*sourceType.Key,
 			*targetType.Key,
 			path+"[key]",
-			typeParams,
 			optionality,
 			conversion,
 			callables,
@@ -190,7 +196,6 @@ func (p *Planner) planValue(
 			*sourceType.Value,
 			*targetType.Value,
 			path+"[value]",
-			typeParams,
 			optionality,
 			conversion,
 			callables,
@@ -200,11 +205,11 @@ func (p *Planner) planValue(
 		diagnostics = append(diagnostics, value.Diagnostics...)
 
 		operation := plan.OperationMap
-		if len(diagnostics) > 0 {
+		if valueMappingFailed(key) || valueMappingFailed(value) {
 			operation = plan.OperationUnsupported
 		}
 
-		return plan.Value{
+		valuePlan := plan.Value{
 			Operation:   operation,
 			Source:      sourceType,
 			Target:      targetType,
@@ -214,10 +219,11 @@ func (p *Planner) planValue(
 			CanError:    key.CanError || value.CanError,
 			Diagnostics: diagnostics,
 		}
+		return appendDiagnosticsOnFailure(valuePlan, deferredDiagnostics...)
 	}
 
-	if nested, ok := p.planNestedStruct(sourceType, targetType, path, typeParams, callables); ok {
-		return nested
+	if nested, ok := p.planNestedStruct(sourceType, targetType, path, callables); ok {
+		return appendDiagnosticsOnFailure(nested, deferredDiagnostics...)
 	}
 
 	if sameType(sourceType, targetType) {
@@ -238,13 +244,17 @@ func (p *Planner) planValue(
 		}
 	}
 
-	return unsupportedMapping(sourceType, targetType, path, "unable to determine mapping strategy")
+	return appendUnsupportedDiagnostics(unsupportedMapping(
+		sourceType,
+		targetType,
+		path,
+		"no mapping strategy found; configure a callable, explicit mapper, discovery package, or registered conversion",
+	), deferredDiagnostics...)
 }
 
 func (p *Planner) planFieldCallable(
 	sourceType, targetType types.Type,
 	path string,
-	typeParams typeParamScope,
 	optionality spec.Optionality,
 	conversion spec.ConversionsPolicy,
 	ref spec.CallableRef,
@@ -257,48 +267,74 @@ func (p *Planner) planFieldCallable(
 	if callable, compatibility, ok := p.discoverExplicitCallable(sourceType, targetType, refs); ok {
 		return planCallableValue(sourceType, targetType, callable, compatibility, optionality)
 	}
-	if value, ok := p.planHigherOrderExplicitCallable(
+	if value, diagnostics, ok := p.planHigherOrderExplicitCallable(
 		sourceType,
 		targetType,
 		path,
-		typeParams,
 		optionality,
 		conversion,
 		refs,
 		callables,
 	); ok {
 		return value
+	} else if len(diagnostics) > 0 {
+		return appendUnsupportedDiagnostics(
+			unsupportedMapping(
+				sourceType,
+				targetType,
+				path,
+				fmt.Sprintf(
+					"configured field callable %q could not use a required mapper argument; expected callable to accept %s and return %s",
+					ref.String(),
+					types.TypeKey(sourceType),
+					types.TypeKey(targetType),
+				),
+			),
+			diagnostics...,
+		)
 	}
 
-	return unsupportedMapping(sourceType, targetType, path, fmt.Sprintf("field callable %q is not compatible", ref.String()))
+	return unsupportedMapping(
+		sourceType,
+		targetType,
+		path,
+		fmt.Sprintf(
+			"configured field callable %q is not compatible; expected callable to accept %s and return %s",
+			ref.String(),
+			types.TypeKey(sourceType),
+			types.TypeKey(targetType),
+		),
+	)
 }
 
 func (p *Planner) planTieredCallables(
 	sourceType, targetType types.Type,
 	path string,
-	typeParams typeParamScope,
 	optionality spec.Optionality,
 	conversion spec.ConversionsPolicy,
 	callables []spec.TieredCallables,
-) (plan.Value, bool) {
+) (plan.Value, []plan.Diagnostic, bool) {
+	var deferredDiagnostics []plan.Diagnostic
+
 	for _, tier := range callables {
 		if callable, compatibility, ok := p.discoverExplicitCallable(sourceType, targetType, tier.Callables); ok {
-			return planCallableValue(sourceType, targetType, callable, compatibility, optionality), true
+			return planCallableValue(sourceType, targetType, callable, compatibility, optionality), nil, true
 		}
-		if value, ok := p.planHigherOrderExplicitCallable(
+		if value, diagnostics, ok := p.planHigherOrderExplicitCallable(
 			sourceType,
 			targetType,
 			path,
-			typeParams,
 			optionality,
 			conversion,
 			tier.Callables,
 			callables,
 		); ok {
-			return value, true
+			return value, diagnostics, true
+		} else {
+			deferredDiagnostics = appendDiagnostic(deferredDiagnostics, diagnostics...)
 		}
 	}
-	return plan.Value{}, false
+	return plan.Value{}, deferredDiagnostics, false
 }
 
 func planCallableValue(
@@ -430,7 +466,6 @@ func explicitRootOutputPackageRank(current plan.OutputLocation, candidate *expli
 func (p *Planner) planNestedStruct(
 	source, target types.Type,
 	path string,
-	typeParams typeParamScope,
 	callables []spec.TieredCallables,
 ) (plan.Value, bool) {
 	sourceDecl, sourceOK := p.resolveStructType(source)
@@ -445,8 +480,8 @@ func (p *Planner) planNestedStruct(
 
 	defaultTypes := p.spec.Defaults.Types
 
-	sourceRef := scopedTypeRef(source, typeParams)
-	targetRef := scopedTypeRef(target, typeParams)
+	sourceRef := plan.TypeRefFromType(source)
+	targetRef := plan.TypeRefFromType(target)
 	callablesKey := callableContextKey(callables)
 	if callablesKey != "" {
 		sourceRef.Key += "|callables:" + callablesKey
@@ -459,7 +494,6 @@ func (p *Planner) planNestedStruct(
 		TargetDecl: targetDecl,
 		SourceType: source,
 		TargetType: target,
-		TypeParams: concreteTypeParams(sourceDecl, source, typeParams),
 		Signature: spec.MapperSignature{ // TODO: Could be more granular
 			Accepts: spec.ParameterKindValue,
 			Returns: spec.ParameterKindValue,
@@ -510,7 +544,6 @@ func (p *Planner) planNestedStruct(
 func (p *Planner) planPointerMapping(
 	source, target types.Type,
 	path string,
-	typeParams typeParamScope,
 	optionality spec.Optionality,
 	conversion spec.ConversionsPolicy,
 	callables []spec.TieredCallables,
@@ -528,10 +561,10 @@ func (p *Planner) planPointerMapping(
 		targetElem = *target.Elem
 	}
 
-	elem := p.planValue(sourceElem, targetElem, path, typeParams, optionality, conversion, callables)
+	elem := p.planValue(sourceElem, targetElem, path, optionality, conversion, callables)
 
 	operation := plan.OperationPointer
-	if len(elem.Diagnostics) > 0 {
+	if valueMappingFailed(elem) {
 		operation = plan.OperationUnsupported
 	}
 
@@ -619,12 +652,11 @@ func (p *Planner) discoverExplicitCallable(
 func (p *Planner) planHigherOrderFunctionCallable(
 	sourceType, targetType types.Type,
 	path string,
-	typeParams typeParamScope,
 	optionality spec.Optionality,
 	conversion spec.ConversionsPolicy,
 	source plan.CallableSource,
 	callables []spec.TieredCallables,
-) (plan.Value, bool) {
+) (plan.Value, []plan.Diagnostic, bool) {
 	candidates := make(map[plan.CallableRef]callableCompatibility)
 	for _, fn := range p.registry.Candidates(sourceType, targetType, source) {
 		callable, ok := plan.CallableRefFromFunctionDecl(fn, source)
@@ -640,16 +672,17 @@ func (p *Planner) planHigherOrderFunctionCallable(
 		candidates[callable] = compatibility
 	}
 
+	var deferredDiagnostics []plan.Diagnostic
 	for _, candidate := range rankedCallableCandidates(candidates) {
 		args, diagnostics, ok := p.planCallableArgs(
 			candidate.Compatibility.MapperArgs,
 			path,
-			typeParams,
 			optionality,
 			conversion,
 			callables,
 		)
 		if !ok {
+			deferredDiagnostics = appendDiagnostic(deferredDiagnostics, diagnostics...)
 			continue
 		}
 
@@ -667,21 +700,20 @@ func (p *Planner) planHigherOrderFunctionCallable(
 				callableInputCanError(candidate.Compatibility.Input, optionality) ||
 				callableResultCanError(candidate.Compatibility.Result, optionality),
 			Diagnostics: diagnostics,
-		}, true
+		}, diagnostics, true
 	}
 
-	return plan.Value{}, false
+	return plan.Value{}, deferredDiagnostics, false
 }
 
 func (p *Planner) planHigherOrderExplicitCallable(
 	sourceType, targetType types.Type,
 	path string,
-	typeParams typeParamScope,
 	optionality spec.Optionality,
 	conversion spec.ConversionsPolicy,
 	refs []spec.CallableRef,
 	callables []spec.TieredCallables,
-) (plan.Value, bool) {
+) (plan.Value, []plan.Diagnostic, bool) {
 	candidates := make(map[plan.CallableRef]callableCompatibility)
 	for _, ref := range refs {
 		callable, ok := p.callables[ref]
@@ -701,16 +733,17 @@ func (p *Planner) planHigherOrderExplicitCallable(
 		}
 	}
 
+	var deferredDiagnostics []plan.Diagnostic
 	for _, candidate := range rankedCallableCandidates(candidates) {
 		args, diagnostics, ok := p.planCallableArgs(
 			candidate.Compatibility.MapperArgs,
 			path,
-			typeParams,
 			optionality,
 			conversion,
 			callables,
 		)
 		if !ok {
+			deferredDiagnostics = appendDiagnostic(deferredDiagnostics, diagnostics...)
 			continue
 		}
 
@@ -728,16 +761,15 @@ func (p *Planner) planHigherOrderExplicitCallable(
 				callableInputCanError(candidate.Compatibility.Input, optionality) ||
 				callableResultCanError(candidate.Compatibility.Result, optionality),
 			Diagnostics: diagnostics,
-		}, true
+		}, diagnostics, true
 	}
 
-	return plan.Value{}, false
+	return plan.Value{}, deferredDiagnostics, false
 }
 
 func (p *Planner) planCallableArgs(
 	args []callableMapperArgCompatibility,
 	path string,
-	typeParams typeParamScope,
 	optionality spec.Optionality,
 	conversion spec.ConversionsPolicy,
 	callables []spec.TieredCallables,
@@ -751,16 +783,36 @@ func (p *Planner) planCallableArgs(
 			arg.Source,
 			arg.Target,
 			argPath,
-			typeParams,
 			optionality,
 			conversion,
 			callables,
 		)
-		if mapping.Operation == plan.OperationUnsupported || hasFatalDiagnostics(mapping.Diagnostics) {
-			return nil, nil, false
+		if valueMappingFailed(mapping) {
+			diagnostics = appendDiagnostic(diagnostics, plan.Diagnostic{
+				Level: plan.DiagnosticLevelFatal,
+				Path:  argPath,
+				Message: fmt.Sprintf(
+					"callable argument %d could not map %s to %s; configure a compatible callable, explicit mapper, discovery package, or registered conversion",
+					i+1,
+					types.TypeKey(arg.Source),
+					types.TypeKey(arg.Target),
+				),
+			})
+			diagnostics = appendDiagnostic(diagnostics, mapping.Diagnostics...)
+			return nil, diagnostics, false
 		}
 		if mapping.CanError && !arg.ReturnsError {
-			return nil, nil, false
+			diagnostics = appendDiagnostic(diagnostics, plan.Diagnostic{
+				Level: plan.DiagnosticLevelFatal,
+				Path:  argPath,
+				Message: fmt.Sprintf(
+					"callable argument %d maps %s to %s and can return an error, but the higher-order callable argument does not return error",
+					i+1,
+					types.TypeKey(arg.Source),
+					types.TypeKey(arg.Target),
+				),
+			})
+			return nil, diagnostics, false
 		}
 
 		out = append(out, plan.CallableArg{
@@ -1531,85 +1583,6 @@ func sameType(a, b types.Type) bool {
 	return types.TypeKey(a) == types.TypeKey(b)
 }
 
-type typeParamScope map[string]types.TypeParam
-
-func typeParamScopeFrom(params []types.TypeParam) typeParamScope {
-	if len(params) == 0 {
-		return nil
-	}
-
-	out := make(typeParamScope, len(params))
-	for _, param := range params {
-		out[param.Name] = param
-	}
-	return out
-}
-
-func scopedTypeRef(typ types.Type, scope typeParamScope) plan.TypeRef {
-	ref := plan.TypeRefFromType(typ)
-	ref.Key = scopedTypeKey(typ, scope)
-	return ref
-}
-
-func scopedTypeKey(typ types.Type, scope typeParamScope) string {
-	typ = types.UnwrapAlias(typ)
-	if len(scope) == 0 {
-		return types.TypeKey(typ)
-	}
-
-	switch typ.Kind {
-	case types.TypeKindNamed, types.TypeKindAlias:
-		name := typ.Name
-		if typ.Package.ImportPath != "" {
-			name = typ.Package.ImportPath + "." + name
-		}
-		if len(typ.TypeArgs) == 0 {
-			return types.TypeKey(typ)
-		}
-
-		args := make([]string, 0, len(typ.TypeArgs))
-		for _, arg := range typ.TypeArgs {
-			args = append(args, scopedTypeKey(arg, scope))
-		}
-		return name + "[" + strings.Join(args, ", ") + "]"
-	case types.TypeKindTypeParam:
-		return scopedTypeParamKey(typ, scope)
-	case types.TypeKindPointer:
-		if typ.Elem != nil {
-			return "*" + scopedTypeKey(*typ.Elem, scope)
-		}
-	case types.TypeKindSlice:
-		if typ.Elem != nil {
-			return "[]" + scopedTypeKey(*typ.Elem, scope)
-		}
-	case types.TypeKindArray:
-		if typ.Elem != nil {
-			return fmt.Sprintf("[%d]%s", typ.Len, scopedTypeKey(*typ.Elem, scope))
-		}
-	case types.TypeKindMap:
-		if typ.Key != nil && typ.Value != nil {
-			return fmt.Sprintf("map[%s]%s", scopedTypeKey(*typ.Key, scope), scopedTypeKey(*typ.Value, scope))
-		}
-	}
-
-	return types.TypeKey(typ)
-}
-
-func scopedTypeParamKey(typ types.Type, scope typeParamScope) string {
-	name := types.TypeKey(typ)
-	param, ok := scope[typ.Name]
-	if !ok {
-		return name
-	}
-
-	constraint := types.TypeKey(param.Constraint)
-	if constraint == "" {
-		return name
-	}
-
-	return name + "{" + constraint + "}"
-}
-
 // isStructType returns true if the given type declaration looks like a struct type, i.e. its
 // underlying type is a struct.
 func isStructType(typ types.TypeDecl) bool {
@@ -1752,68 +1725,6 @@ func concreteTypeParamBindings(typeDecl types.TypeDecl, typ types.Type) map[stri
 	return bindings
 }
 
-func concreteTypeParams(
-	typeDecl types.TypeDecl,
-	typ types.Type,
-	typeParams typeParamScope,
-) []types.TypeParam {
-	typ = types.UnwrapAlias(typ)
-	if len(typ.TypeArgs) == 0 {
-		return typeDecl.Type.TypeParams
-	}
-
-	paramsByName := make(map[string]types.TypeParam, len(typeDecl.Type.TypeParams))
-	for _, param := range typeDecl.Type.TypeParams {
-		paramsByName[param.Name] = param
-	}
-
-	var out []types.TypeParam
-	seen := make(map[string]struct{})
-	for _, arg := range typ.TypeArgs {
-		collectTypeParams(&out, seen, paramsByName, typeParams, arg)
-	}
-	return out
-}
-
-func collectTypeParams(
-	out *[]types.TypeParam,
-	seen map[string]struct{},
-	paramsByName map[string]types.TypeParam,
-	typeParams typeParamScope,
-	typ types.Type,
-) {
-	typ = types.UnwrapAlias(typ)
-	if typ.Kind == types.TypeKindTypeParam {
-		if _, ok := seen[typ.Name]; ok {
-			return
-		}
-		seen[typ.Name] = struct{}{}
-
-		param, ok := typeParams[typ.Name]
-		if !ok {
-			param, ok = paramsByName[typ.Name]
-		}
-		if !ok {
-			param = types.TypeParam{Name: typ.Name}
-		}
-		*out = append(*out, param)
-		return
-	}
-
-	if typ.Elem != nil {
-		collectTypeParams(out, seen, paramsByName, typeParams, *typ.Elem)
-	}
-	if typ.Key != nil {
-		collectTypeParams(out, seen, paramsByName, typeParams, *typ.Key)
-	}
-	if typ.Value != nil {
-		collectTypeParams(out, seen, paramsByName, typeParams, *typ.Value)
-	}
-	for _, arg := range typ.TypeArgs {
-		collectTypeParams(out, seen, paramsByName, typeParams, arg)
-	}
-}
-
 func plannableFieldsByName(typeDecl types.TypeDecl) map[string]types.Field {
 	return fieldsByName(plannableFields(typeDecl))
 }
@@ -1832,17 +1743,26 @@ func unsupportedMapping(source, target types.Type, path string, message string) 
 		Source:    source,
 		Target:    target,
 		Diagnostics: []plan.Diagnostic{{
+			Level:   plan.DiagnosticLevelFatal,
 			Path:    path,
-			Message: fmt.Sprintf("cannot map %s to %s: %s", source.String, target.String, message),
+			Message: fmt.Sprintf("cannot map %s to %s: %s", types.TypeKey(source), types.TypeKey(target), message),
 		}},
 	}
 }
 
-func hasFatalDiagnostics(diagnostics []plan.Diagnostic) bool {
-	for _, diagnostic := range diagnostics {
-		if diagnostic.Level == plan.DiagnosticLevelFatal {
-			return true
-		}
+func appendUnsupportedDiagnostics(value plan.Value, diagnostics ...plan.Diagnostic) plan.Value {
+	value.Diagnostics = appendDiagnostic(value.Diagnostics, diagnostics...)
+	return value
+}
+
+func appendDiagnosticsOnFailure(value plan.Value, diagnostics ...plan.Diagnostic) plan.Value {
+	if !valueMappingFailed(value) {
+		return value
 	}
-	return false
+	value.Diagnostics = appendDiagnostic(value.Diagnostics, diagnostics...)
+	return value
+}
+
+func valueMappingFailed(value plan.Value) bool {
+	return value.Operation == plan.OperationUnsupported || plan.HasFatalDiagnostics(value.Diagnostics)
 }

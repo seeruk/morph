@@ -21,6 +21,12 @@ type Plan struct {
 	Diagnostics  []plan.Diagnostic
 }
 
+// HasFatalDiagnostics returns whether this plan contains diagnostics that should prevent code
+// generation.
+func (p Plan) HasFatalDiagnostics() bool {
+	return plan.HasFatalDiagnostics(p.Diagnostics)
+}
+
 // ResolveConfig turns user-written config into a fully resolved planner-ready spec.
 func ResolveConfig(cfg Config) (Spec, error) {
 	return config.Resolve(cfg)

@@ -16,6 +16,11 @@ const (
 	difficultyMax
 )
 
+type Either[L, R any] struct {
+	Left  L
+	Right R
+}
+
 type Single struct {
 	Foo    string
 	Bar    Optional[string]
@@ -45,6 +50,13 @@ type Optional[T any] struct {
 
 func (o Optional[T]) Unwrap() T {
 	return o.Value
+}
+
+func OtoO[IT, OT any](in Optional[IT], tfn func(IT) OT) to.Optional[OT] {
+	return to.Optional[OT]{
+		Value: tfn(in.Value),
+		Valid: in.Valid,
+	}
 }
 
 func OptionalOfString(s *string) Optional[string] {

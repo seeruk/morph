@@ -1,6 +1,25 @@
 package morph
 
-import "github.com/seeruk/morph/types"
+import (
+	"testing"
+
+	"github.com/seeruk/morph/plan"
+	"github.com/seeruk/morph/types"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestPlanHasFatalDiagnostics(t *testing.T) {
+	out := Plan{}
+	require.False(t, out.HasFatalDiagnostics())
+
+	out.Diagnostics = []plan.Diagnostic{{
+		Level:   plan.DiagnosticLevelFatal,
+		Message: "fatal",
+	}}
+
+	assert.True(t, out.HasFatalDiagnostics())
+}
 
 func basicTestType(name string) types.Type {
 	return types.Type{

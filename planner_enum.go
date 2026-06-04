@@ -38,7 +38,14 @@ func (p *Planner) planEnumValues(typ *plan.Type) ([]plan.EnumValue, []plan.Diagn
 	sourcePattern := typ.EnumSpec.Patterns.Source
 	targetPattern := typ.EnumSpec.Patterns.Target
 
-	targetsByNormalizedName, ambiguousTargets, targetDiagnostics := constantsByNormalizedName(targetConstants, targetPattern)
+	targetsByNormalizedName, ambiguousTargets, targetDiagnostics := constantsByNormalizedName(
+		targetConstants,
+		targetPattern,
+		func(constant types.ConstantDecl) string {
+			return plan.TargetEnumValuePath(typ.SourceType, typ.TargetType, constant.Name)
+		},
+		"failed to normalize target enum constant name",
+	)
 	diagnostics = appendDiagnostic(diagnostics, targetDiagnostics...)
 
 	sourceNames := slices.Collect(maps.Keys(sourceConstants))
@@ -51,9 +58,9 @@ func (p *Planner) planEnumValues(typ *plan.Type) ([]plan.EnumValue, []plan.Diagn
 		sourceConstant, ok := sourceConstants[sourceName]
 		if !ok {
 			diagnostics = appendDiagnostic(diagnostics, plan.Diagnostic{
-				Level:   plan.DiagnosticLevelWarning,
-				Path:    plan.TypesPath(typ.SourceType, typ.TargetType),
-				Message: fmt.Sprintf("source enum value %q not found", sourceName),
+				Level:   plan.DiagnosticLevelFatal,
+				Path:    plan.SourceEnumValuePath(typ.SourceType, typ.TargetType, sourceName),
+				Message: fmt.Sprintf("source enum value %q does not exist or is not exported", sourceName),
 			})
 			continue
 		}
@@ -61,9 +68,9 @@ func (p *Planner) planEnumValues(typ *plan.Type) ([]plan.EnumValue, []plan.Diagn
 		targetConstant, ok := targetConstants[targetName]
 		if !ok {
 			diagnostics = appendDiagnostic(diagnostics, plan.Diagnostic{
-				Level:   plan.DiagnosticLevelWarning,
-				Path:    plan.TypesPath(typ.SourceType, typ.TargetType),
-				Message: fmt.Sprintf("target enum value %q not found for source value %q", targetName, sourceName),
+				Level:   plan.DiagnosticLevelFatal,
+				Path:    plan.TargetEnumValuePath(typ.SourceType, typ.TargetType, targetName),
+				Message: fmt.Sprintf("target enum value %q configured for source enum value %q does not exist or is not exported", targetName, sourceName),
 			})
 			continue
 		}
@@ -86,8 +93,8 @@ func (p *Planner) planEnumValues(typ *plan.Type) ([]plan.EnumValue, []plan.Diagn
 		if err != nil {
 			diagnostics = appendDiagnostic(diagnostics, plan.Diagnostic{
 				Level:   plan.DiagnosticLevelFatal,
-				Path:    plan.TypesPath(typ.SourceType, typ.TargetType),
-				Message: fmt.Sprintf("failed to normalize source enum constant name: %v", err),
+				Path:    plan.SourceEnumValuePath(typ.SourceType, typ.TargetType, sourceConstant.Name),
+				Message: fmt.Sprintf("failed to normalize source enum constant name: %v; configure enum.patterns or enum.values", err),
 			})
 			continue
 		}
@@ -95,7 +102,7 @@ func (p *Planner) planEnumValues(typ *plan.Type) ([]plan.EnumValue, []plan.Diagn
 		if ambiguous := ambiguousTargets[normalizedSourceName]; len(ambiguous) > 0 {
 			diagnostics = appendDiagnostic(diagnostics, plan.Diagnostic{
 				Level: plan.DiagnosticLevelFatal,
-				Path:  plan.TypesPath(typ.SourceType, typ.TargetType),
+				Path:  plan.SourceEnumValuePath(typ.SourceType, typ.TargetType, sourceConstant.Name),
 				Message: fmt.Sprintf(
 					"enum value %q matches ambiguous normalized target value %q on %q (%s); configure enum value mapping explicitly",
 					sourceConstant.Name,
@@ -111,9 +118,10 @@ func (p *Planner) planEnumValues(typ *plan.Type) ([]plan.EnumValue, []plan.Diagn
 		if !ok {
 			diagnostics = appendDiagnostic(diagnostics, plan.Diagnostic{
 				Level: plan.DiagnosticLevelFatal,
-				Path:  plan.TypesPath(typ.SourceType, typ.TargetType),
+				Path:  plan.SourceEnumValuePath(typ.SourceType, typ.TargetType, sourceConstant.Name),
 				Message: fmt.Sprintf(
-					"unexpected missing target constant for normalized value %q",
+					"no target enum value matched source enum value %q normalized as %q; configure enum.values or enum.patterns",
+					sourceConstant.Name,
 					normalizedSourceName,
 				),
 			})
@@ -142,25 +150,35 @@ func (p *Planner) planEnumValues(typ *plan.Type) ([]plan.EnumValue, []plan.Diagn
 func constantsByNormalizedName(
 	constants map[string]types.ConstantDecl,
 	pattern string,
+	pathForConstant func(types.ConstantDecl) string,
+	messagePrefix string,
 ) (normalized map[string]types.ConstantDecl, ambiguous map[string][]string, diagnostics []plan.Diagnostic) {
 	normalized = make(map[string]types.ConstantDecl)
 	ambiguous = make(map[string][]string)
+	if pathForConstant == nil {
+		pathForConstant = func(constant types.ConstantDecl) string {
+			return types.TypeKey(constant.Type) + " :: enum value " + constant.Name
+		}
+	}
+	if messagePrefix == "" {
+		messagePrefix = "failed to normalize enum constant name"
+	}
 
 	for constantName, constantDecl := range constants {
 		normName, err := normalizeEnumConstant(constantDecl, pattern)
 		if err != nil {
 			diagnostics = appendDiagnostic(diagnostics, plan.Diagnostic{
-				Level:   plan.DiagnosticLevelWarning,
-				Path:    types.TypeKey(constantDecl.Type) + " :: " + constantName,
-				Message: fmt.Sprintf("failed to normalize enum constant name: %v", err),
+				Level:   plan.DiagnosticLevelFatal,
+				Path:    pathForConstant(constantDecl),
+				Message: fmt.Sprintf("%s: %v; configure enum.patterns or enum.values", messagePrefix, err),
 			})
 			continue
 		}
 		if normName == "" {
 			diagnostics = appendDiagnostic(diagnostics, plan.Diagnostic{
-				Level:   plan.DiagnosticLevelWarning,
-				Path:    types.TypeKey(constantDecl.Type) + " :: " + constantName,
-				Message: "enum value name normalization resulted in empty name, skipping",
+				Level:   plan.DiagnosticLevelFatal,
+				Path:    pathForConstant(constantDecl),
+				Message: "enum value name normalization resulted in an empty name; configure enum.patterns or enum.values",
 			})
 			continue
 		}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/seeruk/morph/internal/slicesx"
 	"github.com/seeruk/morph/plan"
+	"github.com/seeruk/morph/spec"
 	"github.com/seeruk/morph/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -43,6 +44,64 @@ func TestPlanner_planEnumValues(t *testing.T) {
 		}
 
 		assert.Equal(t, []string{"OK", "StatusOK"}, sourceNames)
+	})
+
+	t.Run("reports invalid explicit enum value mappings as fatal", func(t *testing.T) {
+		sourceDecl := testEnumTypeDecl(
+			"Status",
+			testConstantDecl("Status", "StatusOK", "ok"),
+		)
+		targetDecl := testEnumTypeDecl(
+			"Status",
+			testConstantDecl("Status", "StatusOK", "ok"),
+		)
+		typ := plan.Type{
+			SourceDecl: sourceDecl,
+			TargetDecl: targetDecl,
+			SourceType: sourceDecl.Type,
+			TargetType: targetDecl.Type,
+			EnumSpec: spec.Enum{
+				Values: map[string]string{
+					"StatusMissing": "StatusOK",
+					"StatusOK":      "StatusMissing",
+				},
+			},
+		}
+		planner := &Planner{}
+
+		_, diagnostics := planner.planEnumValues(&typ)
+
+		require.Len(t, diagnostics, 2)
+		assert.True(t, plan.HasFatalDiagnostics(diagnostics))
+		assert.Contains(t, diagnosticsPaths(diagnostics), plan.SourceEnumValuePath(typ.SourceType, typ.TargetType, "StatusMissing"))
+		assert.Contains(t, diagnosticsPaths(diagnostics), plan.TargetEnumValuePath(typ.SourceType, typ.TargetType, "StatusMissing"))
+		assert.Contains(t, diagnosticsMessages(diagnostics), `source enum value "StatusMissing" does not exist or is not exported`)
+		assert.Contains(t, diagnosticsMessages(diagnostics), `target enum value "StatusMissing" configured for source enum value "StatusOK" does not exist or is not exported`)
+	})
+
+	t.Run("reports missing inferred target matches as actionable fatal diagnostics", func(t *testing.T) {
+		sourceDecl := testEnumTypeDecl(
+			"Status",
+			testConstantDecl("Status", "StatusOK", "ok"),
+		)
+		targetDecl := testEnumTypeDecl(
+			"Status",
+			testConstantDecl("Status", "StatusReady", "ready"),
+		)
+		typ := plan.Type{
+			SourceDecl: sourceDecl,
+			TargetDecl: targetDecl,
+			SourceType: sourceDecl.Type,
+			TargetType: targetDecl.Type,
+		}
+		planner := &Planner{}
+
+		_, diagnostics := planner.planEnumValues(&typ)
+
+		require.Len(t, diagnostics, 1)
+		assert.Equal(t, plan.DiagnosticLevelFatal, diagnostics[0].Level)
+		assert.Equal(t, plan.SourceEnumValuePath(typ.SourceType, typ.TargetType, "StatusOK"), diagnostics[0].Path)
+		assert.Equal(t, `no target enum value matched source enum value "StatusOK" normalized as "OK"; configure enum.values or enum.patterns`, diagnostics[0].Message)
 	})
 }
 
@@ -103,14 +162,14 @@ func Test_normalizeEnumConstants(t *testing.T) {
 			},
 			diags: []plan.Diagnostic{
 				{
-					Level:   plan.DiagnosticLevelWarning,
-					Path:    "TestExample :: TestExample_SOME_VALUE_SOME_VALUE",
-					Message: "failed to normalize enum constant name: enum pattern template validation failed: ambiguous enum value boundary between Screaming and Screaming using \"_\"",
+					Level:   plan.DiagnosticLevelFatal,
+					Path:    "TestExample :: enum value TestExample_SOME_VALUE_SOME_VALUE",
+					Message: "failed to normalize enum constant name: enum pattern template validation failed: ambiguous enum value boundary between Screaming and Screaming using \"_\"; configure enum.patterns or enum.values",
 				},
 				{
-					Level:   plan.DiagnosticLevelWarning,
-					Path:    "TestExample :: TestExample_ANOTHER_VALUE_ANOTHER_VALUE",
-					Message: "failed to normalize enum constant name: enum pattern template validation failed: ambiguous enum value boundary between Screaming and Screaming using \"_\"",
+					Level:   plan.DiagnosticLevelFatal,
+					Path:    "TestExample :: enum value TestExample_ANOTHER_VALUE_ANOTHER_VALUE",
+					Message: "failed to normalize enum constant name: enum pattern template validation failed: ambiguous enum value boundary between Screaming and Screaming using \"_\"; configure enum.patterns or enum.values",
 				},
 			},
 		},
@@ -143,7 +202,7 @@ func Test_normalizeEnumConstants(t *testing.T) {
 				return acc
 			})
 
-			out, ambiguous, diags := constantsByNormalizedName(input, tc.pattern)
+			out, ambiguous, diags := constantsByNormalizedName(input, tc.pattern, nil, "")
 			if len(tc.out) > 0 {
 				assert.ElementsMatch(t, tc.out, slices.Collect(maps.Keys(out)))
 			} else {

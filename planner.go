@@ -545,10 +545,9 @@ func (p *Planner) shallowTypePlan(sourcePkg, targetPkg types.Package, typeSpec s
 // shallowRootPlan prepares a shallow plan for a particular type mapping.
 func (p *Planner) shallowRootPlan(sourceDecl, targetDecl types.TypeDecl, typeSpec spec.Type) (*plan.Type, error) {
 	nameInput := NameInput{
-		Source:     sourceDecl.Type,
-		Target:     targetDecl.Type,
-		TypeParams: sourceDecl.Type.TypeParams,
-		Signature:  typeSpec.Mapper.Signature,
+		Source:    sourceDecl.Type,
+		Target:    targetDecl.Type,
+		Signature: typeSpec.Mapper.Signature,
 	}
 
 	functionName, err := MapperName(nameInput, typeSpec.Mapper.Name)
@@ -564,7 +563,6 @@ func (p *Planner) shallowRootPlan(sourceDecl, targetDecl types.TypeDecl, typeSpe
 		SourceType:   sourceDecl.Type,
 		TargetType:   targetDecl.Type,
 		FunctionName: functionName,
-		TypeParams:   sourceDecl.Type.TypeParams,
 		Signature:    typeSpec.Mapper.Signature,
 		EnumSpec:     typeSpec.Enum,
 		Callables:    typeSpec.Callables,
@@ -574,8 +572,21 @@ func (p *Planner) shallowRootPlan(sourceDecl, targetDecl types.TypeDecl, typeSpe
 	}
 
 	root.Diagnostics = appendDiagnostic(root.Diagnostics, validateStructFieldMappings(root)...)
+	root.Diagnostics = appendDiagnostic(root.Diagnostics, validateGenericRoot(root)...)
 
 	return root, nil
+}
+
+func validateGenericRoot(typ *plan.Type) []plan.Diagnostic {
+	if len(typ.SourceDecl.Type.TypeParams) == 0 && len(typ.TargetDecl.Type.TypeParams) == 0 {
+		return nil
+	}
+
+	return []plan.Diagnostic{{
+		Level:   plan.DiagnosticLevelFatal,
+		Path:    plan.TypesPath(typ.SourceType, typ.TargetType),
+		Message: "generic root mappings are not supported; map concrete instantiations through containing types or provide a higher-order callable",
+	}}
 }
 
 func invertStructSpec(in *spec.Struct) *spec.Struct {
@@ -598,8 +609,6 @@ func validateStructFieldMappings(typ *plan.Type) []plan.Diagnostic {
 		return nil
 	}
 
-	diagnosticPath := plan.TypesPath(typ.SourceType, typ.TargetType)
-
 	var out []plan.Diagnostic
 
 	sourceFields := plannableFieldsByName(typ.SourceDecl)
@@ -619,16 +628,16 @@ func validateStructFieldMappings(typ *plan.Type) []plan.Diagnostic {
 		if _, ok := sourceFields[sourceName]; !ok {
 			out = append(out, plan.Diagnostic{
 				Level:   plan.DiagnosticLevelFatal,
-				Path:    diagnosticPath,
-				Message: fmt.Sprintf("source field %q does not exist or is not plannable", sourceName),
+				Path:    plan.SourceFieldPath(typ.SourceType, typ.TargetType, sourceName),
+				Message: fmt.Sprintf("source field %q does not exist or is not plannable; fields must be exported and non-embedded", sourceName),
 			})
 		}
 
 		if _, ok := targetFields[targetName]; !ok {
 			out = append(out, plan.Diagnostic{
 				Level:   plan.DiagnosticLevelFatal,
-				Path:    diagnosticPath,
-				Message: fmt.Sprintf("target field %q does not exist or is not plannable", targetName),
+				Path:    plan.TargetFieldPath(typ.SourceType, typ.TargetType, targetName),
+				Message: fmt.Sprintf("target field %q does not exist or is not plannable; fields must be exported and non-embedded", targetName),
 			})
 		}
 
@@ -646,7 +655,7 @@ func validateStructFieldMappings(typ *plan.Type) []plan.Diagnostic {
 		if len(sourceNames) > 1 {
 			out = append(out, plan.Diagnostic{
 				Level:   plan.DiagnosticLevelFatal,
-				Path:    diagnosticPath,
+				Path:    plan.TargetFieldPath(typ.SourceType, typ.TargetType, targetName),
 				Message: fmt.Sprintf("target field %q is mapped from multiple source fields %q", targetName, sourceNames),
 			})
 		}
@@ -878,7 +887,7 @@ func (p *Planner) planTypeWithKey(key string, typ *plan.Type) {
 		typ.Diagnostics = appendDiagnostic(typ.Diagnostics, plan.Diagnostic{
 			Level:   plan.DiagnosticLevelFatal,
 			Path:    plan.TypesPath(typ.SourceType, typ.TargetType),
-			Message: "unsupported type mapping requested",
+			Message: "unsupported type mapping requested; source and target must both be structs or both be enums",
 		})
 	}
 

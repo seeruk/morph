@@ -24,6 +24,10 @@ type OptionalContainer struct {
 	Maybe Optional[OptionalThing]
 }
 
+type OptionalBadContainer struct {
+	Maybe Optional[OptionalBadThing]
+}
+
 type FallibleOptionalContainer struct {
 	Maybe FallibleOptional[FallibleThing]
 }
@@ -65,8 +69,16 @@ type ScopedStringBoxB struct {
 	Box Box[string]
 }
 
+type WarningSliceContainer struct {
+	Values []WarningThing
+}
+
 type OptionalThing struct {
 	Name string
+}
+
+type OptionalBadThing struct {
+	Value string
 }
 
 type FallibleThing struct {
@@ -78,6 +90,10 @@ type EitherLeft struct {
 }
 
 type EitherRight struct {
+	Name string
+}
+
+type WarningThing struct {
 	Name string
 }
 

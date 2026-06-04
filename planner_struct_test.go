@@ -395,7 +395,6 @@ func TestPlannerPlanValuePrefersUserFunctionCandidates(t *testing.T) {
 		sourceType,
 		targetType,
 		"User",
-		nil,
 		defaultOptionality(),
 		defaultConversionsPolicy(),
 		[]spec.TieredCallables{{
@@ -423,7 +422,6 @@ func TestPlannerPlanValueCallableTiers(t *testing.T) {
 			sourceType,
 			targetType,
 			"Value",
-			nil,
 			defaultOptionality(),
 			defaultConversionsPolicy(),
 			[]spec.TieredCallables{
@@ -445,7 +443,6 @@ func TestPlannerPlanValueCallableTiers(t *testing.T) {
 			sourceType,
 			targetType,
 			"Value",
-			nil,
 			defaultOptionality(),
 			defaultConversionsPolicy(),
 			[]spec.TieredCallables{callableTier(spec.CallableTierType, errorFn, noErrorFn)},
@@ -467,7 +464,6 @@ func TestPlannerPlanValueCallableTiers(t *testing.T) {
 			sourceType,
 			targetType,
 			"Value",
-			nil,
 			defaultOptionality(),
 			defaultConversionsPolicy(),
 			[]spec.TieredCallables{callableTier(spec.CallableTierType, badFn)},
@@ -519,6 +515,9 @@ func TestPlannerPlanStructFieldCallable(t *testing.T) {
 		assert.Equal(t, plan.OperationUnsupported, field.Mapping.Operation)
 		require.Len(t, field.Mapping.Diagnostics, 1)
 		assert.Equal(t, plan.DiagnosticLevelFatal, field.Mapping.Diagnostics[0].Level)
+		assert.Equal(t, plan.FieldPath(typ.SourceType, typ.TargetType, field.SourceField, field.TargetField), field.Mapping.Diagnostics[0].Path)
+		assert.Contains(t, field.Mapping.Diagnostics[0].Message, `configured field callable "module.test/mapping.StringToBool" is not compatible`)
+		assert.Contains(t, field.Mapping.Diagnostics[0].Message, "expected callable to accept string and return int")
 	})
 }
 
@@ -534,7 +533,7 @@ func TestPlannerPlanValueOptionality(t *testing.T) {
 	t.Run("marks pointer to value mappings as erroring when nil source pointers error", func(t *testing.T) {
 		planner := &Planner{registry: newFunctionRegistry()}
 
-		got := planner.planValue(pointerTestType(stringType), stringType, "Name", nil, errorOptionality, conversionsPolicy, nil)
+		got := planner.planValue(pointerTestType(stringType), stringType, "Name", errorOptionality, conversionsPolicy, nil)
 
 		assert.Equal(t, plan.OperationPointer, got.Operation)
 		assert.True(t, got.SourcePointer)
@@ -547,7 +546,7 @@ func TestPlannerPlanValueOptionality(t *testing.T) {
 		planner := &Planner{registry: newFunctionRegistry()}
 		optionality := defaultOptionality()
 
-		got := planner.planValue(pointerTestType(stringType), stringType, "Name", nil, optionality, conversionsPolicy, nil)
+		got := planner.planValue(pointerTestType(stringType), stringType, "Name", optionality, conversionsPolicy, nil)
 
 		assert.Equal(t, plan.OperationPointer, got.Operation)
 		assert.False(t, got.CanError)
@@ -558,7 +557,7 @@ func TestPlannerPlanValueOptionality(t *testing.T) {
 		require.True(t, registry.Register(testFunctionDecl("StringToInt", stringType, intType), plan.CallableSourceDiscovered))
 		planner := &Planner{registry: registry}
 
-		got := planner.planValue(pointerTestType(stringType), intType, "Name", nil, errorOptionality, conversionsPolicy, nil)
+		got := planner.planValue(pointerTestType(stringType), intType, "Name", errorOptionality, conversionsPolicy, nil)
 
 		require.NotNil(t, got.Callable)
 		assert.Equal(t, plan.OperationFunction, got.Operation)
@@ -577,7 +576,7 @@ func TestPlannerPlanValueOptionality(t *testing.T) {
 			OnZeroSourceValue:  spec.ValueOptionalityNil,
 		}
 
-		got := planner.planValue(stringType, intType, "Name", nil, optionality, conversionsPolicy, nil)
+		got := planner.planValue(stringType, intType, "Name", optionality, conversionsPolicy, nil)
 
 		require.NotNil(t, got.Callable)
 		assert.Equal(t, plan.OperationFunction, got.Operation)
@@ -592,7 +591,7 @@ func TestPlannerPlanValueOptionality(t *testing.T) {
 		require.True(t, registry.Register(testFunctionDecl("StringToIntPtr", stringType, pointerTestType(intType)), plan.CallableSourceDiscovered))
 		planner := &Planner{registry: registry}
 
-		got := planner.planValue(stringType, intType, "Name", nil, errorOptionality, conversionsPolicy, nil)
+		got := planner.planValue(stringType, intType, "Name", errorOptionality, conversionsPolicy, nil)
 
 		require.NotNil(t, got.Callable)
 		assert.Equal(t, plan.OperationFunction, got.Operation)
@@ -611,7 +610,7 @@ func TestPlannerPlanValueOptionality(t *testing.T) {
 			OnZeroSourceValue:  spec.ValueOptionalityNil,
 		}
 
-		got := planner.planValue(stringType, pointerTestType(intType), "Name", nil, optionality, conversionsPolicy, nil)
+		got := planner.planValue(stringType, pointerTestType(intType), "Name", optionality, conversionsPolicy, nil)
 
 		require.NotNil(t, got.Callable)
 		assert.Equal(t, plan.OperationFunction, got.Operation)
@@ -743,6 +742,34 @@ func TestPlannerPlanStruct(t *testing.T) {
 	})
 }
 
+func TestPlannerPlanCompositeDiagnostics(t *testing.T) {
+	t.Run("keeps slice mapping supported when the element mapper only warns", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{Name: "WarningSliceContainer"})
+
+		values := requirePlanField(t, root.StructPlan, "Values")
+
+		assert.Equal(t, plan.OperationSlice, values.Mapping.Operation)
+		require.NotNil(t, values.Mapping.Elem)
+		assert.Equal(t, plan.OperationStruct, values.Mapping.Elem.Operation)
+		require.Len(t, root.Diagnostics, 1)
+		assert.Equal(t, plan.DiagnosticLevelWarning, root.Diagnostics[0].Level)
+		assert.False(t, plan.HasFatalDiagnostics(root.Diagnostics))
+		assert.Contains(t, root.Diagnostics[0].Path, "target field Extra")
+	})
+
+	t.Run("marks slice mapping unsupported when the element mapper is fatal", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{Name: "ConversionContainer"})
+
+		values := requirePlanField(t, root.StructPlan, "Values")
+
+		assert.Equal(t, plan.OperationUnsupported, values.Mapping.Operation)
+		require.NotNil(t, values.Mapping.Elem)
+		assert.Equal(t, plan.OperationUnsupported, values.Mapping.Elem.Operation)
+		assert.True(t, plan.HasFatalDiagnostics(values.Mapping.Diagnostics))
+		assert.True(t, plan.HasFatalDiagnostics(root.Diagnostics))
+	})
+}
+
 func TestValidateStructFieldMappings(t *testing.T) {
 	t.Run("reports missing source fields", func(t *testing.T) {
 		sourceDecl := testStructDecl("module.test/from", "Recipe", map[string]types.Field{
@@ -761,8 +788,8 @@ func TestValidateStructFieldMappings(t *testing.T) {
 		require.Len(t, got, 1)
 
 		assert.Equal(t, plan.DiagnosticLevelFatal, got[0].Level)
-		assert.Equal(t, plan.TypesPath(typ.SourceType, typ.TargetType), got[0].Path)
-		assert.Equal(t, `source field "MissingName" does not exist or is not plannable`, got[0].Message)
+		assert.Equal(t, plan.SourceFieldPath(typ.SourceType, typ.TargetType, "MissingName"), got[0].Path)
+		assert.Equal(t, `source field "MissingName" does not exist or is not plannable; fields must be exported and non-embedded`, got[0].Message)
 	})
 
 	t.Run("reports missing target fields", func(t *testing.T) {
@@ -782,8 +809,8 @@ func TestValidateStructFieldMappings(t *testing.T) {
 		require.Len(t, got, 1)
 
 		assert.Equal(t, plan.DiagnosticLevelFatal, got[0].Level)
-		assert.Equal(t, plan.TypesPath(typ.SourceType, typ.TargetType), got[0].Path)
-		assert.Equal(t, `target field "MissingName" does not exist or is not plannable`, got[0].Message)
+		assert.Equal(t, plan.TargetFieldPath(typ.SourceType, typ.TargetType, "MissingName"), got[0].Path)
+		assert.Equal(t, `target field "MissingName" does not exist or is not plannable; fields must be exported and non-embedded`, got[0].Message)
 	})
 
 	t.Run("reports duplicate target fields", func(t *testing.T) {
@@ -805,8 +832,53 @@ func TestValidateStructFieldMappings(t *testing.T) {
 		require.Len(t, got, 1)
 
 		assert.Equal(t, plan.DiagnosticLevelFatal, got[0].Level)
-		assert.Equal(t, plan.TypesPath(typ.SourceType, typ.TargetType), got[0].Path)
+		assert.Equal(t, plan.TargetFieldPath(typ.SourceType, typ.TargetType, "Name"), got[0].Path)
 		assert.Equal(t, `target field "Name" is mapped from multiple source fields ["DisplayName" "SecondaryName"]`, got[0].Message)
+	})
+}
+
+func TestValidateGenericRoot(t *testing.T) {
+	t.Run("reports source generic to target generic roots", func(t *testing.T) {
+		sourceDecl := testStructDecl("module.test/from", "Box", nil)
+		sourceDecl.Type.TypeParams = []types.TypeParam{{Name: "T", Constraint: basicTestType("any")}}
+		targetDecl := testStructDecl("module.test/to", "Box", nil)
+		targetDecl.Type.TypeParams = []types.TypeParam{{Name: "T", Constraint: basicTestType("any")}}
+		typ := testStructPlanType(sourceDecl, targetDecl, spec.Struct{})
+
+		got := validateGenericRoot(&typ)
+		require.Len(t, got, 1)
+
+		assert.Equal(t, plan.DiagnosticLevelFatal, got[0].Level)
+		assert.Equal(t, plan.TypesPath(typ.SourceType, typ.TargetType), got[0].Path)
+		assert.Equal(t, "generic root mappings are not supported; map concrete instantiations through containing types or provide a higher-order callable", got[0].Message)
+	})
+
+	t.Run("reports source generic to target non-generic roots", func(t *testing.T) {
+		sourceDecl := testStructDecl("module.test/from", "Box", nil)
+		sourceDecl.Type.TypeParams = []types.TypeParam{{Name: "T", Constraint: basicTestType("any")}}
+		targetDecl := testStructDecl("module.test/to", "Box", nil)
+		typ := testStructPlanType(sourceDecl, targetDecl, spec.Struct{})
+
+		got := validateGenericRoot(&typ)
+		require.Len(t, got, 1)
+
+		assert.Equal(t, plan.DiagnosticLevelFatal, got[0].Level)
+		assert.Equal(t, plan.TypesPath(typ.SourceType, typ.TargetType), got[0].Path)
+		assert.Equal(t, "generic root mappings are not supported; map concrete instantiations through containing types or provide a higher-order callable", got[0].Message)
+	})
+
+	t.Run("reports source non-generic to target generic roots", func(t *testing.T) {
+		sourceDecl := testStructDecl("module.test/from", "Box", nil)
+		targetDecl := testStructDecl("module.test/to", "Box", nil)
+		targetDecl.Type.TypeParams = []types.TypeParam{{Name: "T", Constraint: basicTestType("any")}}
+		typ := testStructPlanType(sourceDecl, targetDecl, spec.Struct{})
+
+		got := validateGenericRoot(&typ)
+		require.Len(t, got, 1)
+
+		assert.Equal(t, plan.DiagnosticLevelFatal, got[0].Level)
+		assert.Equal(t, plan.TypesPath(typ.SourceType, typ.TargetType), got[0].Path)
+		assert.Equal(t, "generic root mappings are not supported; map concrete instantiations through containing types or provide a higher-order callable", got[0].Message)
 	})
 }
 
@@ -1119,13 +1191,14 @@ func TestPlannerPlanConversions(t *testing.T) {
 			basicTestType("int64"),
 			basicTestType("int"),
 			"Count",
-			nil,
 			defaultOptionality(),
 			defaultConversionsPolicy(),
 			nil,
 		)
 
 		assert.Equal(t, plan.OperationUnsupported, got.Operation)
+		require.Len(t, got.Diagnostics, 1)
+		assert.Equal(t, plan.DiagnosticLevelFatal, got.Diagnostics[0].Level)
 	})
 
 	t.Run("uses registered lossy numeric conversions", func(t *testing.T) {
@@ -1136,7 +1209,6 @@ func TestPlannerPlanConversions(t *testing.T) {
 			basicTestType("int64"),
 			basicTestType("int"),
 			"Count",
-			nil,
 			defaultOptionality(),
 			defaultConversionsPolicy(),
 			nil,
@@ -1156,7 +1228,6 @@ func TestPlannerPlanConversions(t *testing.T) {
 			basicTestType("bool"),
 			basicTestType("int"),
 			"Enabled",
-			nil,
 			defaultOptionality(),
 			defaultConversionsPolicy(),
 			nil,
@@ -1285,45 +1356,25 @@ func TestPlannerPlanConversions(t *testing.T) {
 	})
 }
 
-func TestPlannerPlanNestedStructsWithScopedGenericConstraints(t *testing.T) {
+func TestPlannerPlanGenericRoots(t *testing.T) {
 	engine := New(".")
 	out, err := engine.Plan(resolveTestConfig(t, config.Config{
 		Packages: []config.Package{{
 			Source: "github.com/seeruk/morph/testdata/planner/from",
 			Target: "github.com/seeruk/morph/testdata/planner/to",
-			Types: []config.Type{
-				{Name: "NumberContainer"},
-				{Name: "StringContainer"},
-			},
+			Types:  []config.Type{{Name: "NumberContainer"}},
 		}},
 	}), "morph.yaml")
 
 	require.NoError(t, err)
 	require.Len(t, out.OutputGroups, 1)
-	require.Len(t, out.OutputGroups[0].Roots, 2)
+	require.Len(t, out.OutputGroups[0].Roots, 1)
 
-	numberRoot := requireRootByTargetName(t, out.OutputGroups[0].Roots, "NumberContainer")
-	stringRoot := requireRootByTargetName(t, out.OutputGroups[0].Roots, "StringContainer")
-
-	numberBox := requirePlanField(t, numberRoot.StructPlan, "Box").Mapping.Plan
-	stringBox := requirePlanField(t, stringRoot.StructPlan, "Box").Mapping.Plan
-	require.NotNil(t, numberBox)
-	require.NotNil(t, stringBox)
-
-	assert.NotSame(t, numberBox, stringBox)
-	assert.NotEqual(t, numberBox.FunctionName, stringBox.FunctionName)
-	assert.NotEqual(t, numberBox.Source.Key, stringBox.Source.Key)
-	assert.NotEqual(t, numberBox.Target.Key, stringBox.Target.Key)
-
-	require.Len(t, numberBox.TypeParams, 1)
-	assert.Equal(t, "U", numberBox.TypeParams[0].Name)
-	assert.Equal(t, types.TypeKindInterface, numberBox.TypeParams[0].Constraint.Kind)
-	assert.Contains(t, numberBox.TypeParams[0].Constraint.String, "~int")
-
-	require.Len(t, stringBox.TypeParams, 1)
-	assert.Equal(t, "U", stringBox.TypeParams[0].Name)
-	assert.Equal(t, types.TypeKindInterface, stringBox.TypeParams[0].Constraint.Kind)
-	assert.Contains(t, stringBox.TypeParams[0].Constraint.String, "~string")
+	root := out.OutputGroups[0].Roots[0]
+	assert.Empty(t, root.TypeParams)
+	assert.True(t, plan.HasFatalDiagnostics(root.Diagnostics))
+	require.NotEmpty(t, root.Diagnostics)
+	assert.Equal(t, "generic root mappings are not supported; map concrete instantiations through containing types or provide a higher-order callable", root.Diagnostics[0].Message)
 }
 
 func TestPlannerPlanNestedStructsWithScopedCallables(t *testing.T) {
@@ -1496,6 +1547,35 @@ func TestPlannerPlanHigherOrderGenericFunction(t *testing.T) {
 		name := requirePlanField(t, arg.Mapping.Plan.StructPlan, "Name")
 		assert.Equal(t, plan.OperationAssign, name.Mapping.Operation)
 	})
+}
+
+func TestPlannerPlanHigherOrderGenericFunctionWithUnplannableArg(t *testing.T) {
+	engine := New(".")
+	out, err := engine.Plan(resolveTestConfig(t, config.Config{
+		Discovery: config.Discovery{
+			Packages: []string{
+				"github.com/seeruk/morph/testdata/planner/from",
+			},
+		},
+		Packages: []config.Package{{
+			Source: "github.com/seeruk/morph/testdata/planner/from",
+			Target: "github.com/seeruk/morph/testdata/planner/to",
+			Types: []config.Type{{
+				Name: "OptionalBadContainer",
+			}},
+		}},
+	}), "morph.yaml")
+
+	require.NoError(t, err)
+	require.Len(t, out.OutputGroups, 1)
+	root := out.OutputGroups[0].Roots[0]
+	require.NotNil(t, root.StructPlan)
+
+	maybe := requirePlanField(t, root.StructPlan, "Maybe")
+	assert.True(t, plan.HasFatalDiagnostics(root.Diagnostics))
+	assert.True(t, plan.HasFatalDiagnostics(maybe.Mapping.Diagnostics))
+	assert.Contains(t, diagnosticsMessages(root.Diagnostics), "callable argument 1 could not map github.com/seeruk/morph/testdata/planner/from.OptionalBadThing to github.com/seeruk/morph/testdata/planner/to.OptionalBadThing; configure a compatible callable, explicit mapper, discovery package, or registered conversion")
+	assert.Contains(t, diagnosticsPaths(root.Diagnostics), plan.FieldPath(root.SourceType, root.TargetType, maybe.SourceField, maybe.TargetField)+" :: callable argument 1")
 }
 
 func TestPlannerPlanHigherOrderExplicitCallable(t *testing.T) {
@@ -1745,6 +1825,22 @@ func requirePlanField(t *testing.T, structPlan *plan.Struct, targetName string) 
 
 	require.Failf(t, "field not planned", "target field %q was not planned", targetName)
 	return plan.Field{}
+}
+
+func diagnosticsMessages(diagnostics []plan.Diagnostic) []string {
+	out := make([]string, 0, len(diagnostics))
+	for _, diagnostic := range diagnostics {
+		out = append(out, diagnostic.Message)
+	}
+	return out
+}
+
+func diagnosticsPaths(diagnostics []plan.Diagnostic) []string {
+	out := make([]string, 0, len(diagnostics))
+	for _, diagnostic := range diagnostics {
+		out = append(out, diagnostic.Path)
+	}
+	return out
 }
 
 func testStructPlanType(sourceDecl, targetDecl types.TypeDecl, structSpec spec.Struct) plan.Type {
