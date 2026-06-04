@@ -353,8 +353,8 @@ func (g importGraph) path(from, to string) []string {
 		seen[current] = struct{}{}
 
 		for next := range g[current] {
-			if path := walk(next); len(path) > 0 {
-				return append([]string{current}, path...)
+			if p := walk(next); len(p) > 0 {
+				return append([]string{current}, p...)
 			}
 		}
 		return nil
