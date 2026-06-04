@@ -30,6 +30,7 @@ func (p *Planner) planStruct(typ *plan.Type) {
 		}
 
 		fieldPath := plan.FieldPath(typ.SourceType, typ.TargetType, sourceField, targetField)
+
 		optionality := typ.Optionality
 		conversion := typ.Conversions
 		if mapped {
@@ -58,6 +59,7 @@ func (p *Planner) planStruct(typ *plan.Type) {
 				typ.Callables,
 			)
 		}
+
 		typ.Diagnostics = appendDiagnostic(typ.Diagnostics, valuePlan.Diagnostics...)
 
 		if valuePlan.CanError {
@@ -267,6 +269,7 @@ func (p *Planner) planFieldCallable(
 	if callable, compatibility, ok := p.discoverExplicitCallable(sourceType, targetType, refs); ok {
 		return planCallableValue(sourceType, targetType, callable, compatibility, optionality)
 	}
+
 	if value, diagnostics, ok := p.planHigherOrderExplicitCallable(
 		sourceType,
 		targetType,
@@ -787,6 +790,7 @@ func (p *Planner) planCallableArgs(
 			conversion,
 			callables,
 		)
+
 		if valueMappingFailed(mapping) {
 			diagnostics = appendDiagnostic(diagnostics, plan.Diagnostic{
 				Level: plan.DiagnosticLevelFatal,
@@ -801,6 +805,7 @@ func (p *Planner) planCallableArgs(
 			diagnostics = appendDiagnostic(diagnostics, mapping.Diagnostics...)
 			return nil, diagnostics, false
 		}
+
 		if mapping.CanError && !arg.ReturnsError {
 			diagnostics = appendDiagnostic(diagnostics, plan.Diagnostic{
 				Level: plan.DiagnosticLevelFatal,
