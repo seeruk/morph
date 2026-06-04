@@ -1560,7 +1560,7 @@ func callableContextKey(callables []spec.TieredCallables) string {
 		if sb.Len() > 0 {
 			sb.WriteString("|")
 		}
-		fmt.Fprint(&sb, tier.Tier)
+		sb.WriteString(tier.Tier.String())
 		sb.WriteString(":")
 		for i, ref := range tier.Callables {
 			if i > 0 {

@@ -49,6 +49,18 @@ const (
 	callableTierMax
 )
 
+var callableTierNames = map[CallableTier]string{
+	CallableTierType:          "type",
+	CallableTierTypePreset:    "type_preset",
+	CallableTierPackage:       "package",
+	CallableTierPackagePreset: "package_preset",
+	CallableTierDefaults:      "defaults",
+}
+
+func (t CallableTier) String() string {
+	return callableTierNames[t]
+}
+
 // CallableTierCount returns the number of valid callable tiers.
 func CallableTierCount() int {
 	return int(callableTierMax)
