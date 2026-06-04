@@ -360,8 +360,7 @@ func (s *typeLoadState) loadType(typ types.Type) Type {
 
 func (s *typeLoadState) loadInterfaceMethods(iface *types.Interface) map[string]Method {
 	methods := make(map[string]Method, iface.NumMethods())
-	for i := 0; i < iface.NumMethods(); i++ {
-		fn := iface.Method(i)
+	for fn := range iface.Methods() {
 		sig, ok := fn.Type().(*types.Signature)
 		if !ok {
 			// TODO: Should this be handled in some way?
@@ -389,8 +388,8 @@ func (s *typeLoadState) loadParameters(tuple *types.Tuple) []Parameter {
 	}
 
 	params := make([]Parameter, 0, tuple.Len())
-	for i := 0; i < tuple.Len(); i++ {
-		params = append(params, s.loadParameter(tuple.At(i)))
+	for v := range tuple.Variables() {
+		params = append(params, s.loadParameter(v))
 	}
 
 	return params
@@ -418,8 +417,7 @@ func loadTypeMethods(typ types.Type) map[string]Method {
 	}
 
 	methods := make(map[string]Method, named.NumMethods())
-	for i := 0; i < named.NumMethods(); i++ {
-		fn := named.Method(i)
+	for fn := range named.Methods() {
 		sig := fn.Type().(*types.Signature)
 		methods[fn.Name()] = Method{
 			Owner:      loadType(named),
@@ -486,8 +484,7 @@ func (s *typeLoadState) loadTypeParams(params *types.TypeParamList) []TypeParam 
 	}
 
 	out := make([]TypeParam, 0, params.Len())
-	for i := 0; i < params.Len(); i++ {
-		param := params.At(i)
+	for param := range params.TypeParams() {
 		out = append(out, TypeParam{
 			Name:       param.Obj().Name(),
 			Constraint: s.loadType(param.Constraint()),
@@ -503,8 +500,8 @@ func (s *typeLoadState) loadTypeArgs(list *types.TypeList) []Type {
 	}
 
 	args := make([]Type, 0, list.Len())
-	for i := 0; i < list.Len(); i++ {
-		args = append(args, s.loadType(list.At(i)))
+	for t := range list.Types() {
+		args = append(args, s.loadType(t))
 	}
 
 	return args
@@ -516,8 +513,8 @@ func (s *typeLoadState) loadTypeParamNames(params *types.TypeParamList) []TypePa
 	}
 
 	out := make([]TypeParam, 0, params.Len())
-	for i := 0; i < params.Len(); i++ {
-		out = append(out, TypeParam{Name: params.At(i).Obj().Name()})
+	for tparam := range params.TypeParams() {
+		out = append(out, TypeParam{Name: tparam.Obj().Name()})
 	}
 
 	return out

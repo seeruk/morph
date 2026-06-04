@@ -1222,10 +1222,8 @@ func hasTypeParams(typ types.Type) bool {
 	if typ.Value != nil && hasTypeParams(*typ.Value) {
 		return true
 	}
-	for _, arg := range typ.TypeArgs {
-		if hasTypeParams(arg) {
-			return true
-		}
+	if slices.ContainsFunc(typ.TypeArgs, hasTypeParams) {
+		return true
 	}
 	for _, param := range typ.Params {
 		if hasTypeParams(param.Type) {

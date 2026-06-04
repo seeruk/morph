@@ -1656,7 +1656,6 @@ func functionCandidates(sourceType, targetType types.Type, fns ...types.Function
 func plannerWithCallables(fns ...types.FunctionDecl) *Planner {
 	callables := make(map[spec.CallableRef]registeredCallable, len(fns))
 	for _, fn := range fns {
-		fn := fn
 		callables[spec.CallableRefFromFunctionDecl(fn)] = registeredCallable{Function: &fn}
 	}
 	return &Planner{

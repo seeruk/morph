@@ -75,8 +75,8 @@
               "DisplayName": {
                 "target": "Name",
                 "callable": null,
-                "optionality": null,
-                "conversions": null
+                "conversions": null,
+                "optionality": null
               },
               "ID": {
                 "target": "UserID",
@@ -84,8 +84,8 @@
                   "forward": "module.test/shared/conversions.StringToUserID",
                   "inverse": "module.test/shared/conversions.UserID.String"
                 },
-                "optionality": null,
-                "conversions": null
+                "conversions": null,
+                "optionality": null
               }
             }
           },

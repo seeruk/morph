@@ -303,12 +303,12 @@ type importGraph map[string]map[string]struct{}
 // the imported package already reaches the importer, because adding importer -> imported would then
 // complete a cycle.
 func (g importGraph) addGeneratedImport(from, to string) error {
-	if path := g.path(to, from); len(path) > 0 {
+	if p := g.path(to, from); len(p) > 0 {
 		return fmt.Errorf(
 			"generated import %q -> %q would create an import cycle; existing path: %s",
 			from,
 			to,
-			strings.Join(path, " -> "),
+			strings.Join(p, " -> "),
 		)
 	}
 	g.addEdge(from, to)
@@ -328,11 +328,6 @@ func (g importGraph) addEdge(from, to string) {
 		g[from] = make(map[string]struct{})
 	}
 	g[from][to] = struct{}{}
-}
-
-// reaches reports whether from can reach to by following existing direct imports.
-func (g importGraph) reaches(from, to string) bool {
-	return len(g.path(from, to)) > 0
 }
 
 // path returns one import path from from to to by following existing direct imports. An empty slice
