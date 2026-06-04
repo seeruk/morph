@@ -67,6 +67,9 @@ func TestResolve_DefaultPrecedence(t *testing.T) {
 				OnNilSourcePointer: spec.PointerOptionalityError,
 				OnZeroSourceValue:  spec.ValueOptionalityAddress,
 			},
+			Conversions: spec.ConversionsPolicy{
+				Enabled: true,
+			},
 		}, typ.Struct.Fields["Name"])
 	})
 }
@@ -78,6 +81,16 @@ func TestResolve_BidirectionalExpansion(t *testing.T) {
 
 		assert.Equal(t, "SourceRecipe", types[0].Source)
 		assert.Equal(t, "TargetRecipe", types[1].Source)
+	})
+
+	t.Run("swaps package context for inverse mappings", func(t *testing.T) {
+		types := resolvedBidirectionalTypes(t)
+		require.Len(t, types, 2)
+
+		assert.Equal(t, "module.test/source", types[0].SourcePackage)
+		assert.Equal(t, "module.test/target", types[0].TargetPackage)
+		assert.Equal(t, "module.test/target", types[1].SourcePackage)
+		assert.Equal(t, "module.test/source", types[1].TargetPackage)
 	})
 
 	t.Run("keeps source to target config on the forward mapping", func(t *testing.T) {
@@ -118,6 +131,125 @@ func TestResolve_DefaultOptionalityUsesNilForZeroSourceValues(t *testing.T) {
 	})
 }
 
+func TestResolve_Conversions(t *testing.T) {
+	userID := spec.TypeRef{ImportPath: "module.test/domain", Name: "UserID"}
+	apiUserID := spec.TypeRef{ImportPath: "module.test/api", Name: "UserID"}
+	stringType := spec.TypeRef{Name: "string"}
+
+	t.Run("expands grouped targets directionally", func(t *testing.T) {
+		cfg := minimalConfig()
+		cfg.Conversions = []config.Conversion{{
+			Source:  userID,
+			Targets: []spec.TypeRef{stringType, apiUserID},
+		}}
+
+		got := resolveConfig(t, cfg)
+
+		assert.Equal(t, []spec.Conversion{
+			{Source: userID, Target: stringType},
+			{Source: userID, Target: apiUserID},
+		}, got.Conversions)
+	})
+
+	t.Run("expands bidirectional targets", func(t *testing.T) {
+		cfg := minimalConfig()
+		cfg.Conversions = []config.Conversion{{
+			Source:        userID,
+			Targets:       []spec.TypeRef{stringType},
+			Bidirectional: true,
+		}}
+
+		got := resolveConfig(t, cfg)
+
+		assert.Equal(t, []spec.Conversion{
+			{Source: userID, Target: stringType},
+			{Source: stringType, Target: userID},
+		}, got.Conversions)
+	})
+
+	t.Run("deduplicates expanded pairs", func(t *testing.T) {
+		cfg := minimalConfig()
+		cfg.Conversions = []config.Conversion{
+			{Source: userID, Targets: []spec.TypeRef{stringType}},
+			{Source: userID, Targets: []spec.TypeRef{stringType}},
+		}
+
+		got := resolveConfig(t, cfg)
+
+		assert.Equal(t, []spec.Conversion{{Source: userID, Target: stringType}}, got.Conversions)
+	})
+
+	t.Run("defaults to enabled policy", func(t *testing.T) {
+		typ := singleResolvedType(t, minimalConfig())
+
+		assert.True(t, typ.Conversions.Enabled)
+	})
+
+	t.Run("uses configured defaults", func(t *testing.T) {
+		cfg := minimalConfig()
+		cfg.Defaults.Packages.Types.Conversions = &config.ConversionsDefaults{
+			Enabled: new(false),
+		}
+
+		typ := singleResolvedType(t, cfg)
+
+		assert.False(t, typ.Conversions.Enabled)
+	})
+
+	t.Run("uses package presets", func(t *testing.T) {
+		cfg := minimalConfig()
+		cfg.Presets = map[string]config.Preset{
+			"api": {Conversions: &config.ConversionsDefaults{Enabled: new(false)}},
+		}
+		cfg.Packages[0].Preset = "api"
+
+		typ := singleResolvedType(t, cfg)
+
+		assert.False(t, typ.Conversions.Enabled)
+	})
+
+	t.Run("uses package policy", func(t *testing.T) {
+		cfg := minimalConfig()
+		cfg.Packages[0].Conversions = &config.ConversionsDefaults{
+			Enabled: new(false),
+		}
+
+		typ := singleResolvedType(t, cfg)
+
+		assert.False(t, typ.Conversions.Enabled)
+	})
+
+	t.Run("uses type policy", func(t *testing.T) {
+		cfg := minimalConfig()
+		cfg.Packages[0].Conversions = &config.ConversionsDefaults{
+			Enabled: new(false),
+		}
+		cfg.Packages[0].Types[0].Conversions = &config.ConversionsDefaults{
+			Enabled: new(true),
+		}
+
+		typ := singleResolvedType(t, cfg)
+
+		assert.True(t, typ.Conversions.Enabled)
+	})
+
+	t.Run("uses field policy", func(t *testing.T) {
+		cfg := minimalConfig()
+		cfg.Packages[0].Types[0].Conversions = &config.ConversionsDefaults{
+			Enabled: new(false),
+		}
+		cfg.Packages[0].Types[0].Struct = &config.Struct{
+			Fields: map[string]config.Field{
+				"ID": {Conversions: &config.ConversionsDefaults{Enabled: new(true)}},
+			},
+		}
+
+		typ := singleResolvedType(t, cfg)
+
+		assert.True(t, typ.Struct.Fields["ID"].Conversions.Enabled)
+	})
+}
+
 func TestResolve_Presets(t *testing.T) {
 	t.Run("type preset overrides package preset bidirectionality", func(t *testing.T) {
 		got := resolveConfig(t, presetConfig())
@@ -142,6 +274,28 @@ func TestResolve_Presets(t *testing.T) {
 
 		assert.Equal(t, "User", typ.Source)
 		assert.Equal(t, "User", typ.Target)
+	})
+}
+
+func TestResolve_Callables(t *testing.T) {
+	t.Run("resolves scoped callables in specificity order", func(t *testing.T) {
+		got := singleResolvedType(t, callableConfig())
+
+		assert.Equal(t, []spec.TieredCallables{
+			{Tier: spec.CallableTierType, Callables: []spec.CallableRef{callableRef("type")}},
+			{Tier: spec.CallableTierTypePreset, Callables: []spec.CallableRef{callableRef("type_preset")}},
+			{Tier: spec.CallableTierPackage, Callables: []spec.CallableRef{callableRef("package")}},
+			{Tier: spec.CallableTierPackagePreset, Callables: []spec.CallableRef{callableRef("package_preset")}},
+			{Tier: spec.CallableTierDefaults, Callables: []spec.CallableRef{callableRef("defaults")}},
+		}, got.Callables)
+	})
+
+	t.Run("resolves field callables directionally", func(t *testing.T) {
+		types := resolvedBidirectionalTypes(t, callableFieldConfig())
+		require.Len(t, types, 2)
+
+		assert.Equal(t, callableRef("field_forward"), *types[0].Struct.Fields["RecipeId"].Callable)
+		assert.Equal(t, callableRef("field_inverse"), *types[1].Struct.Fields["ID"].Callable)
 	})
 }
 
@@ -203,6 +357,34 @@ func TestResolve_Errors(t *testing.T) {
 				}},
 			},
 			err: "source package is required",
+		},
+		{
+			name: "missing conversion source",
+			cfg: config.Config{
+				Conversions: []config.Conversion{{
+					Targets: []spec.TypeRef{{Name: "string"}},
+				}},
+				Packages: []config.Package{{
+					Source: "module.test/source",
+					Target: "module.test/target",
+					Types:  []config.Type{{Name: "User"}},
+				}},
+			},
+			err: "source is required",
+		},
+		{
+			name: "missing conversion targets",
+			cfg: config.Config{
+				Conversions: []config.Conversion{{
+					Source: spec.TypeRef{ImportPath: "module.test/source", Name: "UserID"},
+				}},
+				Packages: []config.Package{{
+					Source: "module.test/source",
+					Target: "module.test/target",
+					Types:  []config.Type{{Name: "User"}},
+				}},
+			},
+			err: "at least one target is required",
 		},
 	}
 
@@ -364,6 +546,54 @@ func presetConfig() config.Config {
 	}
 }
 
+func callableConfig() config.Config {
+	return config.Config{
+		Defaults: config.Defaults{
+			Packages: config.PackagesDefaults{
+				Types: config.TypesDefaults{
+					Callables: []spec.CallableRef{callableRef("defaults")},
+				},
+			},
+		},
+		Presets: map[string]config.Preset{
+			"api": {Callables: []spec.CallableRef{callableRef("package_preset")}},
+			"db":  {Callables: []spec.CallableRef{callableRef("type_preset")}},
+		},
+		Packages: []config.Package{{
+			Source:    "module.test/source",
+			Target:    "module.test/target",
+			Preset:    "api",
+			Callables: []spec.CallableRef{callableRef("package")},
+			Types: []config.Type{{
+				Name:      "User",
+				Preset:    "db",
+				Callables: []spec.CallableRef{callableRef("type")},
+			}},
+		}},
+	}
+}
+
+func callableFieldConfig() config.Config {
+	forward := callableRef("field_forward")
+	inverse := callableRef("field_inverse")
+	cfg := bidirectionalConfig()
+	cfg.Packages[0].Types[0].Struct.Fields["RecipeId"] = config.Field{
+		Target: "ID",
+		Callable: &config.FieldCallable{
+			Forward: &forward,
+			Inverse: &inverse,
+		},
+	}
+	return cfg
+}
+
+func callableRef(name string) spec.CallableRef {
+	return spec.CallableRef{
+		ImportPath: "module.test/callables",
+		Name:       name,
+	}
+}
+
 func resolveConfig(t *testing.T, cfg config.Config) spec.Spec {
 	t.Helper()
 
@@ -381,9 +611,13 @@ func singleResolvedType(t *testing.T, cfg config.Config) spec.Type {
 	return got.Packages[0].Types[0]
 }
 
-func resolvedBidirectionalTypes(t *testing.T) []spec.Type {
+func resolvedBidirectionalTypes(t *testing.T, cfgs ...config.Config) []spec.Type {
 	t.Helper()
 
-	got := resolveConfig(t, bidirectionalConfig())
+	cfg := bidirectionalConfig()
+	if len(cfgs) > 0 {
+		cfg = cfgs[0]
+	}
+	got := resolveConfig(t, cfg)
 	return got.Packages[0].Types
 }

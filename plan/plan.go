@@ -38,8 +38,10 @@ type Type struct {
 	CanError     bool
 	// Spec
 	EnumSpec    spec.Enum
+	Callables   []spec.TieredCallables
 	StructSpec  spec.Struct
 	Optionality spec.Optionality
+	Conversions spec.ConversionsPolicy
 	// Plan
 	EnumPlan   *Enum
 	StructPlan *Struct

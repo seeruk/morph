@@ -379,18 +379,147 @@ func TestFunctionCompatibilityMatchesMethodCompatibility(t *testing.T) {
 func TestPlannerPlanValuePrefersUserFunctionCandidates(t *testing.T) {
 	sourceType := namedTestType("module.test/from", "User")
 	targetType := namedTestType("module.test/to", "User")
+	userFn := testFunctionDecl("UserMap", sourceType, targetType, errorTestType())
+	userRef := spec.CallableRefFromFunctionDecl(userFn)
 	registry := newFunctionRegistry()
-	require.True(t, registry.Register(testFunctionDecl("UserMap", sourceType, targetType, errorTestType()), plan.CallableSourceUser))
 	require.True(t, registry.Register(testFunctionDecl("DiscoveredMap", sourceType, targetType), plan.CallableSourceDiscovered))
 
-	planner := &Planner{registry: registry}
+	planner := &Planner{
+		registry: registry,
+		callables: map[spec.CallableRef]registeredCallable{
+			userRef: {Function: &userFn},
+		},
+	}
 
-	got := planner.planValueScoped(sourceType, targetType, "User", nil, defaultOptionality())
+	got := planner.planValue(
+		sourceType,
+		targetType,
+		"User",
+		nil,
+		defaultOptionality(),
+		defaultConversionsPolicy(),
+		[]spec.TieredCallables{{
+			Tier:      spec.CallableTierType,
+			Callables: []spec.CallableRef{userRef},
+		}},
+	)
 	require.NotNil(t, got.Callable)
 
 	assert.Equal(t, plan.OperationFunction, got.Operation)
 	assert.Equal(t, "UserMap", got.Callable.Name)
 	assert.True(t, got.CanError)
+}
+
+func TestPlannerPlanValueCallableTiers(t *testing.T) {
+	sourceType := basicTestType("string")
+	targetType := basicTestType("int")
+
+	t.Run("uses specificity before ranking", func(t *testing.T) {
+		typeFn := testFunctionDecl("TypeStringToInt", sourceType, targetType, errorTestType())
+		packageFn := testFunctionDecl("PackageStringToInt", sourceType, targetType)
+		planner := plannerWithCallables(typeFn, packageFn)
+
+		got := planner.planValue(
+			sourceType,
+			targetType,
+			"Value",
+			nil,
+			defaultOptionality(),
+			defaultConversionsPolicy(),
+			[]spec.TieredCallables{
+				callableTier(spec.CallableTierType, typeFn),
+				callableTier(spec.CallableTierPackage, packageFn),
+			},
+		)
+
+		require.NotNil(t, got.Callable)
+		assert.Equal(t, "TypeStringToInt", got.Callable.Name)
+	})
+
+	t.Run("ranks candidates within one tier", func(t *testing.T) {
+		errorFn := testFunctionDecl("ErrorStringToInt", sourceType, targetType, errorTestType())
+		noErrorFn := testFunctionDecl("NoErrorStringToInt", sourceType, targetType)
+		planner := plannerWithCallables(errorFn, noErrorFn)
+
+		got := planner.planValue(
+			sourceType,
+			targetType,
+			"Value",
+			nil,
+			defaultOptionality(),
+			defaultConversionsPolicy(),
+			[]spec.TieredCallables{callableTier(spec.CallableTierType, errorFn, noErrorFn)},
+		)
+
+		require.NotNil(t, got.Callable)
+		assert.Equal(t, "NoErrorStringToInt", got.Callable.Name)
+	})
+
+	t.Run("falls back from incompatible scoped callables", func(t *testing.T) {
+		badFn := testFunctionDecl("StringToBool", sourceType, basicTestType("bool"))
+		goodFn := testFunctionDecl("DiscoveredStringToInt", sourceType, targetType)
+		registry := newFunctionRegistry()
+		require.True(t, registry.Register(goodFn, plan.CallableSourceDiscovered))
+		planner := plannerWithCallables(badFn)
+		planner.registry = registry
+
+		got := planner.planValue(
+			sourceType,
+			targetType,
+			"Value",
+			nil,
+			defaultOptionality(),
+			defaultConversionsPolicy(),
+			[]spec.TieredCallables{callableTier(spec.CallableTierType, badFn)},
+		)
+
+		require.NotNil(t, got.Callable)
+		assert.Equal(t, "DiscoveredStringToInt", got.Callable.Name)
+	})
+}
+
+func TestPlannerPlanStructFieldCallable(t *testing.T) {
+	sourceDecl := testStructDecl("module.test/from", "Thing", map[string]types.Field{
+		"Value": testField("Value", basicTestType("string")),
+	})
+	targetDecl := testStructDecl("module.test/to", "Thing", map[string]types.Field{
+		"Value": testField("Value", basicTestType("int")),
+	})
+
+	t.Run("uses the explicit field callable", func(t *testing.T) {
+		fn := testFunctionDecl("StringToInt", basicTestType("string"), basicTestType("int"))
+		ref := spec.CallableRefFromFunctionDecl(fn)
+		planner := plannerWithCallables(fn)
+		typ := testStructPlanType(sourceDecl, targetDecl, spec.Struct{
+			Fields: map[string]spec.Field{
+				"Value": {Target: "Value", Callable: &ref},
+			},
+		})
+
+		planner.planStruct(&typ)
+
+		field := requirePlanField(t, typ.StructPlan, "Value")
+		require.NotNil(t, field.Mapping.Callable)
+		assert.Equal(t, "StringToInt", field.Mapping.Callable.Name)
+	})
+
+	t.Run("fails strictly when the field callable is incompatible", func(t *testing.T) {
+		fn := testFunctionDecl("StringToBool", basicTestType("string"), basicTestType("bool"))
+		ref := spec.CallableRefFromFunctionDecl(fn)
+		planner := plannerWithCallables(fn)
+		typ := testStructPlanType(sourceDecl, targetDecl, spec.Struct{
+			Fields: map[string]spec.Field{
+				"Value": {Target: "Value", Callable: &ref},
+			},
+		})
+
+		planner.planStruct(&typ)
+
+		field := requirePlanField(t, typ.StructPlan, "Value")
+		assert.Equal(t, plan.OperationUnsupported, field.Mapping.Operation)
+		require.Len(t, field.Mapping.Diagnostics, 1)
+		assert.Equal(t, plan.DiagnosticLevelFatal, field.Mapping.Diagnostics[0].Level)
+	})
 }
 
 func TestPlannerPlanValueOptionality(t *testing.T) {
@@ -400,11 +529,12 @@ func TestPlannerPlanValueOptionality(t *testing.T) {
 		OnNilSourcePointer: spec.PointerOptionalityError,
 		OnZeroSourceValue:  spec.ValueOptionalityAddress,
 	}
+	conversionsPolicy := defaultConversionsPolicy()
 
 	t.Run("marks pointer to value mappings as erroring when nil source pointers error", func(t *testing.T) {
 		planner := &Planner{registry: newFunctionRegistry()}
 
-		got := planner.planValueScoped(pointerTestType(stringType), stringType, "Name", nil, errorOptionality)
+		got := planner.planValue(pointerTestType(stringType), stringType, "Name", nil, errorOptionality, conversionsPolicy, nil)
 
 		assert.Equal(t, plan.OperationPointer, got.Operation)
 		assert.True(t, got.SourcePointer)
@@ -417,7 +547,7 @@ func TestPlannerPlanValueOptionality(t *testing.T) {
 		planner := &Planner{registry: newFunctionRegistry()}
 		optionality := defaultOptionality()
 
-		got := planner.planValueScoped(pointerTestType(stringType), stringType, "Name", nil, optionality)
+		got := planner.planValue(pointerTestType(stringType), stringType, "Name", nil, optionality, conversionsPolicy, nil)
 
 		assert.Equal(t, plan.OperationPointer, got.Operation)
 		assert.False(t, got.CanError)
@@ -428,7 +558,7 @@ func TestPlannerPlanValueOptionality(t *testing.T) {
 		require.True(t, registry.Register(testFunctionDecl("StringToInt", stringType, intType), plan.CallableSourceDiscovered))
 		planner := &Planner{registry: registry}
 
-		got := planner.planValueScoped(pointerTestType(stringType), intType, "Name", nil, errorOptionality)
+		got := planner.planValue(pointerTestType(stringType), intType, "Name", nil, errorOptionality, conversionsPolicy, nil)
 
 		require.NotNil(t, got.Callable)
 		assert.Equal(t, plan.OperationFunction, got.Operation)
@@ -447,7 +577,7 @@ func TestPlannerPlanValueOptionality(t *testing.T) {
 			OnZeroSourceValue:  spec.ValueOptionalityNil,
 		}
 
-		got := planner.planValueScoped(stringType, intType, "Name", nil, optionality)
+		got := planner.planValue(stringType, intType, "Name", nil, optionality, conversionsPolicy, nil)
 
 		require.NotNil(t, got.Callable)
 		assert.Equal(t, plan.OperationFunction, got.Operation)
@@ -462,7 +592,7 @@ func TestPlannerPlanValueOptionality(t *testing.T) {
 		require.True(t, registry.Register(testFunctionDecl("StringToIntPtr", stringType, pointerTestType(intType)), plan.CallableSourceDiscovered))
 		planner := &Planner{registry: registry}
 
-		got := planner.planValueScoped(stringType, intType, "Name", nil, errorOptionality)
+		got := planner.planValue(stringType, intType, "Name", nil, errorOptionality, conversionsPolicy, nil)
 
 		require.NotNil(t, got.Callable)
 		assert.Equal(t, plan.OperationFunction, got.Operation)
@@ -481,7 +611,7 @@ func TestPlannerPlanValueOptionality(t *testing.T) {
 			OnZeroSourceValue:  spec.ValueOptionalityNil,
 		}
 
-		got := planner.planValueScoped(stringType, pointerTestType(intType), "Name", nil, optionality)
+		got := planner.planValue(stringType, pointerTestType(intType), "Name", nil, optionality, conversionsPolicy, nil)
 
 		require.NotNil(t, got.Callable)
 		assert.Equal(t, plan.OperationFunction, got.Operation)
@@ -722,9 +852,8 @@ func TestPlannerPlanExplicitRoot(t *testing.T) {
 			StructPlan:   &plan.Struct{},
 		}
 		planner := NewPlanner(Spec{}, ".", "morph.yaml")
-		key := plan.TypeMapperKey(root.Source, root.Target, root.Signature)
-		planner.explicitRoots[key] = root
-		planner.mappings[key] = root
+		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
+		require.NoError(t, planner.addExplicitRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
 
 		require.NotPanics(t, func() {
 			value, ok := planner.planExplicitRoot(sourceType, targetType)
@@ -762,17 +891,121 @@ func TestPlannerPlanExplicitRoot(t *testing.T) {
 			StructPlan: &plan.Struct{},
 		}
 		planner := NewPlanner(Spec{}, ".", "morph.yaml")
-		valueKey := plan.TypeMapperKey(valueRoot.Source, valueRoot.Target, valueRoot.Signature)
-		pointerKey := plan.TypeMapperKey(pointerRoot.Source, pointerRoot.Target, pointerRoot.Signature)
-		planner.explicitRoots[pointerKey] = pointerRoot
-		planner.explicitRoots[valueKey] = valueRoot
-		planner.mappings[pointerKey] = pointerRoot
-		planner.mappings[valueKey] = valueRoot
+		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
+		location := testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go")
+		require.NoError(t, planner.addExplicitRoot(outputGroups, location, pointerRoot))
+		require.NoError(t, planner.addExplicitRoot(outputGroups, location, valueRoot))
 
 		got := planner.explicitRoot(sourceType, targetType)
 
 		assert.Same(t, valueRoot, got)
 	})
+
+	t.Run("prefers explicit roots in the current output package", func(t *testing.T) {
+		currentLocation := testOutputLocation("module.test/current", "/repo/current/morph.gen.go")
+		otherLocation := testOutputLocation("module.test/other", "/repo/other/morph.gen.go")
+		currentRoot := testExplicitRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "ZZZMapUser")
+		otherRoot := testExplicitRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "AAAMapUser")
+		planner := NewPlanner(Spec{}, ".", "morph.yaml")
+		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
+		require.NoError(t, planner.addExplicitRoot(outputGroups, otherLocation, otherRoot))
+		require.NoError(t, planner.addExplicitRoot(outputGroups, currentLocation, currentRoot))
+		planner.currentOutputLocation = &currentLocation
+
+		got := planner.explicitRoot(sourceType, targetType)
+
+		assert.Same(t, currentRoot, got)
+	})
+
+	t.Run("skips explicit roots that would create an import cycle", func(t *testing.T) {
+		currentLocation := testOutputLocation("module.test/current", "/repo/current/morph.gen.go")
+		unsafeLocation := testOutputLocation("module.test/unsafe", "/repo/unsafe/morph.gen.go")
+		safeLocation := testOutputLocation("module.test/safe", "/repo/safe/morph.gen.go")
+		unsafeRoot := testExplicitRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "AAAMapUser")
+		safeRoot := testExplicitRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "ZZZMapUser")
+		planner := NewPlanner(Spec{}, ".", "morph.yaml")
+		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
+		require.NoError(t, planner.addExplicitRoot(outputGroups, unsafeLocation, unsafeRoot))
+		require.NoError(t, planner.addExplicitRoot(outputGroups, safeLocation, safeRoot))
+		planner.importGraph = importGraph{}
+		planner.importGraph.addEdge(unsafeLocation.ImportPath, currentLocation.ImportPath)
+		planner.currentOutputLocation = &currentLocation
+
+		got := planner.explicitRoot(sourceType, targetType)
+
+		assert.Same(t, safeRoot, got)
+	})
+}
+
+func TestPlannerPlanBidirectionalPackageContext(t *testing.T) {
+	engine := New("lab/planner")
+	out, err := engine.Plan(resolveTestConfig(t, config.Config{
+		Packages: []config.Package{{
+			Source:        "github.com/seeruk/morph/lab/planner/from",
+			Target:        "github.com/seeruk/morph/lab/planner/to",
+			Bidirectional: new(true),
+			Types: []config.Type{{
+				Source: "Difficulty",
+				Target: "RecipeDifficulty",
+				Enum: &config.Enum{
+					Values: map[string]string{
+						"DifficultyUltra": "RecipeDifficultyInsane",
+					},
+				},
+			}},
+		}},
+	}), "morph.yaml")
+
+	require.NoError(t, err)
+	require.Len(t, out.OutputGroups, 1)
+	require.Len(t, out.OutputGroups[0].Roots, 2)
+
+	forward := requireRootByTargetName(t, out.OutputGroups[0].Roots, "RecipeDifficulty")
+	inverse := requireRootByTargetName(t, out.OutputGroups[0].Roots, "Difficulty")
+
+	assert.Equal(t, "github.com/seeruk/morph/lab/planner/from", forward.Source.ImportPath)
+	assert.Equal(t, "github.com/seeruk/morph/lab/planner/to", forward.Target.ImportPath)
+	assert.Equal(t, "github.com/seeruk/morph/lab/planner/to", inverse.Source.ImportPath)
+	assert.Equal(t, "github.com/seeruk/morph/lab/planner/from", inverse.Target.ImportPath)
+}
+
+func TestPlannerPlanOutputScopedVariants(t *testing.T) {
+	engine := New("lab/planner")
+	out, err := engine.Plan(resolveTestConfig(t, config.Config{
+		Packages: []config.Package{
+			{
+				Source: "github.com/seeruk/morph/lab/planner/from",
+				Target: "github.com/seeruk/morph/lab/planner/to",
+				Types: []config.Type{{
+					Name: "Single",
+					Mappers: &config.MappersDefaults{
+						Forward: &config.MapperDefaults{Name: new("MapSingleInMapping")},
+					},
+				}},
+			},
+			{
+				Source: "github.com/seeruk/morph/lab/planner/from",
+				Target: "github.com/seeruk/morph/lab/planner/to",
+				Output: config.Output{Strategy: new(spec.OutputStrategySourcePackage)},
+				Types: []config.Type{{
+					Name: "Single",
+					Mappers: &config.MappersDefaults{
+						Forward: &config.MapperDefaults{Name: new("MapSingleInSource")},
+					},
+				}},
+			},
+		},
+	}), "morph.yaml")
+
+	require.NoError(t, err)
+	require.Len(t, out.OutputGroups, 2)
+
+	var functionNames []string
+	for _, outputGroup := range out.OutputGroups {
+		require.Len(t, outputGroup.Roots, 1)
+		functionNames = append(functionNames, outputGroup.Roots[0].FunctionName)
+	}
+	assert.ElementsMatch(t, []string{"MapSingleInMapping", "MapSingleInSource"}, functionNames)
 }
 
 func TestPlannerPlanRecursiveNestedStructs(t *testing.T) {
@@ -858,6 +1091,200 @@ func TestPlannerPlanGenericNestedStructs(t *testing.T) {
 	assert.Equal(t, "string", stringValue.Mapping.Target.Name)
 }
 
+func TestPlannerPlanConversions(t *testing.T) {
+	userIDToString := config.Conversion{
+		Source: spec.TypeRef{ImportPath: plannerFromPackage, Name: "UserID"},
+		Targets: []spec.TypeRef{
+			{Name: "string"},
+		},
+	}
+	int64ToInt := spec.Conversion{
+		Source: spec.TypeRef{Name: "int64"},
+		Target: spec.TypeRef{Name: "int"},
+	}
+
+	t.Run("keeps basic conversions automatic", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{Name: "ConversionContainer"})
+
+		count := requirePlanField(t, root.StructPlan, "Count")
+
+		assert.Equal(t, plan.OperationConvert, count.Mapping.Operation)
+	})
+
+	t.Run("keeps unregistered lossy numeric conversions unsupported", func(t *testing.T) {
+		planner := NewPlanner(Spec{}, ".", "morph.yaml")
+		planner.registry = newFunctionRegistry()
+
+		got := planner.planValue(
+			basicTestType("int64"),
+			basicTestType("int"),
+			"Count",
+			nil,
+			defaultOptionality(),
+			defaultConversionsPolicy(),
+			nil,
+		)
+
+		assert.Equal(t, plan.OperationUnsupported, got.Operation)
+	})
+
+	t.Run("uses registered lossy numeric conversions", func(t *testing.T) {
+		planner := NewPlanner(Spec{Conversions: []spec.Conversion{int64ToInt}}, ".", "morph.yaml")
+		planner.registry = newFunctionRegistry()
+
+		got := planner.planValue(
+			basicTestType("int64"),
+			basicTestType("int"),
+			"Count",
+			nil,
+			defaultOptionality(),
+			defaultConversionsPolicy(),
+			nil,
+		)
+
+		assert.Equal(t, plan.OperationConvert, got.Operation)
+	})
+
+	t.Run("keeps registered impossible conversions unsupported", func(t *testing.T) {
+		planner := NewPlanner(Spec{Conversions: []spec.Conversion{{
+			Source: spec.TypeRef{Name: "bool"},
+			Target: spec.TypeRef{Name: "int"},
+		}}}, ".", "morph.yaml")
+		planner.registry = newFunctionRegistry()
+
+		got := planner.planValue(
+			basicTestType("bool"),
+			basicTestType("int"),
+			"Enabled",
+			nil,
+			defaultOptionality(),
+			defaultConversionsPolicy(),
+			nil,
+		)
+
+		assert.Equal(t, plan.OperationUnsupported, got.Operation)
+	})
+
+	t.Run("uses bidirectional registered lossy numeric conversions", func(t *testing.T) {
+		engine := New(".")
+		out, err := engine.Plan(resolveTestConfig(t, config.Config{
+			Conversions: []config.Conversion{{
+				Source:        spec.TypeRef{Name: "int"},
+				Targets:       []spec.TypeRef{{Name: "int64"}},
+				Bidirectional: true,
+			}},
+			Packages: []config.Package{{
+				Source:        plannerFromPackage,
+				Target:        plannerToPackage,
+				Bidirectional: new(true),
+				Types: []config.Type{{
+					Name: "ConversionContainer",
+				}},
+			}},
+		}), "morph.yaml")
+		require.NoError(t, err)
+		require.Len(t, out.OutputGroups, 1)
+		require.Len(t, out.OutputGroups[0].Roots, 2)
+
+		inverse := requireRootBySourcePackage(t, out.OutputGroups[0].Roots, plannerToPackage)
+		count := requirePlanField(t, inverse.StructPlan, "Count")
+
+		assert.Equal(t, plan.OperationConvert, count.Mapping.Operation)
+		assert.Equal(t, "int64", count.Mapping.Source.Name)
+		assert.Equal(t, "int", count.Mapping.Target.Name)
+	})
+
+	t.Run("requires registry for named conversions", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{Name: "ConversionContainer"})
+
+		id := requirePlanField(t, root.StructPlan, "ID")
+
+		assert.Equal(t, plan.OperationUnsupported, id.Mapping.Operation)
+	})
+
+	t.Run("uses registered named conversions", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{Name: "ConversionContainer"}, userIDToString)
+
+		id := requirePlanField(t, root.StructPlan, "ID")
+
+		assert.Equal(t, plan.OperationConvert, id.Mapping.Operation)
+	})
+
+	t.Run("unwraps aliases before matching registry pairs", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{Name: "ConversionContainer"}, userIDToString)
+
+		alias := requirePlanField(t, root.StructPlan, "Alias")
+
+		assert.Equal(t, plan.OperationConvert, alias.Mapping.Operation)
+	})
+
+	t.Run("uses registry conversions inside slices", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{Name: "ConversionContainer"}, userIDToString)
+
+		values := requirePlanField(t, root.StructPlan, "Values")
+		require.NotNil(t, values.Mapping.Elem)
+
+		assert.Equal(t, plan.OperationConvert, values.Mapping.Elem.Operation)
+	})
+
+	t.Run("disables registry conversions at type scope", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{
+			Name:        "ConversionContainer",
+			Conversions: &config.ConversionsDefaults{Enabled: new(false)},
+		}, userIDToString)
+
+		id := requirePlanField(t, root.StructPlan, "ID")
+
+		assert.Equal(t, plan.OperationUnsupported, id.Mapping.Operation)
+	})
+
+	t.Run("re-enables registry conversions at field scope", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{
+			Name:        "ConversionsPolicyContainer",
+			Conversions: &config.ConversionsDefaults{Enabled: new(false)},
+			Struct: &config.Struct{
+				Fields: map[string]config.Field{
+					"ID": {Conversions: &config.ConversionsDefaults{Enabled: new(true)}},
+				},
+			},
+		}, userIDToString)
+
+		id := requirePlanField(t, root.StructPlan, "ID")
+
+		assert.Equal(t, plan.OperationConvert, id.Mapping.Operation)
+	})
+
+	t.Run("keeps disabled registry conversions disabled for other fields", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{
+			Name:        "ConversionsPolicyContainer",
+			Conversions: &config.ConversionsDefaults{Enabled: new(false)},
+			Struct: &config.Struct{
+				Fields: map[string]config.Field{
+					"ID": {Conversions: &config.ConversionsDefaults{Enabled: new(true)}},
+				},
+			},
+		}, userIDToString)
+
+		other := requirePlanField(t, root.StructPlan, "Other")
+
+		assert.Equal(t, plan.OperationUnsupported, other.Mapping.Operation)
+	})
+
+	t.Run("does not raw convert registered struct pairs", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{Name: "StructConversionContainer"}, config.Conversion{
+			Source: spec.TypeRef{ImportPath: plannerFromPackage, Name: "StructCode"},
+			Targets: []spec.TypeRef{{
+				ImportPath: plannerToPackage,
+				Name:       "StructCode",
+			}},
+		})
+
+		code := requirePlanField(t, root.StructPlan, "Code")
+
+		assert.Equal(t, plan.OperationStruct, code.Mapping.Operation)
+	})
+}
+
 func TestPlannerPlanNestedStructsWithScopedGenericConstraints(t *testing.T) {
 	engine := New(".")
 	out, err := engine.Plan(resolveTestConfig(t, config.Config{
@@ -897,6 +1324,128 @@ func TestPlannerPlanNestedStructsWithScopedGenericConstraints(t *testing.T) {
 	assert.Equal(t, "U", stringBox.TypeParams[0].Name)
 	assert.Equal(t, types.TypeKindInterface, stringBox.TypeParams[0].Constraint.Kind)
 	assert.Contains(t, stringBox.TypeParams[0].Constraint.String, "~string")
+}
+
+func TestPlannerPlanNestedStructsWithScopedCallables(t *testing.T) {
+	engine := New(".")
+	out, err := engine.Plan(resolveTestConfig(t, config.Config{
+		Packages: []config.Package{{
+			Source: "github.com/seeruk/morph/testdata/planner/from",
+			Target: "github.com/seeruk/morph/testdata/planner/to",
+			Types: []config.Type{
+				{
+					Name: "ScopedStringBoxA",
+					Callables: []spec.CallableRef{{
+						ImportPath: "github.com/seeruk/morph/testdata/planner/from",
+						Name:       "TypeAStringToInt",
+					}},
+				},
+				{
+					Name: "ScopedStringBoxB",
+					Callables: []spec.CallableRef{{
+						ImportPath: "github.com/seeruk/morph/testdata/planner/from",
+						Name:       "TypeBStringToInt",
+					}},
+				},
+			},
+		}},
+	}), "morph.yaml")
+
+	require.NoError(t, err)
+	rootA := requireRootByTargetName(t, out.OutputGroups[0].Roots, "ScopedStringBoxA")
+	rootB := requireRootByTargetName(t, out.OutputGroups[0].Roots, "ScopedStringBoxB")
+
+	boxA := requirePlanField(t, rootA.StructPlan, "Box").Mapping.Plan
+	boxB := requirePlanField(t, rootB.StructPlan, "Box").Mapping.Plan
+	require.NotNil(t, boxA)
+	require.NotNil(t, boxB)
+
+	assert.NotSame(t, boxA, boxB)
+	assert.NotEqual(t, boxA.FunctionName, boxB.FunctionName)
+
+	valueA := requirePlanField(t, boxA.StructPlan, "Value")
+	valueB := requirePlanField(t, boxB.StructPlan, "Value")
+	require.NotNil(t, valueA.Mapping.Callable)
+	require.NotNil(t, valueB.Mapping.Callable)
+	assert.Equal(t, "TypeAStringToInt", valueA.Mapping.Callable.Name)
+	assert.Equal(t, "TypeBStringToInt", valueB.Mapping.Callable.Name)
+}
+
+func TestPlannerPlanDefaultCallable(t *testing.T) {
+	engine := New(".")
+	out, err := engine.Plan(resolveTestConfig(t, config.Config{
+		Defaults: config.Defaults{
+			Packages: config.PackagesDefaults{
+				Types: config.TypesDefaults{
+					Callables: []spec.CallableRef{{
+						ImportPath: "github.com/seeruk/morph/testdata/planner/from",
+						Name:       "ExplicitStringToInt",
+					}},
+				},
+			},
+		},
+		Packages: []config.Package{{
+			Source: "github.com/seeruk/morph/testdata/planner/from",
+			Target: "github.com/seeruk/morph/testdata/planner/to",
+			Types:  []config.Type{{Name: "ExplicitCallableContainer"}},
+		}},
+	}), "morph.yaml")
+
+	require.NoError(t, err)
+	root := out.OutputGroups[0].Roots[0]
+	field := requirePlanField(t, root.StructPlan, "Value")
+
+	require.NotNil(t, field.Mapping.Callable)
+	assert.Equal(t, "ExplicitStringToInt", field.Mapping.Callable.Name)
+}
+
+func TestPlannerPlanMethodCallable(t *testing.T) {
+	t.Run("ignores unreferenced methods", func(t *testing.T) {
+		engine := New(".")
+		out, err := engine.Plan(resolveTestConfig(t, config.Config{
+			Packages: []config.Package{{
+				Source: "github.com/seeruk/morph/testdata/planner/from",
+				Target: "github.com/seeruk/morph/testdata/planner/to",
+				Types:  []config.Type{{Name: "MethodCallableContainer"}},
+			}},
+		}), "morph.yaml")
+
+		require.NoError(t, err)
+		root := out.OutputGroups[0].Roots[0]
+		field := requirePlanField(t, root.StructPlan, "ID")
+
+		assert.Equal(t, plan.OperationUnsupported, field.Mapping.Operation)
+	})
+
+	t.Run("uses explicitly referenced methods", func(t *testing.T) {
+		engine := New(".")
+		out, err := engine.Plan(resolveTestConfig(t, config.Config{
+			Defaults: config.Defaults{
+				Packages: config.PackagesDefaults{
+					Types: config.TypesDefaults{
+						Callables: []spec.CallableRef{{
+							ImportPath: "github.com/seeruk/morph/testdata/planner/from",
+							TypeName:   "MethodID",
+							Name:       "String",
+						}},
+					},
+				},
+			},
+			Packages: []config.Package{{
+				Source: "github.com/seeruk/morph/testdata/planner/from",
+				Target: "github.com/seeruk/morph/testdata/planner/to",
+				Types:  []config.Type{{Name: "MethodCallableContainer"}},
+			}},
+		}), "morph.yaml")
+
+		require.NoError(t, err)
+		root := out.OutputGroups[0].Roots[0]
+		field := requirePlanField(t, root.StructPlan, "ID")
+
+		require.NotNil(t, field.Mapping.Callable)
+		assert.Equal(t, plan.OperationMethod, field.Mapping.Operation)
+		assert.Equal(t, "String", field.Mapping.Callable.Name)
+	})
 }
 
 func TestPlannerPlanHigherOrderGenericFunction(t *testing.T) {
@@ -947,6 +1496,36 @@ func TestPlannerPlanHigherOrderGenericFunction(t *testing.T) {
 		name := requirePlanField(t, arg.Mapping.Plan.StructPlan, "Name")
 		assert.Equal(t, plan.OperationAssign, name.Mapping.Operation)
 	})
+}
+
+func TestPlannerPlanHigherOrderExplicitCallable(t *testing.T) {
+	engine := New(".")
+	out, err := engine.Plan(resolveTestConfig(t, config.Config{
+		Defaults: config.Defaults{
+			Packages: config.PackagesDefaults{
+				Types: config.TypesDefaults{
+					Callables: []spec.CallableRef{{
+						ImportPath: "github.com/seeruk/morph/testdata/planner/from",
+						Name:       "MapOptional",
+					}},
+				},
+			},
+		},
+		Packages: []config.Package{{
+			Source: "github.com/seeruk/morph/testdata/planner/from",
+			Target: "github.com/seeruk/morph/testdata/planner/to",
+			Types:  []config.Type{{Name: "OptionalContainer"}},
+		}},
+	}), "morph.yaml")
+
+	require.NoError(t, err)
+	root := out.OutputGroups[0].Roots[0]
+	maybe := requirePlanField(t, root.StructPlan, "Maybe")
+
+	require.NotNil(t, maybe.Mapping.Callable)
+	assert.Equal(t, "MapOptional", maybe.Mapping.Callable.Name)
+	require.Len(t, maybe.Mapping.CallableArgs, 1)
+	assert.Equal(t, plan.OperationStruct, maybe.Mapping.CallableArgs[0].Mapping.Operation)
 }
 
 func TestPlannerPlanHigherOrderGenericFunctionWithErrors(t *testing.T) {
@@ -1074,6 +1653,53 @@ func functionCandidates(sourceType, targetType types.Type, fns ...types.Function
 	return out
 }
 
+func plannerWithCallables(fns ...types.FunctionDecl) *Planner {
+	callables := make(map[spec.CallableRef]registeredCallable, len(fns))
+	for _, fn := range fns {
+		fn := fn
+		callables[spec.CallableRefFromFunctionDecl(fn)] = registeredCallable{Function: &fn}
+	}
+	return &Planner{
+		registry:  newFunctionRegistry(),
+		callables: callables,
+	}
+}
+
+func callableTier(tier spec.CallableTier, fns ...types.FunctionDecl) spec.TieredCallables {
+	callables := make([]spec.CallableRef, 0, len(fns))
+	for _, fn := range fns {
+		callables = append(callables, spec.CallableRefFromFunctionDecl(fn))
+	}
+	return spec.TieredCallables{
+		Tier:      tier,
+		Callables: callables,
+	}
+}
+
+const (
+	plannerFromPackage = "github.com/seeruk/morph/testdata/planner/from"
+	plannerToPackage   = "github.com/seeruk/morph/testdata/planner/to"
+)
+
+func planPlannerRoot(t *testing.T, typ config.Type, conversions ...config.Conversion) *plan.Type {
+	t.Helper()
+
+	engine := New(".")
+	out, err := engine.Plan(resolveTestConfig(t, config.Config{
+		Conversions: conversions,
+		Packages: []config.Package{{
+			Source: plannerFromPackage,
+			Target: plannerToPackage,
+			Types:  []config.Type{typ},
+		}},
+	}), "morph.yaml")
+	require.NoError(t, err)
+	require.Len(t, out.OutputGroups, 1)
+	require.Len(t, out.OutputGroups[0].Roots, 1)
+
+	return out.OutputGroups[0].Roots[0]
+}
+
 func resolveTestConfig(t *testing.T, cfg config.Config) Spec {
 	t.Helper()
 
@@ -1092,6 +1718,19 @@ func requireRootByTargetName(t *testing.T, roots []*plan.Type, targetName string
 	}
 
 	require.Failf(t, "root not planned", "target root %q was not planned", targetName)
+	return nil
+}
+
+func requireRootBySourcePackage(t *testing.T, roots []*plan.Type, sourcePackage string) *plan.Type {
+	t.Helper()
+
+	for _, root := range roots {
+		if root.Source.ImportPath == sourcePackage {
+			return root
+		}
+	}
+
+	require.Failf(t, "root not planned", "source package root %q was not planned", sourcePackage)
 	return nil
 }
 
@@ -1120,6 +1759,28 @@ func testStructPlanType(sourceDecl, targetDecl types.TypeDecl, structSpec spec.S
 		Signature:   defaultMapperSignature,
 		StructSpec:  structSpec,
 		Optionality: defaultOptionality(),
+		Conversions: defaultConversionsPolicy(),
+	}
+}
+
+func testExplicitRootPlan(
+	sourceRef, targetRef plan.TypeRef,
+	sourceDecl, targetDecl types.TypeDecl,
+	sourceType, targetType types.Type,
+	functionName string,
+) *plan.Type {
+	return &plan.Type{
+		Source:       sourceRef,
+		Target:       targetRef,
+		SourceDecl:   sourceDecl,
+		TargetDecl:   targetDecl,
+		SourceType:   sourceType,
+		TargetType:   targetType,
+		FunctionName: functionName,
+		Signature:    defaultMapperSignature,
+		StructPlan:   &plan.Struct{},
+		Optionality:  defaultOptionality(),
+		Conversions:  defaultConversionsPolicy(),
 	}
 }
 

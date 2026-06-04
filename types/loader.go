@@ -8,6 +8,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/seeruk/morph/internal"
@@ -99,6 +100,7 @@ func (l *Loader) loadPackage(pkg *packages.Package) Package {
 	out.Name = pkg.Name
 	out.ImportPath = pkg.PkgPath
 	out.Dir = packageDir(pkg)
+	out.Imports = packageImports(pkg)
 	out.Constants = make(map[string]ConstantDecl)
 	out.Functions = make(map[string]FunctionDecl)
 	out.Types = make(map[string]TypeDecl)
@@ -130,6 +132,15 @@ func (l *Loader) loadPackage(pkg *packages.Package) Package {
 	out.attachConstantsToTypes()
 
 	return out
+}
+
+func packageImports(pkg *packages.Package) []string {
+	imports := make([]string, 0, len(pkg.Imports))
+	for importPath := range pkg.Imports {
+		imports = append(imports, importPath)
+	}
+	slices.Sort(imports)
+	return imports
 }
 
 func (p *Package) attachConstantsToTypes() {

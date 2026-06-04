@@ -8,6 +8,9 @@ defaults:
     types:
       enum:
         failureMode: error
+      callables:
+      - module.test/shared/conversions.CheckedIntToSmallInt
+      - module.test/shared/conversions.UserID.String
       mappers:
         forward:
           name: Map{{ .Source.Type }}To{{ .Target.Type }}
@@ -24,13 +27,16 @@ defaults:
 discovery:
   packages:
   - module.test/shared/conversions
-  functions:
-  - module.test/shared/conversions.CheckedIntToSmallInt
-  - module.test/shared/conversions.UserID.String
   exclusions:
   - module.test/shared/conversions.LegacyUserToUser
   - module.test/shared/conversions.LegacyStatus.ToStatus
 
+conversions:
+- source: module.test/source.UserID
+  targets:
+  - string
+  - module.test/target.UserID
+  bidirectional: true
 
 packages:
 - source: module.test/source
@@ -43,6 +49,9 @@ packages:
       fields:
         ID:
           target: UserID
+          callable:
+            forward: module.test/shared/conversions.StringToUserID
+            inverse: module.test/shared/conversions.UserID.String
         DisplayName:
           target: Name
     mappers:

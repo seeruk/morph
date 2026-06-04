@@ -5,6 +5,8 @@ defaults:
     types:
       enum:
         failureMode: error
+      callables:
+      - github.com/seeruk/nextmealplease/internal/numeric.CheckedInt32ToInt8
       bidirectional: true
       optionality:
         onNilSourcePointer: zero # or error
@@ -15,18 +17,15 @@ defaults:
       package: mapping            # Only relevant for single_package strategy
       filename: mapping.morph.go  # Could also support formatting strings? e.g. <pkg>.morph.go
 
-# Discovery configures how auto-discovery of mapping functions works. You can specify packages to
-# include, and then functions within those packages to include or exclude. This is ideal for if you
-# already have a library of mapping functions between some commonly used types, but don't want to
-# have to explicitly reference them all.
+# Discovery configures broad package auto-discovery of mapping functions. This is ideal for if you
+# already have a library of mapping functions between some commonly used types, and want every
+# exported package-level function in those packages to be available.
 #
 # Morph also has some of its own packages which can be useful for discovery, ready to use. These are
 # not included by default, so you're able to configure them as you see fit.
 discovery:
   packages:
   - github.com/seeruk/nextmealplease/internal/optional
-  functions:
-  - github.com/seeruk/nextmealplease/internal/numeric.CheckedInt32ToInt8
   exclusions:
   - github.com/seeruk/nextmealplease/internal/optional.OptionalPtr
 
@@ -58,6 +57,9 @@ packages:
       fields:
         RecipeId:
           target: ID
+          callable:
+            forward: github.com/seeruk/nextmealplease/internal/protomap.StringToID
+            inverse: github.com/seeruk/nextmealplease/internal/protomap.IDToString
 
 - source: github.com/seeruk/nextmealplease/internal/db
   target: github.com/seeruk/nextmealplease/internal/nmp

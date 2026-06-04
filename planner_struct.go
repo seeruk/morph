@@ -1,6 +1,7 @@
 package morph
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"slices"
@@ -31,11 +32,35 @@ func (p *Planner) planStruct(typ *plan.Type) {
 
 		fieldPath := plan.FieldPath(typ.SourceType, typ.TargetType, sourceField)
 		optionality := typ.Optionality
+		conversion := typ.Conversions
 		if mapped {
 			optionality = fieldSpec.Optionality
+			conversion = fieldSpec.Conversions
 		}
 
-		valuePlan := p.planValueScoped(sourceField.Type, targetField.Type, fieldPath, typeParams, optionality)
+		var valuePlan plan.Value
+		if mapped && fieldSpec.Callable != nil {
+			valuePlan = p.planFieldCallable(
+				sourceField.Type,
+				targetField.Type,
+				fieldPath,
+				typeParams,
+				optionality,
+				conversion,
+				*fieldSpec.Callable,
+				typ.Callables,
+			)
+		} else {
+			valuePlan = p.planValue(
+				sourceField.Type,
+				targetField.Type,
+				fieldPath,
+				typeParams,
+				optionality,
+				conversion,
+				typ.Callables,
+			)
+		}
 		typ.Diagnostics = appendDiagnostic(typ.Diagnostics, valuePlan.Diagnostics...)
 
 		if valuePlan.CanError {
@@ -53,39 +78,18 @@ func (p *Planner) planStruct(typ *plan.Type) {
 	typ.StructPlan = &structPlan
 }
 
-func (p *Planner) planValueScoped(
+func (p *Planner) planValue(
 	sourceType, targetType types.Type,
 	path string,
 	typeParams typeParamScope,
 	optionality spec.Optionality,
+	conversion spec.ConversionsPolicy,
+	callables []spec.TieredCallables,
 ) plan.Value {
 	sourceType = types.UnwrapAlias(sourceType)
 	targetType = types.UnwrapAlias(targetType)
 
-	// If there's a user-supplied, explicit function to use for this pair of types, prefer it.
-	if fn, compatibility, ok := p.discoverFunctionCallable(sourceType, targetType, plan.CallableSourceUser); ok {
-		return plan.Value{
-			Operation:                   operationForCallable(fn),
-			Source:                      sourceType,
-			Target:                      targetType,
-			Callable:                    new(fn),
-			CallableParameterAdaptation: callableInputAdaptation(compatibility.Input),
-			CallableResultAdaptation:    callableResultAdaptation(compatibility.Result),
-			Optionality:                 optionality,
-			CanError: fn.ReturnsError ||
-				callableInputCanError(compatibility.Input, optionality) ||
-				callableResultCanError(compatibility.Result, optionality),
-		}
-	}
-
-	if value, ok := p.planHigherOrderFunctionCallable(
-		sourceType,
-		targetType,
-		path,
-		typeParams,
-		optionality,
-		plan.CallableSourceUser,
-	); ok {
+	if value, ok := p.planTieredCallables(sourceType, targetType, path, typeParams, optionality, conversion, callables); ok {
 		return value
 	}
 
@@ -93,35 +97,9 @@ func (p *Planner) planValueScoped(
 		return explicit
 	}
 
-	// If we discovered a suitable function to use for this pair of types, use that.
+	// If broad package discovery found a suitable function to use for this pair of types, use that.
 	if fn, compatibility, ok := p.discoverFunctionCallable(sourceType, targetType, plan.CallableSourceDiscovered); ok {
-		return plan.Value{
-			Operation:                   operationForCallable(fn),
-			Source:                      sourceType,
-			Target:                      targetType,
-			Callable:                    new(fn),
-			CallableParameterAdaptation: callableInputAdaptation(compatibility.Input),
-			CallableResultAdaptation:    callableResultAdaptation(compatibility.Result),
-			Optionality:                 optionality,
-			CanError: fn.ReturnsError ||
-				callableInputCanError(compatibility.Input, optionality) ||
-				callableResultCanError(compatibility.Result, optionality),
-		}
-	}
-
-	if callable, compatibility, ok := p.discoverMethodCallable(sourceType, targetType); ok {
-		return plan.Value{
-			Operation:                   operationForCallable(callable),
-			Source:                      sourceType,
-			Target:                      targetType,
-			Callable:                    new(callable),
-			CallableParameterAdaptation: callableInputAdaptation(compatibility.Input),
-			CallableResultAdaptation:    callableResultAdaptation(compatibility.Result),
-			Optionality:                 optionality,
-			CanError: callable.ReturnsError ||
-				callableInputCanError(compatibility.Input, optionality) ||
-				callableResultCanError(compatibility.Result, optionality),
-		}
+		return planCallableValue(sourceType, targetType, fn, compatibility, optionality)
 	}
 
 	if value, ok := p.planHigherOrderFunctionCallable(
@@ -130,18 +108,28 @@ func (p *Planner) planValueScoped(
 		path,
 		typeParams,
 		optionality,
+		conversion,
 		plan.CallableSourceDiscovered,
+		callables,
 	); ok {
 		return value
 	}
 
 	if sourceType.Kind == types.TypeKindPointer || targetType.Kind == types.TypeKindPointer {
-		return p.planPointerMappingScoped(sourceType, targetType, path, typeParams, optionality)
+		return p.planPointerMapping(sourceType, targetType, path, typeParams, optionality, conversion, callables)
 	}
 
 	switch {
 	case sourceType.Kind == types.TypeKindSlice && targetType.Kind == types.TypeKindSlice:
-		elemPlan := p.planValueScoped(*sourceType.Elem, *targetType.Elem, path+"[]", typeParams, optionality)
+		elemPlan := p.planValue(
+			*sourceType.Elem,
+			*targetType.Elem,
+			path+"[]",
+			typeParams,
+			optionality,
+			conversion,
+			callables,
+		)
 
 		operation := plan.OperationSlice
 		if len(elemPlan.Diagnostics) > 0 {
@@ -163,7 +151,15 @@ func (p *Planner) planValueScoped(
 			return unsupportedMapping(sourceType, targetType, path, "array lengths differ")
 		}
 
-		elemPlan := p.planValueScoped(*sourceType.Elem, *targetType.Elem, path+"[]", typeParams, optionality)
+		elemPlan := p.planValue(
+			*sourceType.Elem,
+			*targetType.Elem,
+			path+"[]",
+			typeParams,
+			optionality,
+			conversion,
+			callables,
+		)
 
 		operation := plan.OperationArray
 		if len(elemPlan.Diagnostics) > 0 {
@@ -181,8 +177,24 @@ func (p *Planner) planValueScoped(
 		}
 
 	case sourceType.Kind == types.TypeKindMap && targetType.Kind == types.TypeKindMap:
-		key := p.planValueScoped(*sourceType.Key, *targetType.Key, path+"[key]", typeParams, optionality)
-		value := p.planValueScoped(*sourceType.Value, *targetType.Value, path+"[value]", typeParams, optionality)
+		key := p.planValue(
+			*sourceType.Key,
+			*targetType.Key,
+			path+"[key]",
+			typeParams,
+			optionality,
+			conversion,
+			callables,
+		)
+		value := p.planValue(
+			*sourceType.Value,
+			*targetType.Value,
+			path+"[value]",
+			typeParams,
+			optionality,
+			conversion,
+			callables,
+		)
 
 		diagnostics := append([]plan.Diagnostic{}, key.Diagnostics...)
 		diagnostics = append(diagnostics, value.Diagnostics...)
@@ -204,7 +216,7 @@ func (p *Planner) planValueScoped(
 		}
 	}
 
-	if nested, ok := p.planNestedStructScoped(sourceType, targetType, path, typeParams); ok {
+	if nested, ok := p.planNestedStruct(sourceType, targetType, path, typeParams, callables); ok {
 		return nested
 	}
 
@@ -217,7 +229,7 @@ func (p *Planner) planValueScoped(
 		}
 	}
 
-	if p.canConvertByBasicType(sourceType, targetType) {
+	if p.canConvert(sourceType, targetType, conversion) {
 		return plan.Value{
 			Operation:   plan.OperationConvert,
 			Source:      sourceType,
@@ -229,17 +241,101 @@ func (p *Planner) planValueScoped(
 	return unsupportedMapping(sourceType, targetType, path, "unable to determine mapping strategy")
 }
 
+func (p *Planner) planFieldCallable(
+	sourceType, targetType types.Type,
+	path string,
+	typeParams typeParamScope,
+	optionality spec.Optionality,
+	conversion spec.ConversionsPolicy,
+	ref spec.CallableRef,
+	callables []spec.TieredCallables,
+) plan.Value {
+	sourceType = types.UnwrapAlias(sourceType)
+	targetType = types.UnwrapAlias(targetType)
+
+	refs := []spec.CallableRef{ref}
+	if callable, compatibility, ok := p.discoverExplicitCallable(sourceType, targetType, refs); ok {
+		return planCallableValue(sourceType, targetType, callable, compatibility, optionality)
+	}
+	if value, ok := p.planHigherOrderExplicitCallable(
+		sourceType,
+		targetType,
+		path,
+		typeParams,
+		optionality,
+		conversion,
+		refs,
+		callables,
+	); ok {
+		return value
+	}
+
+	return unsupportedMapping(sourceType, targetType, path, fmt.Sprintf("field callable %q is not compatible", ref.String()))
+}
+
+func (p *Planner) planTieredCallables(
+	sourceType, targetType types.Type,
+	path string,
+	typeParams typeParamScope,
+	optionality spec.Optionality,
+	conversion spec.ConversionsPolicy,
+	callables []spec.TieredCallables,
+) (plan.Value, bool) {
+	for _, tier := range callables {
+		if callable, compatibility, ok := p.discoverExplicitCallable(sourceType, targetType, tier.Callables); ok {
+			return planCallableValue(sourceType, targetType, callable, compatibility, optionality), true
+		}
+		if value, ok := p.planHigherOrderExplicitCallable(
+			sourceType,
+			targetType,
+			path,
+			typeParams,
+			optionality,
+			conversion,
+			tier.Callables,
+			callables,
+		); ok {
+			return value, true
+		}
+	}
+	return plan.Value{}, false
+}
+
+func planCallableValue(
+	sourceType, targetType types.Type,
+	callable plan.CallableRef,
+	compatibility callableCompatibility,
+	optionality spec.Optionality,
+) plan.Value {
+	return plan.Value{
+		Operation:                   operationForCallable(callable),
+		Source:                      sourceType,
+		Target:                      targetType,
+		Callable:                    &callable,
+		CallableParameterAdaptation: callableInputAdaptation(compatibility.Input),
+		CallableResultAdaptation:    callableResultAdaptation(compatibility.Result),
+		Optionality:                 optionality,
+		CanError: callable.ReturnsError ||
+			callableInputCanError(compatibility.Input, optionality) ||
+			callableResultCanError(compatibility.Result, optionality),
+	}
+}
+
 // planExplicitRoot is used to "just-in-time" plan an explicit root, so that if we're going to
 // generate a mapping function for a type pair, and we could use it elsewhere, we'll be able to
 // refer to it in the plan. We already have the shallow plan, really the key thing we need to know
 // is will this explicit root error, which can only identify if we fully plan it.
 func (p *Planner) planExplicitRoot(source, target types.Type) (plan.Value, bool) {
-	typePlan := p.explicitRoot(source, target)
-	if typePlan == nil {
+	variant := p.explicitRootVariant(source, target)
+	if variant == nil {
 		return plan.Value{}, false
 	}
 
-	p.planType(typePlan)
+	typePlan := variant.Root
+	previous := p.currentOutputLocation
+	p.currentOutputLocation = &variant.Location
+	p.planTypeWithKey(variant.Key, typePlan)
+	p.currentOutputLocation = previous
 
 	operation := plan.OperationStruct
 	if typePlan.EnumPlan != nil || isEnumType(typePlan.SourceDecl) && isEnumType(typePlan.TargetDecl) {
@@ -258,32 +354,59 @@ func (p *Planner) planExplicitRoot(source, target types.Type) (plan.Value, bool)
 }
 
 func (p *Planner) explicitRoot(source, target types.Type) *plan.Type {
+	variant := p.explicitRootVariant(source, target)
+	if variant == nil {
+		return nil
+	}
+	return variant.Root
+}
+
+func (p *Planner) explicitRootVariant(source, target types.Type) *explicitRootVariant {
 	sourceRef := plan.TypeRefFromType(source)
 	targetRef := plan.TypeRefFromType(target)
 
-	var candidates []*plan.Type
-	for _, root := range p.explicitRoots {
-		if root.Source == sourceRef && root.Target == targetRef {
-			candidates = append(candidates, root)
-		}
+	candidates := slices.Clone(p.explicitRootsByTypePair[plan.TypePairKey(sourceRef, targetRef)])
+	if p.currentOutputLocation != nil {
+		candidates = slices.DeleteFunc(candidates, func(candidate *explicitRootVariant) bool {
+			return !p.canUseExplicitRootVariant(*p.currentOutputLocation, candidate)
+		})
 	}
 	if len(candidates) == 0 {
 		return nil
 	}
 
-	slices.SortFunc(candidates, func(a, b *plan.Type) int {
-		aRank := explicitRootSignatureRank(a.Signature)
-		bRank := explicitRootSignatureRank(b.Signature)
+	slices.SortFunc(candidates, func(a, b *explicitRootVariant) int {
+		aRank := explicitRootSignatureRank(a.Root.Signature)
+		bRank := explicitRootSignatureRank(b.Root.Signature)
 		if aRank != bRank {
 			return aRank - bRank
 		}
-		if a.FunctionName != b.FunctionName {
-			return strings.Compare(a.FunctionName, b.FunctionName)
+		if p.currentOutputLocation != nil {
+			aRank = explicitRootOutputPackageRank(*p.currentOutputLocation, a)
+			bRank = explicitRootOutputPackageRank(*p.currentOutputLocation, b)
+			if aRank != bRank {
+				return aRank - bRank
+			}
 		}
-		return strings.Compare(plan.SignatureKey(a.Signature), plan.SignatureKey(b.Signature))
+		return cmp.Or(
+			strings.Compare(a.Root.FunctionName, b.Root.FunctionName),
+			strings.Compare(a.Location.ImportPath, b.Location.ImportPath),
+			strings.Compare(plan.SignatureKey(a.Root.Signature), plan.SignatureKey(b.Root.Signature)),
+			strings.Compare(a.Key, b.Key),
+		)
 	})
 
 	return candidates[0]
+}
+
+func (p *Planner) canUseExplicitRootVariant(current plan.OutputLocation, candidate *explicitRootVariant) bool {
+	if current.ImportPath == candidate.Location.ImportPath {
+		return true
+	}
+	if p.importGraph == nil {
+		return true
+	}
+	return p.importGraph.canAddEdge(current.ImportPath, candidate.Location.ImportPath)
 }
 
 func explicitRootSignatureRank(signature spec.MapperSignature) int {
@@ -297,10 +420,18 @@ func explicitRootSignatureRank(signature spec.MapperSignature) int {
 	return rank
 }
 
-func (p *Planner) planNestedStructScoped(
+func explicitRootOutputPackageRank(current plan.OutputLocation, candidate *explicitRootVariant) int {
+	if current.ImportPath == candidate.Location.ImportPath {
+		return 0
+	}
+	return 1
+}
+
+func (p *Planner) planNestedStruct(
 	source, target types.Type,
 	path string,
 	typeParams typeParamScope,
+	callables []spec.TieredCallables,
 ) (plan.Value, bool) {
 	sourceDecl, sourceOK := p.resolveStructType(source)
 	targetDecl, targetOK := p.resolveStructType(target)
@@ -314,9 +445,16 @@ func (p *Planner) planNestedStructScoped(
 
 	defaultTypes := p.spec.Defaults.Types
 
+	sourceRef := scopedTypeRef(source, typeParams)
+	targetRef := scopedTypeRef(target, typeParams)
+	callablesKey := callableContextKey(callables)
+	if callablesKey != "" {
+		sourceRef.Key += "|callables:" + callablesKey
+	}
+
 	nested := plan.Type{
-		Source:     scopedTypeRef(source, typeParams),
-		Target:     scopedTypeRef(target, typeParams),
+		Source:     sourceRef,
+		Target:     targetRef,
 		SourceDecl: sourceDecl,
 		TargetDecl: targetDecl,
 		SourceType: source,
@@ -327,7 +465,9 @@ func (p *Planner) planNestedStructScoped(
 			Returns: spec.ParameterKindValue,
 		},
 		EnumSpec:    defaultTypes.Enum,
+		Callables:   callables,
 		Optionality: defaultTypes.Optionality,
+		Conversions: defaultTypes.Conversions,
 		// We can't set structSpec in this case, because it's just field mapping currently. To have
 		// field mapping this type pair would have to be defined explicitly.
 	}
@@ -347,7 +487,7 @@ func (p *Planner) planNestedStructScoped(
 	}
 
 	var err error
-	nested.FunctionName, err = p.nestedFunctionName(source, target, nested.Source.Key, nested.Target.Key)
+	nested.FunctionName, err = p.nestedFunctionName(source, target, nested.Source.Key, nested.Target.Key, callablesKey)
 	if err != nil {
 		return unsupportedMapping(source, target, path, fmt.Sprintf("failed to generate nested function name: %v", err)), false
 	}
@@ -367,11 +507,13 @@ func (p *Planner) planNestedStructScoped(
 	}, true
 }
 
-func (p *Planner) planPointerMappingScoped(
+func (p *Planner) planPointerMapping(
 	source, target types.Type,
 	path string,
 	typeParams typeParamScope,
 	optionality spec.Optionality,
+	conversion spec.ConversionsPolicy,
+	callables []spec.TieredCallables,
 ) plan.Value {
 	sourcePointer := source.Kind == types.TypeKindPointer
 	targetPointer := target.Kind == types.TypeKindPointer
@@ -386,7 +528,7 @@ func (p *Planner) planPointerMappingScoped(
 		targetElem = *target.Elem
 	}
 
-	elem := p.planValueScoped(sourceElem, targetElem, path, typeParams, optionality)
+	elem := p.planValue(sourceElem, targetElem, path, typeParams, optionality, conversion, callables)
 
 	operation := plan.OperationPointer
 	if len(elem.Diagnostics) > 0 {
@@ -432,12 +574,56 @@ func (p *Planner) discoverFunctionCallable(
 	return callable, compatibility, true
 }
 
+func (p *Planner) discoverExplicitCallable(
+	sourceType, targetType types.Type,
+	refs []spec.CallableRef,
+) (plan.CallableRef, callableCompatibility, bool) {
+	candidates := make(map[plan.CallableRef]callableCompatibility)
+	for _, ref := range refs {
+		callable, ok := p.callables[ref]
+		if !ok {
+			continue
+		}
+
+		switch {
+		case callable.Function != nil:
+			fn := *callable.Function
+			callableRef, ok := plan.CallableRefFromFunctionDecl(fn, plan.CallableSourceUser)
+			if !ok {
+				continue
+			}
+			compatibility := assessFunctionCompatibility(sourceType, targetType, fn)
+			if compatibility.Compatible() {
+				candidates[callableRef] = compatibility
+			}
+		case callable.Method != nil:
+			method := *callable.Method
+			callableRef, ok := plan.CallableRefFromMethod(method, plan.CallableSourceUser)
+			if !ok {
+				continue
+			}
+			compatibility := assessMethodCompatibility(sourceType, targetType, method)
+			if compatibility.Compatible() {
+				candidates[callableRef] = compatibility
+			}
+		}
+	}
+
+	callable, compatibility, ok := bestCallableCandidate(candidates)
+	if !ok {
+		return plan.CallableRef{}, callableCompatibility{}, false
+	}
+	return callable, compatibility, true
+}
+
 func (p *Planner) planHigherOrderFunctionCallable(
 	sourceType, targetType types.Type,
 	path string,
 	typeParams typeParamScope,
 	optionality spec.Optionality,
+	conversion spec.ConversionsPolicy,
 	source plan.CallableSource,
+	callables []spec.TieredCallables,
 ) (plan.Value, bool) {
 	candidates := make(map[plan.CallableRef]callableCompatibility)
 	for _, fn := range p.registry.Candidates(sourceType, targetType, source) {
@@ -455,7 +641,75 @@ func (p *Planner) planHigherOrderFunctionCallable(
 	}
 
 	for _, candidate := range rankedCallableCandidates(candidates) {
-		args, diagnostics, ok := p.planCallableArgs(candidate.Compatibility.MapperArgs, path, typeParams, optionality)
+		args, diagnostics, ok := p.planCallableArgs(
+			candidate.Compatibility.MapperArgs,
+			path,
+			typeParams,
+			optionality,
+			conversion,
+			callables,
+		)
+		if !ok {
+			continue
+		}
+
+		callable := candidate.Callable
+		return plan.Value{
+			Operation:                   plan.OperationFunction,
+			Source:                      sourceType,
+			Target:                      targetType,
+			Callable:                    &callable,
+			CallableArgs:                args,
+			CallableParameterAdaptation: callableInputAdaptation(candidate.Compatibility.Input),
+			CallableResultAdaptation:    callableResultAdaptation(candidate.Compatibility.Result),
+			Optionality:                 optionality,
+			CanError: callable.ReturnsError ||
+				callableInputCanError(candidate.Compatibility.Input, optionality) ||
+				callableResultCanError(candidate.Compatibility.Result, optionality),
+			Diagnostics: diagnostics,
+		}, true
+	}
+
+	return plan.Value{}, false
+}
+
+func (p *Planner) planHigherOrderExplicitCallable(
+	sourceType, targetType types.Type,
+	path string,
+	typeParams typeParamScope,
+	optionality spec.Optionality,
+	conversion spec.ConversionsPolicy,
+	refs []spec.CallableRef,
+	callables []spec.TieredCallables,
+) (plan.Value, bool) {
+	candidates := make(map[plan.CallableRef]callableCompatibility)
+	for _, ref := range refs {
+		callable, ok := p.callables[ref]
+		if !ok || callable.Function == nil {
+			continue
+		}
+
+		fn := *callable.Function
+		callableRef, ok := plan.CallableRefFromFunctionDecl(fn, plan.CallableSourceUser)
+		if !ok {
+			continue
+		}
+
+		compatibility := assessHigherOrderFunctionCompatibility(sourceType, targetType, fn)
+		if compatibility.Compatible() {
+			candidates[callableRef] = compatibility
+		}
+	}
+
+	for _, candidate := range rankedCallableCandidates(candidates) {
+		args, diagnostics, ok := p.planCallableArgs(
+			candidate.Compatibility.MapperArgs,
+			path,
+			typeParams,
+			optionality,
+			conversion,
+			callables,
+		)
 		if !ok {
 			continue
 		}
@@ -485,13 +739,23 @@ func (p *Planner) planCallableArgs(
 	path string,
 	typeParams typeParamScope,
 	optionality spec.Optionality,
+	conversion spec.ConversionsPolicy,
+	callables []spec.TieredCallables,
 ) ([]plan.CallableArg, []plan.Diagnostic, bool) {
 	out := make([]plan.CallableArg, 0, len(args))
 	var diagnostics []plan.Diagnostic
 
 	for i, arg := range args {
 		argPath := fmt.Sprintf("%s :: callable argument %d", path, i+1)
-		mapping := p.planValueScoped(arg.Source, arg.Target, argPath, typeParams, optionality)
+		mapping := p.planValue(
+			arg.Source,
+			arg.Target,
+			argPath,
+			typeParams,
+			optionality,
+			conversion,
+			callables,
+		)
 		if mapping.Operation == plan.OperationUnsupported || hasFatalDiagnostics(mapping.Diagnostics) {
 			return nil, nil, false
 		}
@@ -507,66 +771,6 @@ func (p *Planner) planCallableArgs(
 	}
 
 	return out, diagnostics, true
-}
-
-func (p *Planner) discoverMethodCallable(sourceType, targetType types.Type) (plan.CallableRef, callableCompatibility, bool) {
-	methodTypeDecl, _, ok := p.methodTypeDecl(sourceType)
-	if !ok {
-		return plan.CallableRef{}, callableCompatibility{}, false
-	}
-
-	candidates := make(map[plan.CallableRef]callableCompatibility)
-	for _, method := range methodTypeDecl.Methods {
-		callable, ok := plan.CallableRefFromMethod(method, plan.CallableSourceDiscovered)
-		if !ok {
-			continue
-		}
-
-		specCallable := spec.CallableRef{
-			ImportPath: callable.Package.ImportPath,
-			TypeName:   callable.SourceType.Name,
-			Name:       callable.Name,
-		}
-
-		// Skip explicitly excluded methods from this form of discovery.
-		if slices.Contains(p.spec.Discovery.Exclusions, specCallable) {
-			continue
-		}
-
-		// Check if the method is compatible for this pair of types, this includes checking if
-		// methods with generic type parameters are compatible too.
-		compatibility := assessMethodCompatibility(sourceType, targetType, method)
-		if !compatibility.Compatible() {
-			continue
-		}
-
-		candidates[callable] = compatibility
-	}
-
-	callable, compatibility, ok := bestCallableCandidate(candidates)
-	if !ok {
-		return plan.CallableRef{}, callableCompatibility{}, false
-	}
-	return callable, compatibility, true
-}
-
-// methodTypeDecl attempts to unwrap a types.Type to the underlying named type (unaliased, not a \
-// pointer).
-func (p *Planner) methodTypeDecl(typ types.Type) (types.TypeDecl, types.Type, bool) {
-	typ = types.Unwrap(typ)
-	if typ.Kind != types.TypeKindNamed {
-		return types.TypeDecl{}, types.Type{}, false
-	}
-	// Find the underlying named type in the type loader, and we'll grab the declaration and type.
-	for importPath, pkg := range p.loader.Packages() {
-		if importPath != typ.Package.ImportPath {
-			continue
-		}
-		if methodType, ok := pkg.Types[typ.Name]; ok {
-			return methodType, typ, true
-		}
-	}
-	return types.TypeDecl{}, types.Type{}, false
 }
 
 // callableCompatibility is a type used to help prioritize compatible callables, allowing Morph to
@@ -1118,7 +1322,41 @@ func callableCompatibilityRank(c callableCompatibility) (int, bool) {
 		inputRank, true
 }
 
-func (p *Planner) canConvertByBasicType(source types.Type, target types.Type) bool {
+func (p *Planner) canConvert(
+	source types.Type,
+	target types.Type,
+	conversion spec.ConversionsPolicy,
+) bool {
+	if canConvertBasicType(source, target) {
+		return true
+	}
+	if !conversion.Enabled || !p.hasRegisteredConversion(source, target) {
+		return false
+	}
+	return p.canUseRegisteredConversion(source, target)
+}
+
+func canConvertBasicType(source types.Type, target types.Type) bool {
+	source = types.UnwrapAlias(source)
+	target = types.UnwrapAlias(target)
+	if source.Kind != types.TypeKindBasic || target.Kind != types.TypeKindBasic {
+		return false
+	}
+	if sameType(source, target) {
+		return true
+	}
+	return canConvertNumericLosslessly(source.Name, target.Name)
+}
+
+func (p *Planner) hasRegisteredConversion(source types.Type, target types.Type) bool {
+	_, ok := p.conversions[spec.Conversion{
+		Source: spec.TypeRefFromType(source),
+		Target: spec.TypeRefFromType(target),
+	}]
+	return ok
+}
+
+func (p *Planner) canUseRegisteredConversion(source types.Type, target types.Type) bool {
 	sourceUnderlying, sourceOK := p.basicUnderlying(source, map[plan.TypeRef]bool{})
 	targetUnderlying, targetOK := p.basicUnderlying(target, map[plan.TypeRef]bool{})
 	if !sourceOK || !targetOK {
@@ -1127,12 +1365,11 @@ func (p *Planner) canConvertByBasicType(source types.Type, target types.Type) bo
 	if sameType(sourceUnderlying, targetUnderlying) {
 		return true
 	}
-	return canConvertNumericLosslessly(sourceUnderlying.Name, targetUnderlying.Name)
+	return canConvertNumeric(sourceUnderlying.Name, targetUnderlying.Name)
 }
 
-// basicUnderlying recursively unwraps a type and/or its underlying type to find a basic type. If
-// the underlying type is basic, we can (probably) try to convert it.
-// TODO: This may be too permissive, maybe it should be just basic types and aliases of them?
+// basicUnderlying recursively unwraps a type and/or its underlying type to find a basic type. Named
+// types only reach this check after an exact registered conversion pair has matched.
 func (p *Planner) basicUnderlying(typ types.Type, seen map[plan.TypeRef]bool) (types.Type, bool) {
 	typ = types.UnwrapAlias(typ)
 	switch typ.Kind {
@@ -1173,8 +1410,8 @@ type numericInfo struct {
 }
 
 func canConvertNumericLosslessly(source string, target string) bool {
-	sourceInfo, sourceOK := maxSafeNumericConversionBits(source)
-	targetInfo, targetOK := maxSafeNumericConversionBits(target)
+	sourceInfo, sourceOK := numericConversionInfoFor(source)
+	targetInfo, targetOK := numericConversionInfoFor(target)
 	if !sourceOK || !targetOK {
 		return false
 	}
@@ -1195,7 +1432,13 @@ func canConvertNumericLosslessly(source string, target string) bool {
 	}
 }
 
-func maxSafeNumericConversionBits(name string) (numericInfo, bool) {
+func canConvertNumeric(source string, target string) bool {
+	_, sourceOK := numericConversionInfoFor(source)
+	_, targetOK := numericConversionInfoFor(target)
+	return sourceOK && targetOK
+}
+
+func numericConversionInfoFor(name string) (numericInfo, bool) {
 	switch name {
 	case "int":
 		return numericInfo{kind: numericSigned, sourceBits: 64, targetBits: 32}, true
@@ -1228,9 +1471,13 @@ func maxSafeNumericConversionBits(name string) (numericInfo, bool) {
 	}
 }
 
-func (p *Planner) nestedFunctionName(source, target types.Type, sourceKey, targetKey string) (string, error) {
+func (p *Planner) nestedFunctionName(
+	source, target types.Type,
+	sourceKey, targetKey string,
+	callablesKey string,
+) (string, error) {
 	runHash := p.runHash
-	if len(source.TypeArgs) > 0 || len(target.TypeArgs) > 0 {
+	if len(source.TypeArgs) > 0 || len(target.TypeArgs) > 0 || callablesKey != "" {
 		typePairHash := stableTypePairKeyHash(sourceKey, targetKey)
 		if runHash == "" {
 			runHash = typePairHash
@@ -1247,6 +1494,27 @@ func (p *Planner) nestedFunctionName(source, target types.Type, sourceKey, targe
 	}
 
 	return MapperName(input, defaultNestedMapperName)
+}
+
+func callableContextKey(callables []spec.TieredCallables) string {
+	var sb strings.Builder
+	for _, tier := range callables {
+		if len(tier.Callables) == 0 {
+			continue
+		}
+		if sb.Len() > 0 {
+			sb.WriteString("|")
+		}
+		fmt.Fprint(&sb, tier.Tier)
+		sb.WriteString(":")
+		for i, ref := range tier.Callables {
+			if i > 0 {
+				sb.WriteString(",")
+			}
+			sb.WriteString(ref.String())
+		}
+	}
+	return sb.String()
 }
 
 // callableLess is used to compare two plan.CallableRef so Morph can produce stable discovery

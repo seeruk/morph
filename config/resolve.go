@@ -39,6 +39,9 @@ var defaultTypesDefaults = TypesDefaults{
 		OnNilSourcePointer: new(spec.PointerOptionalityZero),
 		OnZeroSourceValue:  new(spec.ValueOptionalityNil),
 	},
+	Conversions: &ConversionsDefaults{
+		Enabled: new(true),
+	},
 	Bidirectional: new(false),
 }
 
@@ -59,20 +62,28 @@ var defaultMapperSignature = spec.MapperSignature{
 func Resolve(cfg Config) (spec.Spec, error) {
 	defaultOutput := mergeOutput(cfg.Defaults.Packages.Output, defaultOutput)
 	defaultTypes := mergeTypeDefaults(cfg.Defaults.Packages.Types, defaultTypesDefaults)
+	conversions, err := resolveConversions(cfg.Conversions)
+	if err != nil {
+		return spec.Spec{}, err
+	}
 
 	out := spec.Spec{
 		Defaults: spec.Defaults{
 			Types: resolvedTypeDefaults(defaultTypes),
 		},
-		Discovery: resolveDiscovery(cfg.Discovery),
+		Discovery:   resolveDiscovery(cfg.Discovery),
+		Conversions: conversions,
 	}
+
+	callables := makeCallableTiers()
+	callables.add(spec.CallableTierDefaults, defaultTypes.Callables)
 
 	for i, pkg := range cfg.Packages {
 		if len(pkg.Types) == 0 {
 			continue
 		}
 
-		resolved, err := resolvePackage(pkg, defaultOutput, defaultTypes, cfg.Presets, i)
+		resolved, err := resolvePackage(pkg, defaultOutput, defaultTypes, callables, cfg.Presets, i)
 		if err != nil {
 			return spec.Spec{}, err
 		}
@@ -93,6 +104,7 @@ func resolvePackage(
 	pkg Package,
 	outputDefaults Output,
 	typeDefaults TypesDefaults,
+	callables callableTiers,
 	presets map[string]Preset,
 	index int,
 ) (spec.Package, error) {
@@ -103,14 +115,17 @@ func resolvePackage(
 		return spec.Package{}, fmt.Errorf("packages[%d]: target package is required", index)
 	}
 
+	callables = callables.clone()
 	if pkg.Preset != "" {
 		preset, ok := presets[pkg.Preset]
 		if !ok {
 			return spec.Package{}, fmt.Errorf("packages[%d]: preset not found %q", index, pkg.Preset)
 		}
+		callables.add(spec.CallableTierPackagePreset, preset.Callables)
 		typeDefaults = applyPresetToTypeDefaults(typeDefaults, preset)
 	}
 
+	callables.add(spec.CallableTierPackage, pkg.Callables)
 	typeDefaults = applyPackageToTypeDefaults(typeDefaults, pkg)
 
 	out := spec.Package{
@@ -120,13 +135,17 @@ func resolvePackage(
 	}
 
 	for i, typ := range pkg.Types {
-		forward, inverse, err := resolveType(typ, typeDefaults, presets, index, i)
+		forward, inverse, err := resolveType(typ, typeDefaults, callables, presets, index, i)
 		if err != nil {
 			return spec.Package{}, err
 		}
 
+		forward.SourcePackage = pkg.Source
+		forward.TargetPackage = pkg.Target
 		out.Types = append(out.Types, forward)
 		if inverse != nil {
+			inverse.SourcePackage = pkg.Target
+			inverse.TargetPackage = pkg.Source
 			out.Types = append(out.Types, *inverse)
 		}
 	}
@@ -137,9 +156,11 @@ func resolvePackage(
 func resolveType(
 	typ Type,
 	typeDefaults TypesDefaults,
+	callables callableTiers,
 	presets map[string]Preset,
 	packageIndex, typeIndex int,
 ) (spec.Type, *spec.Type, error) {
+	callables = callables.clone()
 	if typ.Preset != "" {
 		preset, ok := presets[typ.Preset]
 		if !ok {
@@ -150,6 +171,7 @@ func resolveType(
 				typ.Preset,
 			)
 		}
+		callables.add(spec.CallableTierTypePreset, preset.Callables)
 		typeDefaults = applyPresetToTypeDefaults(typeDefaults, preset)
 	}
 
@@ -161,15 +183,19 @@ func resolveType(
 	enum := resolveEnum(typ.Enum, typeDefaults.Enum)
 	mappers := resolveMappers(mergeMappersDefaults(typ.Mappers, typeDefaults.Mappers))
 	optionality := optionalityFromDefaults(mergeOptionalityDefaults(typ.Optionality, typeDefaults.Optionality))
-	structure := resolveStruct(typ.Struct, optionality)
+	conversion := conversionsFromDefaults(mergeConversionsDefaults(typ.Conversions, typeDefaults.Conversions))
+	callables.add(spec.CallableTierType, typ.Callables)
+	structure := resolveStruct(typ.Struct, optionality, conversion, true)
 
 	forward := spec.Type{
 		Source:      source,
 		Target:      target,
 		Enum:        enum,
+		Callables:   callables.ordered(),
 		Struct:      structure,
 		Mapper:      mappers.Forward,
 		Optionality: optionality,
+		Conversions: conversion,
 	}
 
 	if !boolWithDefault(typ.Bidirectional, typeDefaults.Bidirectional) {
@@ -180,9 +206,11 @@ func resolveType(
 		Source:      target,
 		Target:      source,
 		Enum:        invertEnum(enum),
-		Struct:      invertStruct(structure),
+		Callables:   callables.ordered(),
+		Struct:      invertStruct(resolveStruct(typ.Struct, optionality, conversion, false)),
 		Mapper:      mappers.Inverse,
 		Optionality: optionality,
+		Conversions: conversion,
 	}
 
 	return forward, &inverse, nil
@@ -200,9 +228,52 @@ func resolveTypeNames(typ Type) (string, string, error) {
 func resolveDiscovery(discovery Discovery) spec.Discovery {
 	return spec.Discovery{
 		Packages:   slices.Clone(discovery.Packages),
-		Functions:  slices.Clone(discovery.Functions),
 		Exclusions: slices.Clone(discovery.Exclusions),
 	}
+}
+
+func resolveConversions(conversions []Conversion) ([]spec.Conversion, error) {
+	var out []spec.Conversion
+	seen := make(map[spec.Conversion]struct{})
+
+	add := func(conversion spec.Conversion) {
+		if _, ok := seen[conversion]; ok {
+			return
+		}
+		seen[conversion] = struct{}{}
+		out = append(out, conversion)
+	}
+
+	var zero spec.TypeRef
+	for i, conversion := range conversions {
+		if conversion.Source == zero {
+			return nil, fmt.Errorf("conversions[%d]: source is required", i)
+		}
+		if len(conversion.Targets) == 0 {
+			return nil, fmt.Errorf("conversions[%d]: at least one target is required", i)
+		}
+
+		for j, target := range conversion.Targets {
+			if target == zero {
+				return nil, fmt.Errorf("conversions[%d].targets[%d]: target is required", i, j)
+			}
+
+			resolved := spec.Conversion{
+				Source: conversion.Source,
+				Target: target,
+			}
+			add(resolved)
+
+			if conversion.Bidirectional {
+				add(spec.Conversion{
+					Source: resolved.Target,
+					Target: resolved.Source,
+				})
+			}
+		}
+	}
+
+	return out, nil
 }
 
 func resolveOutput(output Output) spec.Output {
@@ -217,8 +288,10 @@ func resolveOutput(output Output) spec.Output {
 func resolvedTypeDefaults(defaults TypesDefaults) spec.TypeDefaults {
 	return spec.TypeDefaults{
 		Enum:        resolveEnum(nil, defaults.Enum),
+		Callables:   slices.Clone(defaults.Callables),
 		Mappers:     resolveMappers(defaults.Mappers),
 		Optionality: optionalityFromDefaults(defaults.Optionality),
+		Conversions: conversionsFromDefaults(defaults.Conversions),
 	}
 }
 
@@ -255,7 +328,49 @@ func invertEnum(enum spec.Enum) spec.Enum {
 	return enum
 }
 
-func resolveStruct(structure *Struct, optionality spec.Optionality) spec.Struct {
+type callableTiers map[spec.CallableTier][]spec.CallableRef
+
+func makeCallableTiers() callableTiers {
+	return make(callableTiers)
+}
+
+func (c callableTiers) add(tier spec.CallableTier, callables []spec.CallableRef) {
+	if len(callables) == 0 {
+		return
+	}
+	c[tier] = append(c[tier], callables...)
+}
+
+func (c callableTiers) clone() callableTiers {
+	out := makeCallableTiers()
+	for tier, callables := range c {
+		out[tier] = slices.Clone(callables)
+	}
+	return out
+}
+
+func (c callableTiers) ordered() []spec.TieredCallables {
+	out := make([]spec.TieredCallables, 0, spec.CallableTierCount())
+	for i := range spec.CallableTierCount() {
+		tier := spec.CallableTier(i)
+		callables := c[tier]
+		if len(callables) == 0 {
+			continue
+		}
+		out = append(out, spec.TieredCallables{
+			Tier:      tier,
+			Callables: slices.Clone(callables),
+		})
+	}
+	return out
+}
+
+func resolveStruct(
+	structure *Struct,
+	optionality spec.Optionality,
+	conversion spec.ConversionsPolicy,
+	forward bool,
+) spec.Struct {
 	if structure == nil {
 		return spec.Struct{}
 	}
@@ -267,10 +382,30 @@ func resolveStruct(structure *Struct, optionality spec.Optionality) spec.Struct 
 		targetName := cmp.Or(field.Target, sourceName)
 		out.Fields[sourceName] = spec.Field{
 			Target:      targetName,
+			Callable:    resolveFieldCallable(field.Callable, forward),
 			Optionality: optionalityFromOverrides(field.Optionality, optionality),
+			Conversions: conversionsFromOverrides(field.Conversions, conversion),
 		}
 	}
 	return out
+}
+
+func resolveFieldCallable(callable *FieldCallable, forward bool) *spec.CallableRef {
+	if callable == nil {
+		return nil
+	}
+	if forward {
+		return cloneCallableRef(callable.Forward)
+	}
+	return cloneCallableRef(callable.Inverse)
+}
+
+func cloneCallableRef(ref *spec.CallableRef) *spec.CallableRef {
+	if ref == nil {
+		return nil
+	}
+	out := *ref
+	return &out
 }
 
 func invertStruct(in spec.Struct) spec.Struct {
@@ -285,7 +420,9 @@ func invertStruct(in spec.Struct) spec.Struct {
 		targetName := cmp.Or(field.Target, sourceName)
 		out.Fields[targetName] = spec.Field{
 			Target:      sourceName,
+			Callable:    cloneCallableRef(field.Callable),
 			Optionality: field.Optionality,
+			Conversions: field.Conversions,
 		}
 	}
 	return out
@@ -420,6 +557,37 @@ func defaultOptionality() spec.Optionality {
 	}
 }
 
+func mergeConversionsDefaults(
+	overrides *ConversionsDefaults,
+	fallback *ConversionsDefaults,
+) *ConversionsDefaults {
+	overrides = cmp.Or(overrides, new(ConversionsDefaults))
+	fallback = cmp.Or(fallback, new(ConversionsDefaults))
+	return &ConversionsDefaults{
+		Enabled: cmp.Or(overrides.Enabled, fallback.Enabled),
+	}
+}
+
+func conversionsFromOverrides(overrides *ConversionsDefaults, fallback spec.ConversionsPolicy) spec.ConversionsPolicy {
+	if overrides == nil {
+		return fallback
+	}
+	if overrides.Enabled != nil {
+		fallback.Enabled = *overrides.Enabled
+	}
+	return fallback
+}
+
+func conversionsFromDefaults(conversion *ConversionsDefaults) spec.ConversionsPolicy {
+	return conversionsFromOverrides(conversion, defaultConversionsPolicy())
+}
+
+func defaultConversionsPolicy() spec.ConversionsPolicy {
+	return spec.ConversionsPolicy{
+		Enabled: true,
+	}
+}
+
 func mergeOutput(overrides Output, fallback Output) Output {
 	return Output{
 		Strategy: cmp.Or(overrides.Strategy, fallback.Strategy),
@@ -432,8 +600,10 @@ func mergeOutput(overrides Output, fallback Output) Output {
 func mergeTypeDefaults(overrides TypesDefaults, fallback TypesDefaults) TypesDefaults {
 	return TypesDefaults{
 		Enum:          mergeEnumDefaults(overrides.Enum, fallback.Enum),
+		Callables:     append(slices.Clone(fallback.Callables), overrides.Callables...),
 		Mappers:       mergeMappersDefaults(overrides.Mappers, fallback.Mappers),
 		Optionality:   mergeOptionalityDefaults(overrides.Optionality, fallback.Optionality),
+		Conversions:   mergeConversionsDefaults(overrides.Conversions, fallback.Conversions),
 		Bidirectional: cmp.Or(overrides.Bidirectional, fallback.Bidirectional),
 	}
 }
@@ -443,6 +613,7 @@ func applyPresetToTypeDefaults(defaults TypesDefaults, preset Preset) TypesDefau
 		Enum:          mergeEnumDefaults(preset.Enum, defaults.Enum),
 		Mappers:       mergeMappersDefaults(preset.Mappers, defaults.Mappers),
 		Optionality:   mergeOptionalityDefaults(preset.Optionality, defaults.Optionality),
+		Conversions:   mergeConversionsDefaults(preset.Conversions, defaults.Conversions),
 		Bidirectional: cmp.Or(preset.Bidirectional, defaults.Bidirectional),
 	}
 }
@@ -452,6 +623,7 @@ func applyPackageToTypeDefaults(defaults TypesDefaults, pkg Package) TypesDefaul
 		Enum:          mergeEnumDefaults(pkg.Enum, defaults.Enum),
 		Mappers:       mergeMappersDefaults(pkg.Mappers, defaults.Mappers),
 		Optionality:   mergeOptionalityDefaults(pkg.Optionality, defaults.Optionality),
+		Conversions:   mergeConversionsDefaults(pkg.Conversions, defaults.Conversions),
 		Bidirectional: cmp.Or(pkg.Bidirectional, defaults.Bidirectional),
 	}
 }

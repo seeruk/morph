@@ -18,12 +18,40 @@ type Package struct {
 
 // Type represents resolved configuration for one directional type mapping.
 type Type struct {
-	Source      string
-	Target      string
-	Enum        Enum
-	Struct      Struct
-	Mapper      Mapper
-	Optionality Optionality
+	Source        string
+	Target        string
+	SourcePackage string
+	TargetPackage string
+	Enum          Enum
+	Callables     []TieredCallables
+	Struct        Struct
+	Mapper        Mapper
+	Optionality   Optionality
+	Conversions   ConversionsPolicy
+}
+
+// TieredCallables contains explicit callables from one specificity tier.
+type TieredCallables struct {
+	Tier      CallableTier
+	Callables []CallableRef
+}
+
+// CallableTier identifies where a set of explicit callables came from. More specific tiers are
+// considered before less specific tiers when planning value mappings.
+type CallableTier uint8
+
+const (
+	CallableTierType CallableTier = iota
+	CallableTierTypePreset
+	CallableTierPackage
+	CallableTierPackagePreset
+	CallableTierDefaults
+	callableTierMax
+)
+
+// CallableTierCount returns the number of valid callable tiers.
+func CallableTierCount() int {
+	return int(callableTierMax)
 }
 
 // Enum represents configuration for how an enum mapping function should be generated,
@@ -89,7 +117,9 @@ type Struct struct {
 // control over mapping behaviour.
 type Field struct {
 	Target      string
+	Callable    *CallableRef
 	Optionality Optionality
+	Conversions ConversionsPolicy
 }
 
 // Mappers holds resolved configuration for how mapper functions should be generated for a type pair.
@@ -108,6 +138,41 @@ type Mapper struct {
 type MapperSignature struct {
 	Accepts ParameterKind
 	Returns ParameterKind
+}
+
+// ParameterKind enumerates the different kinds of parameters that can be passed to a mapper
+// function; used to adjust the signature of a generated mapper.
+type ParameterKind uint
+
+const (
+	ParameterKindValue ParameterKind = iota
+	ParameterKindPointer
+	parameterKindMax
+)
+
+var parameterKindNames = map[ParameterKind]string{
+	ParameterKindValue:   "value",
+	ParameterKindPointer: "pointer",
+}
+
+var parameterKindsByName = mapsx.Invert(parameterKindNames)
+
+func (k ParameterKind) MarshalText() ([]byte, error) {
+	return []byte(k.String()), nil
+}
+
+func (k *ParameterKind) UnmarshalText(data []byte) error {
+	value, ok := parameterKindsByName[strings.ToLower(string(data))]
+	if !ok {
+		return fmt.Errorf("unknown parameter kind: %q", string(data))
+	}
+
+	*k = value
+	return nil
+}
+
+func (k ParameterKind) String() string {
+	return parameterKindNames[k]
 }
 
 // Optionality configures how Morph handles pointer/value optionality boundaries after all defaults
@@ -183,37 +248,7 @@ func (v ValueOptionality) String() string {
 	return valueOptionalityNames[v]
 }
 
-// ParameterKind enumerates the different kinds of parameters that can be passed to a mapper
-// function; used to adjust the signature of a generated mapper.
-type ParameterKind uint
-
-const (
-	ParameterKindValue ParameterKind = iota
-	ParameterKindPointer
-	parameterKindMax
-)
-
-var parameterKindNames = map[ParameterKind]string{
-	ParameterKindValue:   "value",
-	ParameterKindPointer: "pointer",
-}
-
-var parameterKindsByName = mapsx.Invert(parameterKindNames)
-
-func (k ParameterKind) MarshalText() ([]byte, error) {
-	return []byte(k.String()), nil
-}
-
-func (k *ParameterKind) UnmarshalText(data []byte) error {
-	value, ok := parameterKindsByName[strings.ToLower(string(data))]
-	if !ok {
-		return fmt.Errorf("unknown parameter kind: %q", string(data))
-	}
-
-	*k = value
-	return nil
-}
-
-func (k ParameterKind) String() string {
-	return parameterKindNames[k]
+// ConversionsPolicy configures whether Morph can use registered named type conversions in a scope.
+type ConversionsPolicy struct {
+	Enabled bool
 }

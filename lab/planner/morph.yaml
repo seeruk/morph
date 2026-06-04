@@ -2,10 +2,20 @@ defaults:
   packages:
     output:
       strategy: single_package
+    types:
+      callables:
+      - github.com/seeruk/morph/lab/planner/from.OptionalOfString
+      - github.com/seeruk/morph/lab/planner/from.Optional.Unwrap
 
-discovery:
-  functions:
-  - github.com/seeruk/morph/lab/planner/from.OptionalOfString
+conversions:
+- source: github.com/seeruk/morph/lab/planner/to.Stringy
+  targets:
+  - string
+  bidirectional: true
+- source: int
+  targets:
+  - int64
+  bidirectional: true
 
 packages:
 - source: github.com/seeruk/morph/lab/planner/from
@@ -20,12 +30,12 @@ packages:
       values:
         DifficultyUltra: RecipeDifficultyInsane
 
-- source: github.com/seeruk/morph/lab/planner/from
-  target: github.com/seeruk/morph/lab/planner/to
-  output:
-    strategy: target_package
-  types:
-  - name: Single
+#- source: github.com/seeruk/morph/lab/planner/from
+#  target: github.com/seeruk/morph/lab/planner/to
+#  output:
+#    strategy: target_package
+#  types:
+#  - name: Single
 
 - source: github.com/seeruk/morph/lab/planner/from
   target: github.com/seeruk/morph/lab/planner/to

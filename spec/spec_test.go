@@ -85,6 +85,54 @@ func TestCallableRef_UnmarshalText(t *testing.T) {
 	}
 }
 
+func TestTypeRef_UnmarshalText(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		out  TypeRef
+		err  bool
+	}{
+		{
+			name: "basic",
+			in:   "string",
+			out:  TypeRef{Name: "string"},
+		},
+		{
+			name: "stdlib named",
+			in:   "time.Time",
+			out:  TypeRef{ImportPath: "time", Name: "Time"},
+		},
+		{
+			name: "package named",
+			in:   "module.test/example.UserID",
+			out:  TypeRef{ImportPath: "module.test/example", Name: "UserID"},
+		},
+		{
+			name: "invalid package only",
+			in:   "module.test/example",
+			err:  true,
+		},
+		{
+			name: "invalid trailing dot",
+			in:   "module.test/example.",
+			err:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got TypeRef
+			err := got.UnmarshalText([]byte(tt.in))
+			if tt.err {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.out, got)
+		})
+	}
+}
+
 func TestCallableRefFromMethod(t *testing.T) {
 	owner := types.Type{
 		Kind:    types.TypeKindNamed,

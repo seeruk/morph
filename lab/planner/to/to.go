@@ -36,5 +36,5 @@ type Optional[T any] struct {
 
 type Nested struct {
 	Foo string
-	Bar int64
+	Bar int
 }

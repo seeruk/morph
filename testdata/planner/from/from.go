@@ -32,6 +32,39 @@ type EitherContainer struct {
 	Result Either[EitherLeft, EitherRight]
 }
 
+type ExplicitCallableContainer struct {
+	Value string
+}
+
+type MethodCallableContainer struct {
+	ID MethodID
+}
+
+type ConversionContainer struct {
+	ID     UserID
+	Count  int
+	Secret SecretID
+	Alias  AliasUserID
+	Values []UserID
+}
+
+type ConversionsPolicyContainer struct {
+	ID    UserID
+	Other UserID
+}
+
+type StructConversionContainer struct {
+	Code StructCode
+}
+
+type ScopedStringBoxA struct {
+	Box Box[string]
+}
+
+type ScopedStringBoxB struct {
+	Box Box[string]
+}
+
 type OptionalThing struct {
 	Name string
 }
@@ -71,6 +104,40 @@ type Either[L, R any] struct {
 	Left    L
 	Right   R
 	IsRight bool
+}
+
+type MethodID struct {
+	Value string
+}
+
+type UserID string
+
+type AliasUserID = UserID
+
+type SecretID string
+
+type StructCode struct {
+	Value string
+}
+
+func ExplicitStringToInt(in string) int {
+	return len(in)
+}
+
+func TypeAStringToInt(in string) int {
+	return len(in)
+}
+
+func TypeBStringToInt(in string) int {
+	return len(in)
+}
+
+func ZZZStringToInt(in string) int {
+	return len(in)
+}
+
+func (m MethodID) String() string {
+	return m.Value
 }
 
 func MapOptional[I, O any](in Optional[I], mapValue func(I) O) to.Optional[O] {

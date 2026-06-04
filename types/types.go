@@ -19,6 +19,7 @@ type Package struct {
 	ImportPath string
 	Dir        string
 	Module     *ModuleRef
+	Imports    []string
 	Constants  map[string]ConstantDecl // constant name -> ConstantDecl
 	Functions  map[string]FunctionDecl // function name -> FunctionDecl
 	Types      map[string]TypeDecl     // type name -> TypeDecl

@@ -15,3 +15,9 @@ func defaultOptionality() spec.Optionality {
 		OnZeroSourceValue:  spec.ValueOptionalityNil,
 	}
 }
+
+func defaultConversionsPolicy() spec.ConversionsPolicy {
+	return spec.ConversionsPolicy{
+		Enabled: true,
+	}
+}

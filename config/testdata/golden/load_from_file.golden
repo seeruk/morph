@@ -5,6 +5,10 @@
         "enum": {
           "failureMode": "error"
         },
+        "callables": [
+          "module.test/shared/conversions.CheckedIntToSmallInt",
+          "module.test/shared/conversions.UserID.String"
+        ],
         "mappers": {
           "forward": {
             "name": "Map{{ .Source.Type }}To{{ .Target.Type }}",
@@ -22,6 +26,7 @@
           }
         },
         "optionality": null,
+        "conversions": null,
         "bidirectional": true
       },
       "output": {
@@ -36,36 +41,51 @@
     "packages": [
       "module.test/shared/conversions"
     ],
-    "functions": [
-      "module.test/shared/conversions.CheckedIntToSmallInt",
-      "module.test/shared/conversions.UserID.String"
-    ],
     "exclusions": [
       "module.test/shared/conversions.LegacyUserToUser",
       "module.test/shared/conversions.LegacyStatus.ToStatus"
     ]
   },
+  "conversions": [
+    {
+      "source": "module.test/source.UserID",
+      "targets": [
+        "string",
+        "module.test/target.UserID"
+      ],
+      "bidirectional": true
+    }
+  ],
   "packages": [
     {
       "source": "module.test/source",
       "target": "module.test/target",
       "preset": "api",
+      "callables": null,
       "types": [
         {
           "name": "User",
           "source": "",
           "target": "",
           "preset": "",
+          "callables": null,
           "enum": null,
           "struct": {
             "fields": {
               "DisplayName": {
                 "target": "Name",
-                "optionality": null
+                "callable": null,
+                "optionality": null,
+                "conversions": null
               },
               "ID": {
                 "target": "UserID",
-                "optionality": null
+                "callable": {
+                  "forward": "module.test/shared/conversions.StringToUserID",
+                  "inverse": "module.test/shared/conversions.UserID.String"
+                },
+                "optionality": null,
+                "conversions": null
               }
             }
           },
@@ -86,6 +106,7 @@
             }
           },
           "optionality": null,
+          "conversions": null,
           "bidirectional": null
         },
         {
@@ -93,6 +114,7 @@
           "source": "SourceStatus",
           "target": "TargetStatus",
           "preset": "",
+          "callables": null,
           "enum": {
             "failureMode": "zero",
             "patterns": {
@@ -107,6 +129,7 @@
           "struct": null,
           "mappers": null,
           "optionality": null,
+          "conversions": null,
           "bidirectional": null
         }
       ],
@@ -119,22 +142,26 @@
       "enum": null,
       "mappers": null,
       "optionality": null,
+      "conversions": null,
       "bidirectional": true
     },
     {
       "source": "module.test/database",
       "target": "module.test/domain",
       "preset": "",
+      "callables": null,
       "types": [
         {
           "name": "AuditLog",
           "source": "",
           "target": "",
           "preset": "",
+          "callables": null,
           "enum": null,
           "struct": null,
           "mappers": null,
           "optionality": null,
+          "conversions": null,
           "bidirectional": null
         },
         {
@@ -142,6 +169,7 @@
           "source": "DBRole",
           "target": "Role",
           "preset": "",
+          "callables": null,
           "enum": {
             "failureMode": "error",
             "patterns": null,
@@ -152,6 +180,7 @@
           "struct": null,
           "mappers": null,
           "optionality": null,
+          "conversions": null,
           "bidirectional": null
         }
       ],
@@ -164,6 +193,7 @@
       "enum": null,
       "mappers": null,
       "optionality": null,
+      "conversions": null,
       "bidirectional": null
     }
   ],
@@ -172,6 +202,7 @@
       "enum": {
         "failureMode": "error"
       },
+      "callables": null,
       "mappers": {
         "forward": {
           "name": "Map{{ .Target.Package }}{{ .Target.Type }}FromAPI",
@@ -189,6 +220,7 @@
         }
       },
       "optionality": null,
+      "conversions": null,
       "bidirectional": true
     }
   }

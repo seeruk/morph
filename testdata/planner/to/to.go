@@ -30,6 +30,39 @@ type EitherContainer struct {
 	Result Either[EitherLeft, EitherRight]
 }
 
+type ExplicitCallableContainer struct {
+	Value int
+}
+
+type MethodCallableContainer struct {
+	ID string
+}
+
+type ConversionContainer struct {
+	ID     string
+	Count  int64
+	Secret string
+	Alias  string
+	Values []string
+}
+
+type ConversionsPolicyContainer struct {
+	ID    string
+	Other string
+}
+
+type StructConversionContainer struct {
+	Code StructCode
+}
+
+type ScopedStringBoxA struct {
+	Box Box[int]
+}
+
+type ScopedStringBoxB struct {
+	Box Box[int]
+}
+
 type OptionalThing struct {
 	Name string
 }
@@ -69,4 +102,8 @@ type Either[L, R any] struct {
 	Left    L
 	Right   R
 	IsRight bool
+}
+
+type StructCode struct {
+	Value string
 }

@@ -9,6 +9,8 @@ type Defaults struct {
 // that were not present as explicit package type mappings.
 type TypeDefaults struct {
 	Enum        Enum
+	Callables   []CallableRef
 	Mappers     Mappers
 	Optionality Optionality
+	Conversions ConversionsPolicy
 }

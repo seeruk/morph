@@ -30,8 +30,8 @@ type Generic[T any] struct {
 }
 
 type Nested struct {
-	Foo string
-	Bar int
+	Foo Optional[string]
+	Bar int64
 }
 
 type Optional[T any] struct {
