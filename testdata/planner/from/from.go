@@ -12,6 +12,10 @@ type GenericContainer struct {
 	IntBox    Box[int]
 }
 
+type NodeBoxContainer struct {
+	Box Box[Node]
+}
+
 type NumberContainer[U ~int | ~int64] struct {
 	Box Box[U]
 }

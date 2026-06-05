@@ -12,6 +12,8 @@ type OutputGroup struct {
 	Location OutputLocation
 	// Roots is a list of the plans for explicitly requested types found within this OutputGroup.
 	Roots []*Type
+	// Nested is a list of generated helper mappers emitted within this OutputGroup.
+	Nested []*Type
 }
 
 // OutputLocation describes where to generate one logical output file, and how file-level
@@ -33,9 +35,11 @@ type Type struct {
 	TargetType types.Type
 	// Function information
 	FunctionName string
-	TypeParams   []types.TypeParam
-	Signature    spec.MapperSignature
-	CanError     bool
+	// Location is the output location that owns this generated mapper.
+	Location   OutputLocation
+	TypeParams []types.TypeParam
+	Signature  spec.MapperSignature
+	CanError   bool
 	// Spec
 	EnumSpec    spec.Enum
 	Callables   []spec.TieredCallables

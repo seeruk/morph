@@ -122,14 +122,21 @@ type attemptPlanner struct {
 	// or with different function names.
 	rootVariantsByTypePair map[string][]*rootVariant // plan.TypePairKey -> variants
 	// rootVariantsByCallable reserves root function names within their output package.
-	// Nested generated mappers are not tracked here; stale generated nested functions are excluded
-	// from discovery by plannedOutputFiles instead.
+	// Stale generated nested functions are excluded from discovery by plannedOutputFiles instead.
 	rootVariantsByCallable map[spec.CallableRef]*rootVariant
+	// generatedFunctionsByCallable reserves all function names Morph plans to generate within
+	// their output package, including roots and nested helpers.
+	generatedFunctionsByCallable map[spec.CallableRef]string
 	// callableBans contains callable selections that were invalidated by final errorability
 	// checks and should be skipped by later planning attempts.
 	callableBans map[callableBan]struct{}
 	// mappings contains all requested root and nested type mappings currently known to the planner.
-	mappings map[string]*plan.Type // output-scoped root key or plan.TypeMapperKey -> *plan.Type
+	mappings map[string]*plan.Type // output-scoped root key or package-scoped nested key -> *plan.Type
+	// nestedMappersByPackage contains nested helpers grouped by output package and mapper key.
+	nestedMappersByPackage map[string]map[string]*plan.Type
+	// outputGroups contains the output groups being planned, including nested helpers discovered
+	// during deep planning.
+	outputGroups map[plan.OutputLocation]plan.OutputGroup
 	// plannedOutputFiles is a map of the logical paths of all output files Morph is planning to
 	// generate. This is useful for discovering functions in files we're about to generate.
 	plannedOutputFiles map[string]struct{} // clean logical path -> present
@@ -162,14 +169,16 @@ func newAttemptPlanner(
 		workspace:   workspace,
 		conversions: conversions,
 
-		rootVariantsByTypePair: make(map[string][]*rootVariant),
-		rootVariantsByCallable: make(map[spec.CallableRef]*rootVariant),
-		mappings:               make(map[string]*plan.Type),
-		plannedOutputFiles:     make(map[string]struct{}),
-		planningMappings:       make(map[string]struct{}),
-		shallowMappings:        make(map[string]struct{}),
-		callableBans:           maps.Clone(bans),
-		callables:              make(map[spec.CallableRef]registeredCallable),
+		rootVariantsByTypePair:       make(map[string][]*rootVariant),
+		rootVariantsByCallable:       make(map[spec.CallableRef]*rootVariant),
+		generatedFunctionsByCallable: make(map[spec.CallableRef]string),
+		mappings:                     make(map[string]*plan.Type),
+		nestedMappersByPackage:       make(map[string]map[string]*plan.Type),
+		plannedOutputFiles:           make(map[string]struct{}),
+		planningMappings:             make(map[string]struct{}),
+		shallowMappings:              make(map[string]struct{}),
+		callableBans:                 maps.Clone(bans),
+		callables:                    make(map[spec.CallableRef]registeredCallable),
 	}
 }
 
@@ -189,7 +198,8 @@ func (p *attemptPlanner) plan() (Plan, *callableBan, error) {
 		return out, nil, fmt.Errorf("failed import cycle validation: %w", err)
 	}
 
-	out.OutputGroups = sortedOutputGroups(outputGroups)
+	p.outputGroups = outputGroups
+	outputGroupsForPlanning := sortedOutputGroups(outputGroups)
 
 	// Now the shallow plan is complete; we can safely set up discovery, knowing we're not going to
 	// allow discovery to pick up on functions we're about to generate.
@@ -199,9 +209,11 @@ func (p *attemptPlanner) plan() (Plan, *callableBan, error) {
 
 	// Now we're ready to plan value mappings. This is a deeper pass over the spec, actually based
 	// on the shallow plan we've just done, as that only contains explicitly requested mappings.
-	for _, og := range out.OutputGroups {
-		p.planOutputGroup(og)
+	for _, outputGroup := range outputGroupsForPlanning {
+		p.planOutputGroup(outputGroup.Location)
 	}
+
+	out.OutputGroups = sortedOutputGroups(p.outputGroups)
 
 	p.finalizePlanErrability(out.OutputGroups)
 
@@ -754,6 +766,7 @@ func (p *attemptPlanner) addRoot(
 	pairKey := plan.TypePairKey(root.Source, root.Target)
 	variantKey := rootVariantKey(location, root)
 	ref := spec.CallableRef{ImportPath: location.ImportPath, Name: root.FunctionName}
+	root.Location = location
 
 	if existing, ok := p.rootVariantsByCallable[ref]; ok {
 		existingMapperKey := plan.TypeMapperKey(existing.Root.Source, existing.Root.Target, existing.Root.Signature)
@@ -767,6 +780,9 @@ func (p *attemptPlanner) addRoot(
 			return fmt.Errorf("conflicting mapper configuration for %s", mapperKey)
 		}
 		return nil
+	}
+	if err := p.reserveGeneratedFunction(location, root.FunctionName, variantKey); err != nil {
+		return err
 	}
 
 	variant := &rootVariant{
@@ -791,6 +807,19 @@ func (p *attemptPlanner) addRoot(
 
 	outputGroup.Roots = append(outputGroup.Roots, root)
 	outputGroups[location] = outputGroup
+	return nil
+}
+
+func (p *attemptPlanner) reserveGeneratedFunction(
+	location plan.OutputLocation,
+	functionName string,
+	key string,
+) error {
+	ref := spec.CallableRef{ImportPath: location.ImportPath, Name: functionName}
+	if existing, ok := p.generatedFunctionsByCallable[ref]; ok && existing != key {
+		return fmt.Errorf("function name %q is planned for both %s and %s", functionName, existing, key)
+	}
+	p.generatedFunctionsByCallable[ref] = key
 	return nil
 }
 
@@ -918,15 +947,16 @@ func (p *attemptPlanner) outputLocationForExistingPackage(pkg types.Package, out
 	}
 }
 
-func (p *attemptPlanner) planOutputGroup(outputGroup plan.OutputGroup) {
+func (p *attemptPlanner) planOutputGroup(location plan.OutputLocation) {
 	previous := p.currentOutputLocation
-	p.currentOutputLocation = &outputGroup.Location
+	p.currentOutputLocation = &location
 	defer func() {
 		p.currentOutputLocation = previous
 	}()
 
+	outputGroup := p.outputGroups[location]
 	for _, typ := range outputGroup.Roots {
-		p.planTypeWithKey(rootVariantKey(outputGroup.Location, typ), typ)
+		p.planTypeWithKey(rootVariantKey(location, typ), typ)
 	}
 }
 
@@ -1045,13 +1075,17 @@ func packageNameFromDir(dir string) (name string, ok bool, err error) {
 func sortedOutputGroups(outputGroups map[plan.OutputLocation]plan.OutputGroup) []plan.OutputGroup {
 	out := slices.Collect(maps.Values(outputGroups))
 	slices.SortFunc(out, func(a, b plan.OutputGroup) int {
-		return cmp.Or(
-			cmp.Compare(a.Location.LogicalPath, b.Location.LogicalPath),
-			cmp.Compare(a.Location.ImportPath, b.Location.ImportPath),
-			cmp.Compare(a.Location.PackageName, b.Location.PackageName),
-		)
+		return compareOutputLocation(a.Location, b.Location)
 	})
 	return out
+}
+
+func compareOutputLocation(a, b plan.OutputLocation) int {
+	return cmp.Or(
+		cmp.Compare(a.LogicalPath, b.LogicalPath),
+		cmp.Compare(a.ImportPath, b.ImportPath),
+		cmp.Compare(a.PackageName, b.PackageName),
+	)
 }
 
 // appendDiagnostic appends only distinct diagnostics to the given slice of diagnostics.

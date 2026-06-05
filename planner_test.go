@@ -212,6 +212,19 @@ func TestPlanner_isFunctionPendingGeneration(t *testing.T) {
 	}
 }
 
+func TestPlanner_reserveGeneratedFunction(t *testing.T) {
+	planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
+	location := testOutputLocation("github.com/seeruk/morph/out", "/repo/out/morph.gen.go")
+
+	require.NoError(t, planner.reserveGeneratedFunction(location, "MapThing", "root-key"))
+	require.NoError(t, planner.reserveGeneratedFunction(location, "MapThing", "root-key"))
+
+	err := planner.reserveGeneratedFunction(location, "MapThing", "nested-key")
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, `function name "MapThing" is planned for both root-key and nested-key`)
+}
+
 func TestPlanner_prepareImportGraph(t *testing.T) {
 	t.Run("should allow single package and source package outputs for the same package pair", func(t *testing.T) {
 		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")

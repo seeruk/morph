@@ -1439,8 +1439,10 @@ func TestPlannerPlanRecursiveNestedStructs(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, out.OutputGroups, 1)
 	require.Len(t, out.OutputGroups[0].Roots, 1)
+	require.Len(t, out.OutputGroups[0].Nested, 1)
 
 	root := out.OutputGroups[0].Roots[0]
+	assert.Equal(t, out.OutputGroups[0].Location, root.Location)
 	require.NotNil(t, root.StructPlan)
 	require.Len(t, root.StructPlan.Fields, 2)
 
@@ -1449,6 +1451,8 @@ func TestPlannerPlanRecursiveNestedStructs(t *testing.T) {
 	require.NotNil(t, first)
 	require.NotNil(t, second)
 	assert.Same(t, first, second)
+	assert.Same(t, first, out.OutputGroups[0].Nested[0])
+	assert.Equal(t, out.OutputGroups[0].Location, first.Location)
 	require.NotNil(t, first.StructPlan)
 
 	var next plan.Field
@@ -1463,6 +1467,132 @@ func TestPlannerPlanRecursiveNestedStructs(t *testing.T) {
 	assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, next.Mapping.SourceAdaptations)
 	assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationAddress}, next.Mapping.TargetAdaptations)
 	assert.Same(t, first, next.Mapping.Plan)
+}
+
+func TestPlannerPlanPackageOwnedNestedStructsInSameOutputPackage(t *testing.T) {
+	engine := New(".")
+	out, err := engine.Plan(resolveTestConfig(t, config.Config{
+		Packages: []config.Package{
+			{
+				Source: plannerFromPackage,
+				Target: plannerToPackage,
+				Output: config.Output{Filename: "a.morph.go"},
+				Types: []config.Type{{
+					Name: "Container",
+					Mappers: &config.MappersDefaults{
+						Forward: &config.MapperDefaults{Name: new("MapContainerA")},
+					},
+				}},
+			},
+			{
+				Source: plannerFromPackage,
+				Target: plannerToPackage,
+				Output: config.Output{Filename: "b.morph.go"},
+				Types: []config.Type{{
+					Name: "Container",
+					Mappers: &config.MappersDefaults{
+						Forward: &config.MapperDefaults{Name: new("MapContainerB")},
+					},
+				}},
+			},
+		},
+	}), "morph.yaml")
+
+	require.NoError(t, err)
+	require.Len(t, out.OutputGroups, 2)
+	assert.Contains(t, out.OutputGroups[0].Location.LogicalPath, "a.morph.go")
+	assert.Contains(t, out.OutputGroups[1].Location.LogicalPath, "b.morph.go")
+	require.Len(t, out.OutputGroups[0].Roots, 1)
+	require.Len(t, out.OutputGroups[1].Roots, 1)
+	require.Len(t, out.OutputGroups[0].Nested, 1)
+	assert.Empty(t, out.OutputGroups[1].Nested)
+
+	firstRoot := out.OutputGroups[0].Roots[0]
+	secondRoot := out.OutputGroups[1].Roots[0]
+	firstNested := requirePlanField(t, firstRoot.StructPlan, "First").Mapping.Plan
+	secondNested := requirePlanField(t, secondRoot.StructPlan, "First").Mapping.Plan
+
+	require.NotNil(t, firstNested)
+	require.NotNil(t, secondNested)
+	assert.Same(t, firstNested, secondNested)
+	assert.Same(t, out.OutputGroups[0].Nested[0], firstNested)
+	assert.Equal(t, out.OutputGroups[0].Location, firstNested.Location)
+	assert.Equal(t, out.OutputGroups[0].Location, firstRoot.Location)
+	assert.Equal(t, out.OutputGroups[1].Location, secondRoot.Location)
+}
+
+func TestPlannerPlanPackageOwnedNestedStructsSeparateOutputPackages(t *testing.T) {
+	engine := New(".")
+	out, err := engine.Plan(resolveTestConfig(t, config.Config{
+		Packages: []config.Package{
+			{
+				Source: plannerFromPackage,
+				Target: plannerToPackage,
+				Output: config.Output{Path: "mapping_a", Package: "mappinga"},
+				Types: []config.Type{
+					{
+						Name: "Node",
+						Mappers: &config.MappersDefaults{
+							Forward: &config.MapperDefaults{Name: new("MapNodeA")},
+						},
+					},
+					{
+						Name: "NodeBoxContainer",
+						Mappers: &config.MappersDefaults{
+							Forward: &config.MapperDefaults{Name: new("MapNodeBoxContainerA")},
+						},
+					},
+				},
+			},
+			{
+				Source: plannerFromPackage,
+				Target: plannerToPackage,
+				Output: config.Output{Path: "mapping_b", Package: "mappingb"},
+				Types: []config.Type{
+					{
+						Name: "Node",
+						Mappers: &config.MappersDefaults{
+							Forward: &config.MapperDefaults{Name: new("MapNodeB")},
+						},
+					},
+					{
+						Name: "NodeBoxContainer",
+						Mappers: &config.MappersDefaults{
+							Forward: &config.MapperDefaults{Name: new("MapNodeBoxContainerB")},
+						},
+					},
+				},
+			},
+		},
+	}), "morph.yaml")
+
+	require.NoError(t, err)
+	require.Len(t, out.OutputGroups, 2)
+
+	groupA := requireOutputGroupByPackageName(t, out.OutputGroups, "mappinga")
+	groupB := requireOutputGroupByPackageName(t, out.OutputGroups, "mappingb")
+	require.Len(t, groupA.Nested, 1)
+	require.Len(t, groupB.Nested, 1)
+
+	nodeA := requireRootByTargetName(t, groupA.Roots, "Node")
+	nodeB := requireRootByTargetName(t, groupB.Roots, "Node")
+	boxContainerA := requireRootByTargetName(t, groupA.Roots, "NodeBoxContainer")
+	boxContainerB := requireRootByTargetName(t, groupB.Roots, "NodeBoxContainer")
+	nestedA := requirePlanField(t, boxContainerA.StructPlan, "Box").Mapping.Plan
+	nestedB := requirePlanField(t, boxContainerB.StructPlan, "Box").Mapping.Plan
+
+	require.NotNil(t, nestedA)
+	require.NotNil(t, nestedB)
+	assert.NotSame(t, nestedA, nestedB)
+	assert.Same(t, groupA.Nested[0], nestedA)
+	assert.Same(t, groupB.Nested[0], nestedB)
+	assert.Equal(t, groupA.Location, nestedA.Location)
+	assert.Equal(t, groupB.Location, nestedB.Location)
+
+	valueA := requirePlanField(t, nestedA.StructPlan, "Value")
+	valueB := requirePlanField(t, nestedB.StructPlan, "Value")
+	assert.Same(t, nodeA, valueA.Mapping.Plan)
+	assert.Same(t, nodeB, valueB.Mapping.Plan)
 }
 
 func TestPlannerFinalizesRecursiveGeneratedMapperErrability(t *testing.T) {
@@ -1530,8 +1660,13 @@ func TestPlannerPlanGenericNestedStructs(t *testing.T) {
 	stringBox := requirePlanField(t, root.StructPlan, "StringBox")
 	require.NotNil(t, intBox.Mapping.Plan)
 	require.NotNil(t, stringBox.Mapping.Plan)
+	require.Len(t, out.OutputGroups[0].Nested, 2)
 
 	assert.NotSame(t, stringBox.Mapping.Plan, intBox.Mapping.Plan)
+	assert.Contains(t, out.OutputGroups[0].Nested, intBox.Mapping.Plan)
+	assert.Contains(t, out.OutputGroups[0].Nested, stringBox.Mapping.Plan)
+	assert.Equal(t, out.OutputGroups[0].Location, intBox.Mapping.Plan.Location)
+	assert.Equal(t, out.OutputGroups[0].Location, stringBox.Mapping.Plan.Location)
 	assert.NotEqual(t, stringBox.Mapping.Plan.FunctionName, intBox.Mapping.Plan.FunctionName)
 	assert.NotEqual(t, stringBox.Mapping.Plan.Source.Key, intBox.Mapping.Plan.Source.Key)
 	assert.NotEqual(t, stringBox.Mapping.Plan.Target.Key, intBox.Mapping.Plan.Target.Key)
@@ -2235,6 +2370,19 @@ func requireRootByTargetName(t *testing.T, roots []*plan.Type, targetName string
 
 	require.Failf(t, "root not planned", "target root %q was not planned", targetName)
 	return nil
+}
+
+func requireOutputGroupByPackageName(t *testing.T, groups []plan.OutputGroup, packageName string) plan.OutputGroup {
+	t.Helper()
+
+	for _, group := range groups {
+		if group.Location.PackageName == packageName {
+			return group
+		}
+	}
+
+	require.Failf(t, "output group not planned", "output group %q was not planned", packageName)
+	return plan.OutputGroup{}
 }
 
 func requireRootBySourcePackage(t *testing.T, roots []*plan.Type, sourcePackage string) *plan.Type {

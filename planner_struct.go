@@ -543,7 +543,12 @@ func (p *attemptPlanner) planNestedStruct(
 		return plan.Value{}, false
 	}
 
+	if p.currentOutputLocation == nil {
+		return unsupportedMapping(source, target, path, "nested mapper planning requires an output location"), true
+	}
+
 	defaultTypes := p.spec.Defaults.Types
+	ownerLocation := p.nestedOwnerLocation(*p.currentOutputLocation)
 
 	sourceRef := plan.TypeRefFromType(sourceLookup)
 	targetRef := plan.TypeRefFromType(targetLookup)
@@ -559,6 +564,7 @@ func (p *attemptPlanner) planNestedStruct(
 		TargetDecl: targetDecl,
 		SourceType: sourceLookup,
 		TargetType: targetLookup,
+		Location:   ownerLocation,
 		Signature: spec.MapperSignature{ // TODO: Could be more granular
 			Accepts: spec.ParameterKindValue,
 			Returns: spec.ParameterKindValue,
@@ -571,25 +577,106 @@ func (p *attemptPlanner) planNestedStruct(
 		// field mapping this type pair would have to be defined explicitly.
 	}
 
-	key := plan.TypeMapperKey(nested.Source, nested.Target, nested.Signature)
-	if existing, ok := p.mappings[key]; ok {
-		p.planType(existing)
+	mapperKey := plan.TypeMapperKey(nested.Source, nested.Target, nested.Signature)
+	key := nestedMapperKey(ownerLocation.ImportPath, mapperKey)
+	if existing, ok := p.nestedMapper(ownerLocation.ImportPath, mapperKey); ok {
+		p.planNestedMapper(ownerLocation, key, existing)
 		compatibility := assessGeneratedMapperCompatibility(source, target, existing)
 		return generatedMapperValue(plan.OperationStruct, source, target, existing, optionality, compatibility), true
 	}
 
 	var err error
-	nested.FunctionName, err = p.nestedFunctionName(sourceLookup, targetLookup, nested.Source.Key, nested.Target.Key, callablesKey)
+	nested.FunctionName, err = p.nestedFunctionName(sourceLookup, targetLookup, nested.Source.Key, nested.Target.Key)
 	if err != nil {
-		return unsupportedMapping(source, target, path, fmt.Sprintf("failed to generate nested function name: %v", err)), false
+		return unsupportedMapping(source, target, path, fmt.Sprintf("failed to generate nested function name: %v", err)), true
+	}
+	if err := p.reserveGeneratedFunction(ownerLocation, nested.FunctionName, key); err != nil {
+		return unsupportedMapping(source, target, path, fmt.Sprintf("failed to reserve nested function name: %v", err)), true
 	}
 
-	p.mappings[key] = &nested
-	p.shallowMappings[key] = struct{}{}
-	p.planType(&nested)
+	p.addNestedMapper(ownerLocation, mapperKey, key, &nested)
+	p.planNestedMapper(ownerLocation, key, &nested)
 
 	compatibility := assessGeneratedMapperCompatibility(source, target, &nested)
 	return generatedMapperValue(plan.OperationStruct, source, target, &nested, optionality, compatibility), true
+}
+
+func (p *attemptPlanner) planNestedMapper(location plan.OutputLocation, key string, nested *plan.Type) {
+	previous := p.currentOutputLocation
+	p.currentOutputLocation = &location
+	defer func() {
+		p.currentOutputLocation = previous
+	}()
+
+	p.planTypeWithKey(key, nested)
+}
+
+func (p *attemptPlanner) nestedOwnerLocation(current plan.OutputLocation) plan.OutputLocation {
+	if len(p.outputGroups) == 0 {
+		return current
+	}
+
+	// Nested helpers are package-owned. Use a canonical output file for the package so ownership
+	// does not depend on which root happened to trigger recursive planning first.
+	var locations []plan.OutputLocation
+	for location := range p.outputGroups {
+		if location.ImportPath == current.ImportPath {
+			locations = append(locations, location)
+		}
+	}
+	if len(locations) == 0 {
+		return current
+	}
+
+	slices.SortFunc(locations, compareOutputLocation)
+	return locations[0]
+}
+
+func (p *attemptPlanner) nestedMapper(importPath, mapperKey string) (*plan.Type, bool) {
+	byKey, ok := p.nestedMappersByPackage[importPath]
+	if !ok {
+		return nil, false
+	}
+	nested, ok := byKey[mapperKey]
+	return nested, ok
+}
+
+func (p *attemptPlanner) addNestedMapper(
+	location plan.OutputLocation,
+	mapperKey string,
+	key string,
+	nested *plan.Type,
+) {
+	if p.nestedMappersByPackage == nil {
+		p.nestedMappersByPackage = make(map[string]map[string]*plan.Type)
+	}
+	if p.nestedMappersByPackage[location.ImportPath] == nil {
+		p.nestedMappersByPackage[location.ImportPath] = make(map[string]*plan.Type)
+	}
+	if p.mappings == nil {
+		p.mappings = make(map[string]*plan.Type)
+	}
+	if p.shallowMappings == nil {
+		p.shallowMappings = make(map[string]struct{})
+	}
+	if p.outputGroups == nil {
+		p.outputGroups = make(map[plan.OutputLocation]plan.OutputGroup)
+	}
+
+	p.nestedMappersByPackage[location.ImportPath][mapperKey] = nested
+	p.mappings[key] = nested
+	p.shallowMappings[key] = struct{}{}
+
+	outputGroup := p.outputGroups[location]
+	if outputGroup.Location == (plan.OutputLocation{}) {
+		outputGroup.Location = location
+	}
+	outputGroup.Nested = append(outputGroup.Nested, nested)
+	p.outputGroups[location] = outputGroup
+}
+
+func nestedMapperKey(importPath, mapperKey string) string {
+	return strings.Join([]string{mapperKey, importPath, "nested"}, "|")
 }
 
 func (p *attemptPlanner) planPointerAdaptation(
@@ -1592,16 +1679,11 @@ func numericConversionInfoFor(name string) (numericInfo, bool) {
 func (p *attemptPlanner) nestedFunctionName(
 	source, target types.Type,
 	sourceKey, targetKey string,
-	callablesKey string,
 ) (string, error) {
-	runHash := p.runHash
-	if len(source.TypeArgs) > 0 || len(target.TypeArgs) > 0 || callablesKey != "" {
-		typePairHash := stableTypePairKeyHash(sourceKey, targetKey)
-		if runHash == "" {
-			runHash = typePairHash
-		} else {
-			runHash += "_" + typePairHash
-		}
+	typePairHash := stableTypePairKeyHash(sourceKey, targetKey)
+	runHash := typePairHash
+	if p.runHash != "" {
+		runHash = p.runHash + "_" + typePairHash
 	}
 
 	input := NameInput{
