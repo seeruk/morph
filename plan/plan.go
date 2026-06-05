@@ -73,22 +73,20 @@ type Field struct {
 // Value describes how to map one value to another. Compound mappings point to child mappings for
 // elements, keys, or values (i.e. for nested types).
 type Value struct {
-	Operation                   Operation
-	Source                      types.Type
-	Target                      types.Type
-	Callable                    *CallableRef
-	CallableArgs                []CallableArg
-	CallableParameterAdaptation ValueAdaptation
-	CallableResultAdaptation    ValueAdaptation
-	Plan                        *Type
-	Elem                        *Value
-	Key                         *Value
-	Value                       *Value
-	Optionality                 spec.Optionality
-	SourcePointer               bool
-	TargetPointer               bool
-	CanError                    bool
-	Diagnostics                 []Diagnostic
+	Operation         Operation
+	Source            types.Type
+	Target            types.Type
+	Callable          *CallableRef
+	CallableArgs      []CallableArg
+	SourceAdaptations []ValueAdaptation
+	TargetAdaptations []ValueAdaptation
+	Plan              *Type
+	Elem              *Value
+	Key               *Value
+	Value             *Value
+	Optionality       spec.Optionality
+	CanError          bool
+	Diagnostics       []Diagnostic
 }
 
 // CallableArg describes an argument passed alongside a source value when invoking a callable.
@@ -108,7 +106,6 @@ const (
 	OperationConvert     Operation = "convert"
 	OperationStruct      Operation = "struct"
 	OperationEnum        Operation = "enum"
-	OperationPointer     Operation = "pointer"
 	OperationSlice       Operation = "slice"
 	OperationArray       Operation = "array"
 	OperationMap         Operation = "map"
@@ -118,7 +115,6 @@ const (
 type ValueAdaptation string
 
 const (
-	ValueAdaptationNone    ValueAdaptation = "none"
 	ValueAdaptationAddress ValueAdaptation = "address"
 	ValueAdaptationDeref   ValueAdaptation = "deref"
 )

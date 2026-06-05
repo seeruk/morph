@@ -45,6 +45,29 @@ func pointerTestType(typ types.Type) types.Type {
 	}
 }
 
+func sliceTestType(elem types.Type) types.Type {
+	return types.Type{
+		Kind: types.TypeKindSlice,
+		Elem: &elem,
+	}
+}
+
+func arrayTestType(length int64, elem types.Type) types.Type {
+	return types.Type{
+		Kind: types.TypeKindArray,
+		Len:  length,
+		Elem: &elem,
+	}
+}
+
+func mapTestType(key, value types.Type) types.Type {
+	return types.Type{
+		Kind:  types.TypeKindMap,
+		Key:   &key,
+		Value: &value,
+	}
+}
+
 func typeParamTestType(name string) types.Type {
 	return types.Type{
 		Kind: types.TypeKindTypeParam,

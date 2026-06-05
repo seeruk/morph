@@ -95,7 +95,7 @@ func (p *Planner) planValue(
 		deferredDiagnostics = appendDiagnostic(deferredDiagnostics, diagnostics...)
 	}
 
-	if explicit, ok := p.planExplicitRoot(sourceType, targetType); ok {
+	if explicit, ok := p.planExplicitRoot(sourceType, targetType, optionality); ok {
 		return explicit
 	}
 
@@ -118,8 +118,21 @@ func (p *Planner) planValue(
 		deferredDiagnostics = appendDiagnostic(deferredDiagnostics, diagnostics...)
 	}
 
+	if nested, ok := p.planNestedStruct(sourceType, targetType, path, optionality, callables); ok {
+		return appendDiagnosticsOnFailure(nested, deferredDiagnostics...)
+	}
+
+	if sameType(sourceType, targetType) {
+		return plan.Value{
+			Operation:   plan.OperationAssign,
+			Source:      sourceType,
+			Target:      targetType,
+			Optionality: optionality,
+		}
+	}
+
 	if sourceType.Kind == types.TypeKindPointer || targetType.Kind == types.TypeKindPointer {
-		value := p.planPointerMapping(sourceType, targetType, path, optionality, conversion, callables)
+		value := p.planPointerAdaptation(sourceType, targetType, path, optionality, conversion, callables)
 		return appendDiagnosticsOnFailure(value, deferredDiagnostics...)
 	}
 
@@ -222,19 +235,6 @@ func (p *Planner) planValue(
 			Diagnostics: diagnostics,
 		}
 		return appendDiagnosticsOnFailure(valuePlan, deferredDiagnostics...)
-	}
-
-	if nested, ok := p.planNestedStruct(sourceType, targetType, path, callables); ok {
-		return appendDiagnosticsOnFailure(nested, deferredDiagnostics...)
-	}
-
-	if sameType(sourceType, targetType) {
-		return plan.Value{
-			Operation:   plan.OperationAssign,
-			Source:      sourceType,
-			Target:      targetType,
-			Optionality: optionality,
-		}
 	}
 
 	if p.canConvert(sourceType, targetType, conversion) {
@@ -347,13 +347,13 @@ func planCallableValue(
 	optionality spec.Optionality,
 ) plan.Value {
 	return plan.Value{
-		Operation:                   operationForCallable(callable),
-		Source:                      sourceType,
-		Target:                      targetType,
-		Callable:                    &callable,
-		CallableParameterAdaptation: callableInputAdaptation(compatibility.Input),
-		CallableResultAdaptation:    callableResultAdaptation(compatibility.Result),
-		Optionality:                 optionality,
+		Operation:         operationForCallable(callable),
+		Source:            sourceType,
+		Target:            targetType,
+		Callable:          &callable,
+		SourceAdaptations: callableSourceAdaptations(compatibility.Input),
+		TargetAdaptations: callableTargetAdaptations(compatibility.Result),
+		Optionality:       optionality,
 		CanError: callable.ReturnsError ||
 			callableInputCanError(compatibility.Input, optionality) ||
 			callableResultCanError(compatibility.Result, optionality),
@@ -364,9 +364,9 @@ func planCallableValue(
 // generate a mapping function for a type pair, and we could use it elsewhere, we'll be able to
 // refer to it in the plan. We already have the shallow plan, really the key thing we need to know
 // is will this explicit root error, which can only identify if we fully plan it.
-func (p *Planner) planExplicitRoot(source, target types.Type) (plan.Value, bool) {
-	variant := p.explicitRootVariant(source, target)
-	if variant == nil {
+func (p *Planner) planExplicitRoot(source, target types.Type, optionality spec.Optionality) (plan.Value, bool) {
+	variant, compatibility, ok := p.explicitRootVariant(source, target)
+	if !ok {
 		return plan.Value{}, false
 	}
 
@@ -382,60 +382,155 @@ func (p *Planner) planExplicitRoot(source, target types.Type) (plan.Value, bool)
 	}
 
 	return plan.Value{
-		Operation:   operation,
-		Source:      source,
-		Target:      target,
-		Plan:        typePlan,
-		Optionality: typePlan.Optionality,
-		CanError:    typePlan.CanError,
-		Diagnostics: typePlan.Diagnostics,
+		Operation:         operation,
+		Source:            source,
+		Target:            target,
+		SourceAdaptations: generatedMapperSourceAdaptations(compatibility),
+		TargetAdaptations: generatedMapperTargetAdaptations(compatibility),
+		Plan:              typePlan,
+		Optionality:       optionality,
+		CanError:          generatedMapperCanError(typePlan, compatibility, optionality),
+		Diagnostics:       typePlan.Diagnostics,
 	}, true
 }
 
 func (p *Planner) explicitRoot(source, target types.Type) *plan.Type {
-	variant := p.explicitRootVariant(source, target)
-	if variant == nil {
+	variant, _, ok := p.explicitRootVariant(source, target)
+	if !ok {
 		return nil
 	}
 	return variant.Root
 }
 
-func (p *Planner) explicitRootVariant(source, target types.Type) *explicitRootVariant {
-	sourceRef := plan.TypeRefFromType(source)
-	targetRef := plan.TypeRefFromType(target)
+func (p *Planner) explicitRootVariant(source, target types.Type) (*explicitRootVariant, callableCompatibility, bool) {
+	sourceLookup, targetLookup := generatedMapperLookupTypes(source, target)
+	sourceRef := plan.TypeRefFromType(sourceLookup)
+	targetRef := plan.TypeRefFromType(targetLookup)
 
-	candidates := slices.Clone(p.explicitRootsByTypePair[plan.TypePairKey(sourceRef, targetRef)])
+	variants := slices.Clone(p.explicitRootsByTypePair[plan.TypePairKey(sourceRef, targetRef)])
 	if p.currentOutputLocation != nil {
-		candidates = slices.DeleteFunc(candidates, func(candidate *explicitRootVariant) bool {
+		variants = slices.DeleteFunc(variants, func(candidate *explicitRootVariant) bool {
 			return !p.canUseExplicitRootVariant(*p.currentOutputLocation, candidate)
 		})
 	}
-	if len(candidates) == 0 {
-		return nil
+
+	var candidates []explicitRootCandidate
+	for _, variant := range variants {
+		compatibility := assessExplicitRootCompatibility(source, target, variant.Root)
+		if !compatibility.Compatible() {
+			continue
+		}
+		candidates = append(candidates, explicitRootCandidate{
+			Variant:       variant,
+			Compatibility: compatibility,
+		})
 	}
 
-	slices.SortFunc(candidates, func(a, b *explicitRootVariant) int {
-		aRank := explicitRootSignatureRank(a.Root.Signature)
-		bRank := explicitRootSignatureRank(b.Root.Signature)
+	if len(candidates) == 0 {
+		return nil, callableCompatibility{}, false
+	}
+
+	slices.SortFunc(candidates, func(a, b explicitRootCandidate) int {
+		aRank, _ := callableCompatibilityRank(a.Compatibility)
+		bRank, _ := callableCompatibilityRank(b.Compatibility)
 		if aRank != bRank {
 			return aRank - bRank
 		}
 		if p.currentOutputLocation != nil {
-			aRank = explicitRootOutputPackageRank(*p.currentOutputLocation, a)
-			bRank = explicitRootOutputPackageRank(*p.currentOutputLocation, b)
+			aRank = explicitRootOutputPackageRank(*p.currentOutputLocation, a.Variant)
+			bRank = explicitRootOutputPackageRank(*p.currentOutputLocation, b.Variant)
 			if aRank != bRank {
 				return aRank - bRank
 			}
 		}
 		return cmp.Or(
-			strings.Compare(a.Root.FunctionName, b.Root.FunctionName),
-			strings.Compare(a.Location.ImportPath, b.Location.ImportPath),
-			strings.Compare(plan.SignatureKey(a.Root.Signature), plan.SignatureKey(b.Root.Signature)),
-			strings.Compare(a.Key, b.Key),
+			strings.Compare(a.Variant.Root.FunctionName, b.Variant.Root.FunctionName),
+			strings.Compare(a.Variant.Location.ImportPath, b.Variant.Location.ImportPath),
+			strings.Compare(plan.SignatureKey(a.Variant.Root.Signature), plan.SignatureKey(b.Variant.Root.Signature)),
+			strings.Compare(a.Variant.Key, b.Variant.Key),
 		)
 	})
 
-	return candidates[0]
+	return candidates[0].Variant, candidates[0].Compatibility, true
+}
+
+type explicitRootCandidate struct {
+	Variant       *explicitRootVariant
+	Compatibility callableCompatibility
+}
+
+func generatedMapperLookupTypes(source, target types.Type) (types.Type, types.Type) {
+	source, _ = types.PointerElem(source)
+	target, _ = types.PointerElem(target)
+	return source, target
+}
+
+func assessExplicitRootCompatibility(
+	sourceType, targetType types.Type,
+	root *plan.Type,
+) callableCompatibility {
+	return assessGeneratedMapperCompatibility(sourceType, targetType, root)
+}
+
+func assessGeneratedMapperCompatibility(
+	sourceType, targetType types.Type,
+	mapper *plan.Type,
+) callableCompatibility {
+	inputType := generatedMapperParameterType(mapper)
+	resultType := generatedMapperResultType(mapper)
+	return assessCallableCompatibility(sourceType, targetType, inputType, resultType, false)
+}
+
+func generatedMapperValue(
+	operation plan.Operation,
+	source, target types.Type,
+	mapper *plan.Type,
+	optionality spec.Optionality,
+) plan.Value {
+	compatibility := assessGeneratedMapperCompatibility(source, target, mapper)
+	return plan.Value{
+		Operation:         operation,
+		Source:            source,
+		Target:            target,
+		SourceAdaptations: generatedMapperSourceAdaptations(compatibility),
+		TargetAdaptations: generatedMapperTargetAdaptations(compatibility),
+		Plan:              mapper,
+		Optionality:       optionality,
+		CanError:          generatedMapperCanError(mapper, compatibility, optionality),
+		Diagnostics:       mapper.Diagnostics,
+	}
+}
+
+func generatedMapperParameterType(root *plan.Type) types.Type {
+	if root.Signature.Accepts == spec.ParameterKindPointer {
+		return types.PointerTo(root.SourceType)
+	}
+	return root.SourceType
+}
+
+func generatedMapperResultType(root *plan.Type) types.Type {
+	if root.Signature.Returns == spec.ParameterKindPointer {
+		return types.PointerTo(root.TargetType)
+	}
+	return root.TargetType
+}
+
+func generatedMapperSourceAdaptations(compatibility callableCompatibility) []plan.ValueAdaptation {
+	return callableSourceAdaptations(compatibility.Input)
+}
+
+func generatedMapperTargetAdaptations(compatibility callableCompatibility) []plan.ValueAdaptation {
+	return callableTargetAdaptations(compatibility.Result)
+}
+
+func generatedMapperCanError(
+	mapper *plan.Type,
+	compatibility callableCompatibility,
+	optionality spec.Optionality,
+) bool {
+	return mapper.CanError ||
+		callableInputCanError(compatibility.Input, optionality) ||
+		callableResultCanError(compatibility.Result, optionality)
 }
 
 func (p *Planner) canUseExplicitRootVariant(current plan.OutputLocation, candidate *explicitRootVariant) bool {
@@ -448,17 +543,6 @@ func (p *Planner) canUseExplicitRootVariant(current plan.OutputLocation, candida
 	return p.importGraph.canAddEdge(current.ImportPath, candidate.Location.ImportPath)
 }
 
-func explicitRootSignatureRank(signature spec.MapperSignature) int {
-	rank := 0
-	if signature.Accepts == spec.ParameterKindPointer {
-		rank += 1
-	}
-	if signature.Returns == spec.ParameterKindPointer {
-		rank += 2
-	}
-	return rank
-}
-
 func explicitRootOutputPackageRank(current plan.OutputLocation, candidate *explicitRootVariant) int {
 	if current.ImportPath == candidate.Location.ImportPath {
 		return 0
@@ -469,22 +553,24 @@ func explicitRootOutputPackageRank(current plan.OutputLocation, candidate *expli
 func (p *Planner) planNestedStruct(
 	source, target types.Type,
 	path string,
+	optionality spec.Optionality,
 	callables []spec.TieredCallables,
 ) (plan.Value, bool) {
-	sourceDecl, sourceOK := p.resolveStructType(source)
-	targetDecl, targetOK := p.resolveStructType(target)
+	sourceLookup, targetLookup := generatedMapperLookupTypes(source, target)
+	sourceDecl, sourceOK := p.resolveStructType(sourceLookup)
+	targetDecl, targetOK := p.resolveStructType(targetLookup)
 	if !sourceOK || !targetOK {
 		return plan.Value{}, false
 	}
 
-	if sameType(source, target) {
+	if sameType(sourceLookup, targetLookup) {
 		return plan.Value{}, false
 	}
 
 	defaultTypes := p.spec.Defaults.Types
 
-	sourceRef := plan.TypeRefFromType(source)
-	targetRef := plan.TypeRefFromType(target)
+	sourceRef := plan.TypeRefFromType(sourceLookup)
+	targetRef := plan.TypeRefFromType(targetLookup)
 	callablesKey := callableContextKey(callables)
 	if callablesKey != "" {
 		sourceRef.Key += "|callables:" + callablesKey
@@ -495,8 +581,8 @@ func (p *Planner) planNestedStruct(
 		Target:     targetRef,
 		SourceDecl: sourceDecl,
 		TargetDecl: targetDecl,
-		SourceType: source,
-		TargetType: target,
+		SourceType: sourceLookup,
+		TargetType: targetLookup,
 		Signature: spec.MapperSignature{ // TODO: Could be more granular
 			Accepts: spec.ParameterKindValue,
 			Returns: spec.ParameterKindValue,
@@ -512,19 +598,11 @@ func (p *Planner) planNestedStruct(
 	key := plan.TypeMapperKey(nested.Source, nested.Target, nested.Signature)
 	if existing, ok := p.mappings[key]; ok {
 		p.planType(existing)
-		return plan.Value{
-			Operation:   plan.OperationStruct,
-			Source:      source,
-			Target:      target,
-			Plan:        existing,
-			Optionality: existing.Optionality,
-			CanError:    existing.CanError,
-			Diagnostics: existing.Diagnostics,
-		}, true
+		return generatedMapperValue(plan.OperationStruct, source, target, existing, optionality), true
 	}
 
 	var err error
-	nested.FunctionName, err = p.nestedFunctionName(source, target, nested.Source.Key, nested.Target.Key, callablesKey)
+	nested.FunctionName, err = p.nestedFunctionName(sourceLookup, targetLookup, nested.Source.Key, nested.Target.Key, callablesKey)
 	if err != nil {
 		return unsupportedMapping(source, target, path, fmt.Sprintf("failed to generate nested function name: %v", err)), false
 	}
@@ -533,18 +611,10 @@ func (p *Planner) planNestedStruct(
 	p.shallowMappings[key] = struct{}{}
 	p.planType(&nested)
 
-	return plan.Value{
-		Operation:   plan.OperationStruct,
-		Source:      source,
-		Target:      target,
-		Plan:        &nested,
-		Optionality: nested.Optionality,
-		CanError:    nested.CanError,
-		Diagnostics: nested.Diagnostics,
-	}, true
+	return generatedMapperValue(plan.OperationStruct, source, target, &nested, optionality), true
 }
 
-func (p *Planner) planPointerMapping(
+func (p *Planner) planPointerAdaptation(
 	source, target types.Type,
 	path string,
 	optionality spec.Optionality,
@@ -565,23 +635,34 @@ func (p *Planner) planPointerMapping(
 	}
 
 	elem := p.planValue(sourceElem, targetElem, path, optionality, conversion, callables)
-
-	operation := plan.OperationPointer
 	if valueMappingFailed(elem) {
-		operation = plan.OperationUnsupported
+		return plan.Value{
+			Operation:   plan.OperationUnsupported,
+			Source:      source,
+			Target:      target,
+			Elem:        &elem,
+			Optionality: optionality,
+			CanError:    elem.CanError || sourcePointerDerefCanError(sourcePointer, optionality),
+			Diagnostics: elem.Diagnostics,
+		}
 	}
 
-	return plan.Value{
-		Operation:     operation,
-		Source:        source,
-		Target:        target,
-		Elem:          &elem,
-		Optionality:   optionality,
-		SourcePointer: sourcePointer,
-		TargetPointer: targetPointer,
-		CanError:      elem.CanError || pointerMappingCanError(sourcePointer, targetPointer, optionality),
-		Diagnostics:   elem.Diagnostics,
+	out := elem
+	out.Source = source
+	out.Target = target
+	out.Optionality = optionality
+	if sourcePointer {
+		out.SourceAdaptations = append([]plan.ValueAdaptation{plan.ValueAdaptationDeref}, out.SourceAdaptations...)
 	}
+	if targetPointer {
+		out.TargetAdaptations = append(out.TargetAdaptations, plan.ValueAdaptationAddress)
+	}
+	out.CanError = elem.CanError ||
+		sourceAdaptationsCanError(out.SourceAdaptations, optionality) ||
+		targetAdaptationsCanError(out.TargetAdaptations, optionality)
+	out.Diagnostics = elem.Diagnostics
+
+	return out
 }
 
 func (p *Planner) discoverFunctionCallable(
@@ -691,14 +772,14 @@ func (p *Planner) planHigherOrderFunctionCallable(
 
 		callable := candidate.Callable
 		return plan.Value{
-			Operation:                   plan.OperationFunction,
-			Source:                      sourceType,
-			Target:                      targetType,
-			Callable:                    &callable,
-			CallableArgs:                args,
-			CallableParameterAdaptation: callableInputAdaptation(candidate.Compatibility.Input),
-			CallableResultAdaptation:    callableResultAdaptation(candidate.Compatibility.Result),
-			Optionality:                 optionality,
+			Operation:         plan.OperationFunction,
+			Source:            sourceType,
+			Target:            targetType,
+			Callable:          &callable,
+			CallableArgs:      args,
+			SourceAdaptations: callableSourceAdaptations(candidate.Compatibility.Input),
+			TargetAdaptations: callableTargetAdaptations(candidate.Compatibility.Result),
+			Optionality:       optionality,
 			CanError: callable.ReturnsError ||
 				callableInputCanError(candidate.Compatibility.Input, optionality) ||
 				callableResultCanError(candidate.Compatibility.Result, optionality),
@@ -752,14 +833,14 @@ func (p *Planner) planHigherOrderExplicitCallable(
 
 		callable := candidate.Callable
 		return plan.Value{
-			Operation:                   plan.OperationFunction,
-			Source:                      sourceType,
-			Target:                      targetType,
-			Callable:                    &callable,
-			CallableArgs:                args,
-			CallableParameterAdaptation: callableInputAdaptation(candidate.Compatibility.Input),
-			CallableResultAdaptation:    callableResultAdaptation(candidate.Compatibility.Result),
-			Optionality:                 optionality,
+			Operation:         plan.OperationFunction,
+			Source:            sourceType,
+			Target:            targetType,
+			Callable:          &callable,
+			CallableArgs:      args,
+			SourceAdaptations: callableSourceAdaptations(candidate.Compatibility.Input),
+			TargetAdaptations: callableTargetAdaptations(candidate.Compatibility.Result),
+			Optionality:       optionality,
 			CanError: callable.ReturnsError ||
 				callableInputCanError(candidate.Compatibility.Input, optionality) ||
 				callableResultCanError(candidate.Compatibility.Result, optionality),
@@ -1655,40 +1736,48 @@ func operationForCallable(callable plan.CallableRef) plan.Operation {
 	return plan.OperationFunction
 }
 
-func callableInputAdaptation(input callableInputCompatibility) plan.ValueAdaptation {
+func callableSourceAdaptations(input callableInputCompatibility) []plan.ValueAdaptation {
 	switch input {
 	case callableInputAutoAddress:
-		return plan.ValueAdaptationAddress
+		return []plan.ValueAdaptation{plan.ValueAdaptationAddress}
 	case callableInputAutoDeref:
-		return plan.ValueAdaptationDeref
+		return []plan.ValueAdaptation{plan.ValueAdaptationDeref}
 	default:
-		return plan.ValueAdaptationNone
+		return nil
 	}
 }
 
-func callableResultAdaptation(result callableResultCompatibility) plan.ValueAdaptation {
+func callableTargetAdaptations(result callableResultCompatibility) []plan.ValueAdaptation {
 	switch result {
 	case callableResultAutoAddress, callableResultGenericAutoAddress:
-		return plan.ValueAdaptationAddress
+		return []plan.ValueAdaptation{plan.ValueAdaptationAddress}
 	case callableResultAutoDeref, callableResultGenericAutoDeref:
-		return plan.ValueAdaptationDeref
+		return []plan.ValueAdaptation{plan.ValueAdaptationDeref}
 	default:
-		return plan.ValueAdaptationNone
+		return nil
 	}
 }
 
 func callableInputCanError(input callableInputCompatibility, optionality spec.Optionality) bool {
-	return input == callableInputAutoDeref &&
-		optionality.OnNilSourcePointer == spec.PointerOptionalityError
+	return sourceAdaptationsCanError(callableSourceAdaptations(input), optionality)
 }
 
 func callableResultCanError(result callableResultCompatibility, optionality spec.Optionality) bool {
-	return callableResultAdaptation(result) == plan.ValueAdaptationDeref &&
+	return targetAdaptationsCanError(callableTargetAdaptations(result), optionality)
+}
+
+func sourcePointerDerefCanError(sourcePointer bool, optionality spec.Optionality) bool {
+	return sourcePointer &&
 		optionality.OnNilSourcePointer == spec.PointerOptionalityError
 }
 
-func pointerMappingCanError(sourcePointer, targetPointer bool, optionality spec.Optionality) bool {
-	return sourcePointer && !targetPointer &&
+func sourceAdaptationsCanError(adaptations []plan.ValueAdaptation, optionality spec.Optionality) bool {
+	return slices.Contains(adaptations, plan.ValueAdaptationDeref) &&
+		optionality.OnNilSourcePointer == spec.PointerOptionalityError
+}
+
+func targetAdaptationsCanError(adaptations []plan.ValueAdaptation, optionality spec.Optionality) bool {
+	return slices.Contains(adaptations, plan.ValueAdaptationDeref) &&
 		optionality.OnNilSourcePointer == spec.PointerOptionalityError
 }
 

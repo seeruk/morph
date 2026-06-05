@@ -24,7 +24,7 @@ type Either[L, R any] struct {
 type Single struct {
 	Foo    string
 	Bar    Optional[string]
-	Baz    []Optional[string]
+	Baz    *[]Optional[string]
 	Nested Nested
 	Bla    string
 }
@@ -41,6 +41,7 @@ type Explicit struct {
 type Nested struct {
 	Foo Optional[string]
 	Bar int64
+	Baz *Optional[string]
 }
 
 type Optional[T any] struct {

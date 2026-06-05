@@ -530,14 +530,25 @@ func TestPlannerPlanValueOptionality(t *testing.T) {
 	}
 	conversionsPolicy := defaultConversionsPolicy()
 
+	t.Run("assigns exact pointer values without adaptations", func(t *testing.T) {
+		planner := &Planner{registry: newFunctionRegistry()}
+
+		got := planner.planValue(pointerTestType(stringType), pointerTestType(stringType), "Name", errorOptionality, conversionsPolicy, nil)
+
+		assert.Equal(t, plan.OperationAssign, got.Operation)
+		assert.Empty(t, got.SourceAdaptations)
+		assert.Empty(t, got.TargetAdaptations)
+		assert.False(t, got.CanError)
+	})
+
 	t.Run("marks pointer to value mappings as erroring when nil source pointers error", func(t *testing.T) {
 		planner := &Planner{registry: newFunctionRegistry()}
 
 		got := planner.planValue(pointerTestType(stringType), stringType, "Name", errorOptionality, conversionsPolicy, nil)
 
-		assert.Equal(t, plan.OperationPointer, got.Operation)
-		assert.True(t, got.SourcePointer)
-		assert.False(t, got.TargetPointer)
+		assert.Equal(t, plan.OperationAssign, got.Operation)
+		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, got.SourceAdaptations)
+		assert.Empty(t, got.TargetAdaptations)
 		assert.Equal(t, errorOptionality, got.Optionality)
 		assert.True(t, got.CanError)
 	})
@@ -548,7 +559,20 @@ func TestPlannerPlanValueOptionality(t *testing.T) {
 
 		got := planner.planValue(pointerTestType(stringType), stringType, "Name", optionality, conversionsPolicy, nil)
 
-		assert.Equal(t, plan.OperationPointer, got.Operation)
+		assert.Equal(t, plan.OperationAssign, got.Operation)
+		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, got.SourceAdaptations)
+		assert.Empty(t, got.TargetAdaptations)
+		assert.False(t, got.CanError)
+	})
+
+	t.Run("records target adaptation for value to pointer assignments", func(t *testing.T) {
+		planner := &Planner{registry: newFunctionRegistry()}
+
+		got := planner.planValue(stringType, pointerTestType(stringType), "Name", defaultOptionality(), conversionsPolicy, nil)
+
+		assert.Equal(t, plan.OperationAssign, got.Operation)
+		assert.Empty(t, got.SourceAdaptations)
+		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationAddress}, got.TargetAdaptations)
 		assert.False(t, got.CanError)
 	})
 
@@ -561,8 +585,8 @@ func TestPlannerPlanValueOptionality(t *testing.T) {
 
 		require.NotNil(t, got.Callable)
 		assert.Equal(t, plan.OperationFunction, got.Operation)
-		assert.Equal(t, plan.ValueAdaptationDeref, got.CallableParameterAdaptation)
-		assert.Equal(t, plan.ValueAdaptationNone, got.CallableResultAdaptation)
+		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, got.SourceAdaptations)
+		assert.Empty(t, got.TargetAdaptations)
 		assert.Equal(t, errorOptionality, got.Optionality)
 		assert.True(t, got.CanError)
 	})
@@ -580,8 +604,8 @@ func TestPlannerPlanValueOptionality(t *testing.T) {
 
 		require.NotNil(t, got.Callable)
 		assert.Equal(t, plan.OperationFunction, got.Operation)
-		assert.Equal(t, plan.ValueAdaptationAddress, got.CallableParameterAdaptation)
-		assert.Equal(t, plan.ValueAdaptationNone, got.CallableResultAdaptation)
+		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationAddress}, got.SourceAdaptations)
+		assert.Empty(t, got.TargetAdaptations)
 		assert.Equal(t, optionality, got.Optionality)
 		assert.False(t, got.CanError)
 	})
@@ -595,8 +619,8 @@ func TestPlannerPlanValueOptionality(t *testing.T) {
 
 		require.NotNil(t, got.Callable)
 		assert.Equal(t, plan.OperationFunction, got.Operation)
-		assert.Equal(t, plan.ValueAdaptationNone, got.CallableParameterAdaptation)
-		assert.Equal(t, plan.ValueAdaptationDeref, got.CallableResultAdaptation)
+		assert.Empty(t, got.SourceAdaptations)
+		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, got.TargetAdaptations)
 		assert.Equal(t, errorOptionality, got.Optionality)
 		assert.True(t, got.CanError)
 	})
@@ -614,10 +638,99 @@ func TestPlannerPlanValueOptionality(t *testing.T) {
 
 		require.NotNil(t, got.Callable)
 		assert.Equal(t, plan.OperationFunction, got.Operation)
-		assert.Equal(t, plan.ValueAdaptationNone, got.CallableParameterAdaptation)
-		assert.Equal(t, plan.ValueAdaptationAddress, got.CallableResultAdaptation)
+		assert.Empty(t, got.SourceAdaptations)
+		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationAddress}, got.TargetAdaptations)
 		assert.Equal(t, optionality, got.Optionality)
 		assert.False(t, got.CanError)
+	})
+
+	t.Run("keeps container pointer adaptations on the container node", func(t *testing.T) {
+		registry := newFunctionRegistry()
+		require.True(t, registry.Register(testFunctionDecl("StringToInt", stringType, intType), plan.CallableSourceDiscovered))
+		planner := &Planner{registry: registry}
+
+		tests := []struct {
+			name      string
+			source    types.Type
+			target    types.Type
+			operation plan.Operation
+		}{
+			{
+				name:      "slice",
+				source:    pointerTestType(sliceTestType(stringType)),
+				target:    pointerTestType(sliceTestType(intType)),
+				operation: plan.OperationSlice,
+			},
+			{
+				name:      "array",
+				source:    pointerTestType(arrayTestType(2, stringType)),
+				target:    pointerTestType(arrayTestType(2, intType)),
+				operation: plan.OperationArray,
+			},
+			{
+				name:      "map",
+				source:    pointerTestType(mapTestType(stringType, stringType)),
+				target:    pointerTestType(mapTestType(stringType, intType)),
+				operation: plan.OperationMap,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				got := planner.planValue(tt.source, tt.target, "Value", defaultOptionality(), conversionsPolicy, nil)
+
+				assert.Equal(t, tt.operation, got.Operation)
+				assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, got.SourceAdaptations)
+				assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationAddress}, got.TargetAdaptations)
+			})
+		}
+	})
+
+	t.Run("keeps pointer element adaptations on child nodes", func(t *testing.T) {
+		registry := newFunctionRegistry()
+		require.True(t, registry.Register(testFunctionDecl("StringToInt", stringType, intType), plan.CallableSourceDiscovered))
+		planner := &Planner{registry: registry}
+
+		slice := planner.planValue(sliceTestType(pointerTestType(stringType)), sliceTestType(pointerTestType(intType)), "Values", defaultOptionality(), conversionsPolicy, nil)
+		assert.Equal(t, plan.OperationSlice, slice.Operation)
+		assert.Empty(t, slice.SourceAdaptations)
+		assert.Empty(t, slice.TargetAdaptations)
+		require.NotNil(t, slice.Elem)
+		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, slice.Elem.SourceAdaptations)
+		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationAddress}, slice.Elem.TargetAdaptations)
+
+		array := planner.planValue(arrayTestType(2, pointerTestType(stringType)), arrayTestType(2, pointerTestType(intType)), "Values", defaultOptionality(), conversionsPolicy, nil)
+		assert.Equal(t, plan.OperationArray, array.Operation)
+		assert.Empty(t, array.SourceAdaptations)
+		assert.Empty(t, array.TargetAdaptations)
+		require.NotNil(t, array.Elem)
+		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, array.Elem.SourceAdaptations)
+		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationAddress}, array.Elem.TargetAdaptations)
+
+		mapping := planner.planValue(mapTestType(pointerTestType(stringType), pointerTestType(stringType)), mapTestType(pointerTestType(intType), pointerTestType(intType)), "Values", defaultOptionality(), conversionsPolicy, nil)
+		assert.Equal(t, plan.OperationMap, mapping.Operation)
+		assert.Empty(t, mapping.SourceAdaptations)
+		assert.Empty(t, mapping.TargetAdaptations)
+		require.NotNil(t, mapping.Key)
+		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, mapping.Key.SourceAdaptations)
+		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationAddress}, mapping.Key.TargetAdaptations)
+		require.NotNil(t, mapping.Value)
+		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, mapping.Value.SourceAdaptations)
+		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationAddress}, mapping.Value.TargetAdaptations)
+	})
+
+	t.Run("keeps exact pointer callable element adaptations empty", func(t *testing.T) {
+		registry := newFunctionRegistry()
+		require.True(t, registry.Register(testFunctionDecl("StringPtrToIntPtr", pointerTestType(stringType), pointerTestType(intType)), plan.CallableSourceDiscovered))
+		planner := &Planner{registry: registry}
+
+		got := planner.planValue(sliceTestType(pointerTestType(stringType)), sliceTestType(pointerTestType(intType)), "Values", defaultOptionality(), conversionsPolicy, nil)
+
+		assert.Equal(t, plan.OperationSlice, got.Operation)
+		require.NotNil(t, got.Elem)
+		assert.Equal(t, plan.OperationFunction, got.Elem.Operation)
+		assert.Empty(t, got.Elem.SourceAdaptations)
+		assert.Empty(t, got.Elem.TargetAdaptations)
 	})
 }
 
@@ -734,7 +847,9 @@ func TestPlannerPlanStruct(t *testing.T) {
 		planner.planStruct(&typ)
 
 		field := requirePlanField(t, typ.StructPlan, "Nickname")
-		assert.Equal(t, plan.OperationPointer, field.Mapping.Operation)
+		assert.Equal(t, plan.OperationAssign, field.Mapping.Operation)
+		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, field.Mapping.SourceAdaptations)
+		assert.Empty(t, field.Mapping.TargetAdaptations)
 		assert.Equal(t, spec.PointerOptionalityError, field.Mapping.Optionality.OnNilSourcePointer)
 		assert.Equal(t, spec.ValueOptionalityAddress, field.Mapping.Optionality.OnZeroSourceValue)
 		assert.True(t, field.Mapping.CanError)
@@ -910,6 +1025,10 @@ func TestPlannerPlanExplicitRoot(t *testing.T) {
 	targetRef := plan.TypeRefFromType(targetType)
 	sourceDecl := testStructDecl("module.test/from", "User", nil)
 	targetDecl := testStructDecl("module.test/to", "User", nil)
+	errorOptionality := spec.Optionality{
+		OnNilSourcePointer: spec.PointerOptionalityError,
+		OnZeroSourceValue:  spec.ValueOptionalityNil,
+	}
 
 	t.Run("does not panic for struct roots without enum plans", func(t *testing.T) {
 		root := &plan.Type{
@@ -928,12 +1047,174 @@ func TestPlannerPlanExplicitRoot(t *testing.T) {
 		require.NoError(t, planner.addExplicitRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
 
 		require.NotPanics(t, func() {
-			value, ok := planner.planExplicitRoot(sourceType, targetType)
+			value, ok := planner.planExplicitRoot(sourceType, targetType, defaultOptionality())
 
 			require.True(t, ok)
 			assert.Equal(t, plan.OperationStruct, value.Operation)
 			assert.Same(t, root, value.Plan)
 		})
+	})
+
+	t.Run("records auto-address generated mapper input adaptation", func(t *testing.T) {
+		root := testExplicitRootPlanWithSignature(
+			sourceRef,
+			targetRef,
+			sourceDecl,
+			targetDecl,
+			sourceType,
+			targetType,
+			"MapUserPointerInput",
+			spec.MapperSignature{
+				Accepts: spec.ParameterKindPointer,
+				Returns: spec.ParameterKindValue,
+			},
+		)
+		planner := NewPlanner(Spec{}, ".", "morph.yaml")
+		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
+		require.NoError(t, planner.addExplicitRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
+
+		got, ok := planner.planExplicitRoot(sourceType, targetType, defaultOptionality())
+
+		require.True(t, ok)
+		assert.Equal(t, plan.OperationStruct, got.Operation)
+		assert.Same(t, root, got.Plan)
+		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationAddress}, got.SourceAdaptations)
+		assert.Empty(t, got.TargetAdaptations)
+		assert.Equal(t, defaultOptionality(), got.Optionality)
+		assert.False(t, got.CanError)
+	})
+
+	t.Run("records auto-deref generated mapper input adaptation", func(t *testing.T) {
+		root := testExplicitRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "MapUser")
+		planner := NewPlanner(Spec{}, ".", "morph.yaml")
+		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
+		require.NoError(t, planner.addExplicitRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
+
+		got, ok := planner.planExplicitRoot(pointerTestType(sourceType), targetType, errorOptionality)
+
+		require.True(t, ok)
+		assert.Equal(t, plan.OperationStruct, got.Operation)
+		assert.Same(t, root, got.Plan)
+		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, got.SourceAdaptations)
+		assert.Empty(t, got.TargetAdaptations)
+		assert.Equal(t, errorOptionality, got.Optionality)
+		assert.True(t, got.CanError)
+	})
+
+	t.Run("records auto-deref generated mapper result adaptation", func(t *testing.T) {
+		root := testExplicitRootPlanWithSignature(
+			sourceRef,
+			targetRef,
+			sourceDecl,
+			targetDecl,
+			sourceType,
+			targetType,
+			"MapUserPointerResult",
+			spec.MapperSignature{
+				Accepts: spec.ParameterKindValue,
+				Returns: spec.ParameterKindPointer,
+			},
+		)
+		planner := NewPlanner(Spec{}, ".", "morph.yaml")
+		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
+		require.NoError(t, planner.addExplicitRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
+
+		got, ok := planner.planExplicitRoot(sourceType, targetType, errorOptionality)
+
+		require.True(t, ok)
+		assert.Equal(t, plan.OperationStruct, got.Operation)
+		assert.Same(t, root, got.Plan)
+		assert.Empty(t, got.SourceAdaptations)
+		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, got.TargetAdaptations)
+		assert.Equal(t, errorOptionality, got.Optionality)
+		assert.True(t, got.CanError)
+	})
+
+	t.Run("records auto-address generated mapper result adaptation", func(t *testing.T) {
+		root := testExplicitRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "MapUser")
+		planner := NewPlanner(Spec{}, ".", "morph.yaml")
+		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
+		require.NoError(t, planner.addExplicitRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
+
+		got, ok := planner.planExplicitRoot(sourceType, pointerTestType(targetType), defaultOptionality())
+
+		require.True(t, ok)
+		assert.Equal(t, plan.OperationStruct, got.Operation)
+		assert.Same(t, root, got.Plan)
+		assert.Empty(t, got.SourceAdaptations)
+		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationAddress}, got.TargetAdaptations)
+		assert.Equal(t, defaultOptionality(), got.Optionality)
+		assert.False(t, got.CanError)
+	})
+
+	t.Run("prefers exact pointer signatures for pointer values", func(t *testing.T) {
+		valueRoot := testExplicitRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "MapUserValue")
+		pointerRoot := testExplicitRootPlanWithSignature(
+			sourceRef,
+			targetRef,
+			sourceDecl,
+			targetDecl,
+			sourceType,
+			targetType,
+			"MapUserPointer",
+			spec.MapperSignature{
+				Accepts: spec.ParameterKindPointer,
+				Returns: spec.ParameterKindPointer,
+			},
+		)
+		planner := NewPlanner(Spec{}, ".", "morph.yaml")
+		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
+		location := testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go")
+		require.NoError(t, planner.addExplicitRoot(outputGroups, location, valueRoot))
+		require.NoError(t, planner.addExplicitRoot(outputGroups, location, pointerRoot))
+
+		got := planner.explicitRoot(pointerTestType(sourceType), pointerTestType(targetType))
+
+		assert.Same(t, pointerRoot, got)
+	})
+
+	t.Run("uses call-site optionality for generated mapper adaptation errors", func(t *testing.T) {
+		root := testExplicitRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "MapUser")
+		planner := NewPlanner(Spec{}, ".", "morph.yaml")
+		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
+		require.NoError(t, planner.addExplicitRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
+
+		zeroValue, zeroOK := planner.planExplicitRoot(pointerTestType(sourceType), targetType, defaultOptionality())
+		errorValue, errorOK := planner.planExplicitRoot(pointerTestType(sourceType), targetType, errorOptionality)
+
+		require.True(t, zeroOK)
+		require.True(t, errorOK)
+		assert.Equal(t, defaultOptionality(), zeroValue.Optionality)
+		assert.Equal(t, errorOptionality, errorValue.Optionality)
+		assert.False(t, zeroValue.CanError)
+		assert.True(t, errorValue.CanError)
+	})
+
+	t.Run("uses field optionality for generated mapper adaptation errors", func(t *testing.T) {
+		root := testExplicitRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "MapUser")
+		containerSourceDecl := testStructDecl("module.test/from", "Container", map[string]types.Field{
+			"User": testField("User", pointerTestType(sourceType)),
+		})
+		containerTargetDecl := testStructDecl("module.test/to", "Container", map[string]types.Field{
+			"User": testField("User", targetType),
+		})
+		container := testStructPlanType(containerSourceDecl, containerTargetDecl, spec.Struct{
+			Fields: map[string]spec.Field{
+				"User": {Optionality: errorOptionality},
+			},
+		})
+		planner := NewPlanner(Spec{}, ".", "morph.yaml")
+		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
+		require.NoError(t, planner.addExplicitRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
+
+		planner.planStruct(&container)
+
+		field := requirePlanField(t, container.StructPlan, "User")
+		assert.Equal(t, plan.OperationStruct, field.Mapping.Operation)
+		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, field.Mapping.SourceAdaptations)
+		assert.Empty(t, field.Mapping.TargetAdaptations)
+		assert.Equal(t, errorOptionality, field.Mapping.Optionality)
+		assert.True(t, field.Mapping.CanError)
 	})
 
 	t.Run("chooses explicit root signatures deterministically", func(t *testing.T) {
@@ -1115,8 +1396,10 @@ func TestPlannerPlanRecursiveNestedStructs(t *testing.T) {
 		}
 	}
 	require.NotEmpty(t, next.TargetField.Name)
-	require.NotNil(t, next.Mapping.Elem)
-	assert.Same(t, first, next.Mapping.Elem.Plan)
+	assert.Equal(t, plan.OperationStruct, next.Mapping.Operation)
+	assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, next.Mapping.SourceAdaptations)
+	assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationAddress}, next.Mapping.TargetAdaptations)
+	assert.Same(t, first, next.Mapping.Plan)
 }
 
 func TestPlannerPlanGenericNestedStructs(t *testing.T) {
@@ -1864,6 +2147,25 @@ func testExplicitRootPlan(
 	sourceType, targetType types.Type,
 	functionName string,
 ) *plan.Type {
+	return testExplicitRootPlanWithSignature(
+		sourceRef,
+		targetRef,
+		sourceDecl,
+		targetDecl,
+		sourceType,
+		targetType,
+		functionName,
+		defaultMapperSignature,
+	)
+}
+
+func testExplicitRootPlanWithSignature(
+	sourceRef, targetRef plan.TypeRef,
+	sourceDecl, targetDecl types.TypeDecl,
+	sourceType, targetType types.Type,
+	functionName string,
+	signature spec.MapperSignature,
+) *plan.Type {
 	return &plan.Type{
 		Source:       sourceRef,
 		Target:       targetRef,
@@ -1872,7 +2174,7 @@ func testExplicitRootPlan(
 		SourceType:   sourceType,
 		TargetType:   targetType,
 		FunctionName: functionName,
-		Signature:    defaultMapperSignature,
+		Signature:    signature,
 		StructPlan:   &plan.Struct{},
 		Optionality:  defaultOptionality(),
 		Conversions:  defaultConversionsPolicy(),

@@ -24,7 +24,7 @@ func (s Stringy) String() string {
 type Single struct {
 	Foo    string
 	Bar    Optional[Stringy]
-	Baz    []Optional[string]
+	Baz    []Optional[*Stringy]
 	Nested Nested
 	Bla    Stringy
 }
@@ -46,4 +46,5 @@ type Optional[T any] struct {
 type Nested struct {
 	Foo string
 	Bar int
+	Baz Optional[Stringy]
 }
