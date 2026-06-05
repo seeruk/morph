@@ -661,6 +661,10 @@ func (p *attemptPlanner) addRoot(
 
 	root.Location = location
 
+	if err := p.validateAliasEquivalentRootConfig(location, mapperKey, root); err != nil {
+		return err
+	}
+
 	ref := spec.CallableRef{ImportPath: location.ImportPath, Name: root.FunctionName}
 	if existing, ok := p.rootVariantsByCallable[ref]; ok {
 		existingMapperKey := plan.TypeMapperKey(existing.Root.Source, existing.Root.Target, existing.Root.Signature)
@@ -705,6 +709,26 @@ func (p *attemptPlanner) addRoot(
 	return nil
 }
 
+func (p *attemptPlanner) validateAliasEquivalentRootConfig(
+	location plan.OutputLocation,
+	mapperKey string,
+	root *plan.Type,
+) error {
+	for _, variant := range p.rootVariantsByTypePair[plan.TypePairKey(root.Source, root.Target)] {
+		if variant.Location != location {
+			continue
+		}
+		if plan.TypeMapperKey(variant.Root.Source, variant.Root.Target, variant.Root.Signature) != mapperKey {
+			continue
+		}
+		if !aliasEquivalentRoot(variant.Root, root) || sameRootPlanningConfig(variant.Root, root) {
+			continue
+		}
+		return aliasEquivalentRootConflictError(variant.Root, root, mapperKey)
+	}
+	return nil
+}
+
 func (p *attemptPlanner) reserveGeneratedFunction(
 	location plan.OutputLocation,
 	functionName string,
@@ -724,6 +748,38 @@ func rootVariantKey(location plan.OutputLocation, root *plan.Type) string {
 		location.ImportPath,
 		root.FunctionName,
 	}, "|")
+}
+
+func aliasEquivalentRoot(a, b *plan.Type) bool {
+	if plan.TypeMapperKey(a.Source, a.Target, a.Signature) != plan.TypeMapperKey(b.Source, b.Target, b.Signature) {
+		return false
+	}
+	return !sameTypeRefIdentity(a.Source, b.Source) || !sameTypeRefIdentity(a.Target, b.Target)
+}
+
+func sameTypeRefIdentity(a, b plan.TypeRef) bool {
+	return a.ImportPath == b.ImportPath && a.Name == b.Name
+}
+
+func aliasEquivalentRootConflictError(existing, root *plan.Type, mapperKey string) error {
+	return fmt.Errorf(
+		"alias-equivalent root configuration conflict for %s: Morph emits type aliases as their underlying types, so configured roots %s -> %s and %s -> %s collapse to the same semantic mapper, but their configs differ; configure only one root or make the configs match",
+		mapperKey,
+		typeRefDisplay(existing.Source),
+		typeRefDisplay(existing.Target),
+		typeRefDisplay(root.Source),
+		typeRefDisplay(root.Target),
+	)
+}
+
+func typeRefDisplay(ref plan.TypeRef) string {
+	if ref.ImportPath != "" && ref.Name != "" {
+		return ref.ImportPath + "." + ref.Name
+	}
+	if ref.Name != "" {
+		return ref.Name
+	}
+	return ref.Key
 }
 
 func sameRootPlanningConfig(a, b *plan.Type) bool {

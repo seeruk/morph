@@ -102,6 +102,29 @@ func TestPlanner_addRoot(t *testing.T) {
 		assert.ErrorContains(t, err, "conflicting mapper configuration")
 	})
 
+	t.Run("should explain alias-equivalent conflicts with the same function name", func(t *testing.T) {
+		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
+		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
+		location := testOutputLocation("github.com/seeruk/morph/out", "/repo/out/morph.gen.go")
+		root := testPlanTypeWithPackages("module.test/source", "User", "module.test/target", "User", "MapUser")
+		alias := testAliasEquivalentRoot(root, "AliasUser", "User", "MapUser")
+		alias.StructSpec = spec.Struct{
+			Fields: map[string]spec.Field{
+				"UserId": {Target: "ID"},
+			},
+		}
+
+		require.NoError(t, planner.addRoot(outputGroups, location, root))
+
+		err := planner.addRoot(outputGroups, location, alias)
+		require.Error(t, err)
+
+		assert.ErrorContains(t, err, "Morph emits type aliases as their underlying types")
+		assert.ErrorContains(t, err, "collapse to the same semantic mapper")
+		assert.ErrorContains(t, err, "configs differ")
+		assert.ErrorContains(t, err, "configure only one root or make the configs match")
+	})
+
 	t.Run("should allow the same mapper with different function names", func(t *testing.T) {
 		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
@@ -117,6 +140,46 @@ func TestPlanner_addRoot(t *testing.T) {
 		require.Len(t, outputGroups[location].Roots, 2)
 		assert.Same(t, root, outputGroups[location].Roots[0])
 		assert.Same(t, variant, outputGroups[location].Roots[1])
+	})
+
+	t.Run("should explain alias-equivalent conflicts with different function names", func(t *testing.T) {
+		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
+		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
+		location := testOutputLocation("github.com/seeruk/morph/out", "/repo/out/morph.gen.go")
+		root := testPlanTypeWithPackages("module.test/source", "User", "module.test/target", "User", "MapUser")
+		alias := testAliasEquivalentRoot(root, "AliasUser", "User", "MapAliasUser")
+		alias.StructSpec = spec.Struct{
+			Fields: map[string]spec.Field{
+				"UserId": {Target: "ID"},
+			},
+		}
+
+		require.NoError(t, planner.addRoot(outputGroups, location, root))
+
+		err := planner.addRoot(outputGroups, location, alias)
+		require.Error(t, err)
+
+		assert.ErrorContains(t, err, "Morph emits type aliases as their underlying types")
+		assert.ErrorContains(t, err, "collapse to the same semantic mapper")
+		assert.ErrorContains(t, err, "configs differ")
+		assert.ErrorContains(t, err, "configure only one root or make the configs match")
+	})
+
+	t.Run("should allow alias-equivalent roots with matching configuration", func(t *testing.T) {
+		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
+		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
+		location := testOutputLocation("github.com/seeruk/morph/out", "/repo/out/morph.gen.go")
+		root := testPlanTypeWithPackages("module.test/source", "User", "module.test/target", "User", "MapUser")
+		alias := testAliasEquivalentRoot(root, "AliasUser", "User", "MapAliasUser")
+
+		require.NoError(t, planner.addRoot(outputGroups, location, root))
+
+		err := planner.addRoot(outputGroups, location, alias)
+		require.NoError(t, err)
+
+		require.Len(t, outputGroups[location].Roots, 2)
+		assert.Same(t, root, outputGroups[location].Roots[0])
+		assert.Same(t, alias, outputGroups[location].Roots[1])
 	})
 
 	t.Run("should error when different mappers use the same function name in one package", func(t *testing.T) {
@@ -391,6 +454,19 @@ func testPlanTypeWithPackages(sourcePackage, sourceName, targetPackage, targetNa
 	root.Target.ImportPath = targetPackage
 	root.Target.Name = targetName
 	return root
+}
+
+func testAliasEquivalentRoot(root *plan.Type, sourceName, targetName, functionName string) *plan.Type {
+	alias := testPlanTypeWithPackages(
+		root.Source.ImportPath,
+		sourceName,
+		root.Target.ImportPath,
+		targetName,
+		functionName,
+	)
+	alias.Source.Key = root.Source.Key
+	alias.Target.Key = root.Target.Key
+	return alias
 }
 
 func testMapperSignature() spec.MapperSignature {

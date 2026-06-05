@@ -24,7 +24,8 @@ type OutputLocation struct {
 	PackageName string
 }
 
-// Type represents the output of the planning process for a type pair.
+// Type represents the output of the planning process for a type pair. Morph plans type aliases as
+// their underlying types; generators should render underlying types rather than alias names.
 type Type struct {
 	// Type information
 	Source     TypeRef
