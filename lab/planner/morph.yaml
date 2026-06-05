@@ -26,6 +26,9 @@ packages:
   - name: Single
   - source: Difficulty
     target: RecipeDifficulty
+    enum:
+      values:
+        DifficultyUltra: RecipeDifficultyInsane
 
 #- source: github.com/seeruk/morph/lab/planner/from
 #  target: github.com/seeruk/morph/lab/planner/to
