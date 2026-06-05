@@ -541,6 +541,27 @@ func TestPlannerPlanValueOptionality(t *testing.T) {
 		assert.False(t, got.CanError)
 	})
 
+	t.Run("plans exact containers structurally rather than assigning", func(t *testing.T) {
+		planner := &Planner{registry: newFunctionRegistry()}
+
+		slice := planner.planValue(sliceTestType(stringType), sliceTestType(stringType), "Values", defaultOptionality(), conversionsPolicy, nil)
+		assert.Equal(t, plan.OperationSlice, slice.Operation)
+		require.NotNil(t, slice.Elem)
+		assert.Equal(t, plan.OperationAssign, slice.Elem.Operation)
+
+		array := planner.planValue(arrayTestType(2, stringType), arrayTestType(2, stringType), "Values", defaultOptionality(), conversionsPolicy, nil)
+		assert.Equal(t, plan.OperationArray, array.Operation)
+		require.NotNil(t, array.Elem)
+		assert.Equal(t, plan.OperationAssign, array.Elem.Operation)
+
+		mapping := planner.planValue(mapTestType(stringType, stringType), mapTestType(stringType, stringType), "Values", defaultOptionality(), conversionsPolicy, nil)
+		assert.Equal(t, plan.OperationMap, mapping.Operation)
+		require.NotNil(t, mapping.Key)
+		assert.Equal(t, plan.OperationAssign, mapping.Key.Operation)
+		require.NotNil(t, mapping.Value)
+		assert.Equal(t, plan.OperationAssign, mapping.Value.Operation)
+	})
+
 	t.Run("marks pointer to value mappings as erroring when nil source pointers error", func(t *testing.T) {
 		planner := &Planner{registry: newFunctionRegistry()}
 
@@ -1018,7 +1039,7 @@ func TestInvertStructSpec(t *testing.T) {
 	})
 }
 
-func TestPlannerPlanExplicitRoot(t *testing.T) {
+func TestPlannerPlanRoot(t *testing.T) {
 	sourceType := namedTestType("module.test/from", "User")
 	targetType := namedTestType("module.test/to", "User")
 	sourceRef := plan.TypeRefFromType(sourceType)
@@ -1044,10 +1065,10 @@ func TestPlannerPlanExplicitRoot(t *testing.T) {
 		}
 		planner := NewPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
-		require.NoError(t, planner.addExplicitRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
+		require.NoError(t, planner.addRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
 
 		require.NotPanics(t, func() {
-			value, ok := planner.planExplicitRoot(sourceType, targetType, defaultOptionality())
+			value, ok := planner.planRoot(sourceType, targetType, defaultOptionality())
 
 			require.True(t, ok)
 			assert.Equal(t, plan.OperationStruct, value.Operation)
@@ -1056,7 +1077,7 @@ func TestPlannerPlanExplicitRoot(t *testing.T) {
 	})
 
 	t.Run("records auto-address generated mapper input adaptation", func(t *testing.T) {
-		root := testExplicitRootPlanWithSignature(
+		root := testRootPlanWithSignature(
 			sourceRef,
 			targetRef,
 			sourceDecl,
@@ -1071,9 +1092,9 @@ func TestPlannerPlanExplicitRoot(t *testing.T) {
 		)
 		planner := NewPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
-		require.NoError(t, planner.addExplicitRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
+		require.NoError(t, planner.addRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
 
-		got, ok := planner.planExplicitRoot(sourceType, targetType, defaultOptionality())
+		got, ok := planner.planRoot(sourceType, targetType, defaultOptionality())
 
 		require.True(t, ok)
 		assert.Equal(t, plan.OperationStruct, got.Operation)
@@ -1085,12 +1106,12 @@ func TestPlannerPlanExplicitRoot(t *testing.T) {
 	})
 
 	t.Run("records auto-deref generated mapper input adaptation", func(t *testing.T) {
-		root := testExplicitRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "MapUser")
+		root := testRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "MapUser")
 		planner := NewPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
-		require.NoError(t, planner.addExplicitRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
+		require.NoError(t, planner.addRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
 
-		got, ok := planner.planExplicitRoot(pointerTestType(sourceType), targetType, errorOptionality)
+		got, ok := planner.planRoot(pointerTestType(sourceType), targetType, errorOptionality)
 
 		require.True(t, ok)
 		assert.Equal(t, plan.OperationStruct, got.Operation)
@@ -1102,7 +1123,7 @@ func TestPlannerPlanExplicitRoot(t *testing.T) {
 	})
 
 	t.Run("records auto-deref generated mapper result adaptation", func(t *testing.T) {
-		root := testExplicitRootPlanWithSignature(
+		root := testRootPlanWithSignature(
 			sourceRef,
 			targetRef,
 			sourceDecl,
@@ -1117,9 +1138,9 @@ func TestPlannerPlanExplicitRoot(t *testing.T) {
 		)
 		planner := NewPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
-		require.NoError(t, planner.addExplicitRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
+		require.NoError(t, planner.addRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
 
-		got, ok := planner.planExplicitRoot(sourceType, targetType, errorOptionality)
+		got, ok := planner.planRoot(sourceType, targetType, errorOptionality)
 
 		require.True(t, ok)
 		assert.Equal(t, plan.OperationStruct, got.Operation)
@@ -1131,12 +1152,12 @@ func TestPlannerPlanExplicitRoot(t *testing.T) {
 	})
 
 	t.Run("records auto-address generated mapper result adaptation", func(t *testing.T) {
-		root := testExplicitRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "MapUser")
+		root := testRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "MapUser")
 		planner := NewPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
-		require.NoError(t, planner.addExplicitRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
+		require.NoError(t, planner.addRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
 
-		got, ok := planner.planExplicitRoot(sourceType, pointerTestType(targetType), defaultOptionality())
+		got, ok := planner.planRoot(sourceType, pointerTestType(targetType), defaultOptionality())
 
 		require.True(t, ok)
 		assert.Equal(t, plan.OperationStruct, got.Operation)
@@ -1148,8 +1169,8 @@ func TestPlannerPlanExplicitRoot(t *testing.T) {
 	})
 
 	t.Run("prefers exact pointer signatures for pointer values", func(t *testing.T) {
-		valueRoot := testExplicitRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "MapUserValue")
-		pointerRoot := testExplicitRootPlanWithSignature(
+		valueRoot := testRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "MapUserValue")
+		pointerRoot := testRootPlanWithSignature(
 			sourceRef,
 			targetRef,
 			sourceDecl,
@@ -1165,22 +1186,37 @@ func TestPlannerPlanExplicitRoot(t *testing.T) {
 		planner := NewPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
 		location := testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go")
-		require.NoError(t, planner.addExplicitRoot(outputGroups, location, valueRoot))
-		require.NoError(t, planner.addExplicitRoot(outputGroups, location, pointerRoot))
+		require.NoError(t, planner.addRoot(outputGroups, location, valueRoot))
+		require.NoError(t, planner.addRoot(outputGroups, location, pointerRoot))
 
-		got := planner.explicitRoot(pointerTestType(sourceType), pointerTestType(targetType))
+		got := planner.root(pointerTestType(sourceType), pointerTestType(targetType))
 
 		assert.Same(t, pointerRoot, got)
 	})
 
-	t.Run("uses call-site optionality for generated mapper adaptation errors", func(t *testing.T) {
-		root := testExplicitRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "MapUser")
+	t.Run("prefers non-erroring generated mapper variants", func(t *testing.T) {
+		errorRoot := testRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "AMapUserError")
+		errorRoot.CanError = true
+		okRoot := testRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "ZMapUserOK")
 		planner := NewPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
-		require.NoError(t, planner.addExplicitRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
+		location := testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go")
+		require.NoError(t, planner.addRoot(outputGroups, location, errorRoot))
+		require.NoError(t, planner.addRoot(outputGroups, location, okRoot))
 
-		zeroValue, zeroOK := planner.planExplicitRoot(pointerTestType(sourceType), targetType, defaultOptionality())
-		errorValue, errorOK := planner.planExplicitRoot(pointerTestType(sourceType), targetType, errorOptionality)
+		got := planner.root(sourceType, targetType)
+
+		assert.Same(t, okRoot, got)
+	})
+
+	t.Run("uses call-site optionality for generated mapper adaptation errors", func(t *testing.T) {
+		root := testRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "MapUser")
+		planner := NewPlanner(Spec{}, ".", "morph.yaml")
+		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
+		require.NoError(t, planner.addRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
+
+		zeroValue, zeroOK := planner.planRoot(pointerTestType(sourceType), targetType, defaultOptionality())
+		errorValue, errorOK := planner.planRoot(pointerTestType(sourceType), targetType, errorOptionality)
 
 		require.True(t, zeroOK)
 		require.True(t, errorOK)
@@ -1191,7 +1227,7 @@ func TestPlannerPlanExplicitRoot(t *testing.T) {
 	})
 
 	t.Run("uses field optionality for generated mapper adaptation errors", func(t *testing.T) {
-		root := testExplicitRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "MapUser")
+		root := testRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "MapUser")
 		containerSourceDecl := testStructDecl("module.test/from", "Container", map[string]types.Field{
 			"User": testField("User", pointerTestType(sourceType)),
 		})
@@ -1205,7 +1241,7 @@ func TestPlannerPlanExplicitRoot(t *testing.T) {
 		})
 		planner := NewPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
-		require.NoError(t, planner.addExplicitRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
+		require.NoError(t, planner.addRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
 
 		planner.planStruct(&container)
 
@@ -1217,7 +1253,7 @@ func TestPlannerPlanExplicitRoot(t *testing.T) {
 		assert.True(t, field.Mapping.CanError)
 	})
 
-	t.Run("chooses explicit root signatures deterministically", func(t *testing.T) {
+	t.Run("chooses root signatures deterministically", func(t *testing.T) {
 		valueRoot := &plan.Type{
 			Source:       sourceRef,
 			Target:       targetRef,
@@ -1246,45 +1282,45 @@ func TestPlannerPlanExplicitRoot(t *testing.T) {
 		planner := NewPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
 		location := testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go")
-		require.NoError(t, planner.addExplicitRoot(outputGroups, location, pointerRoot))
-		require.NoError(t, planner.addExplicitRoot(outputGroups, location, valueRoot))
+		require.NoError(t, planner.addRoot(outputGroups, location, pointerRoot))
+		require.NoError(t, planner.addRoot(outputGroups, location, valueRoot))
 
-		got := planner.explicitRoot(sourceType, targetType)
+		got := planner.root(sourceType, targetType)
 
 		assert.Same(t, valueRoot, got)
 	})
 
-	t.Run("prefers explicit roots in the current output package", func(t *testing.T) {
+	t.Run("prefers roots in the current output package", func(t *testing.T) {
 		currentLocation := testOutputLocation("module.test/current", "/repo/current/morph.gen.go")
 		otherLocation := testOutputLocation("module.test/other", "/repo/other/morph.gen.go")
-		currentRoot := testExplicitRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "ZZZMapUser")
-		otherRoot := testExplicitRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "AAAMapUser")
+		currentRoot := testRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "ZZZMapUser")
+		otherRoot := testRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "AAAMapUser")
 		planner := NewPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
-		require.NoError(t, planner.addExplicitRoot(outputGroups, otherLocation, otherRoot))
-		require.NoError(t, planner.addExplicitRoot(outputGroups, currentLocation, currentRoot))
+		require.NoError(t, planner.addRoot(outputGroups, otherLocation, otherRoot))
+		require.NoError(t, planner.addRoot(outputGroups, currentLocation, currentRoot))
 		planner.currentOutputLocation = &currentLocation
 
-		got := planner.explicitRoot(sourceType, targetType)
+		got := planner.root(sourceType, targetType)
 
 		assert.Same(t, currentRoot, got)
 	})
 
-	t.Run("skips explicit roots that would create an import cycle", func(t *testing.T) {
+	t.Run("skips roots that would create an import cycle", func(t *testing.T) {
 		currentLocation := testOutputLocation("module.test/current", "/repo/current/morph.gen.go")
 		unsafeLocation := testOutputLocation("module.test/unsafe", "/repo/unsafe/morph.gen.go")
 		safeLocation := testOutputLocation("module.test/safe", "/repo/safe/morph.gen.go")
-		unsafeRoot := testExplicitRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "AAAMapUser")
-		safeRoot := testExplicitRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "ZZZMapUser")
+		unsafeRoot := testRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "AAAMapUser")
+		safeRoot := testRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "ZZZMapUser")
 		planner := NewPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
-		require.NoError(t, planner.addExplicitRoot(outputGroups, unsafeLocation, unsafeRoot))
-		require.NoError(t, planner.addExplicitRoot(outputGroups, safeLocation, safeRoot))
+		require.NoError(t, planner.addRoot(outputGroups, unsafeLocation, unsafeRoot))
+		require.NoError(t, planner.addRoot(outputGroups, safeLocation, safeRoot))
 		planner.importGraph = importGraph{}
 		planner.importGraph.addEdge(unsafeLocation.ImportPath, currentLocation.ImportPath)
 		planner.currentOutputLocation = &currentLocation
 
-		got := planner.explicitRoot(sourceType, targetType)
+		got := planner.root(sourceType, targetType)
 
 		assert.Same(t, safeRoot, got)
 	})
@@ -2141,13 +2177,13 @@ func testStructPlanType(sourceDecl, targetDecl types.TypeDecl, structSpec spec.S
 	}
 }
 
-func testExplicitRootPlan(
+func testRootPlan(
 	sourceRef, targetRef plan.TypeRef,
 	sourceDecl, targetDecl types.TypeDecl,
 	sourceType, targetType types.Type,
 	functionName string,
 ) *plan.Type {
-	return testExplicitRootPlanWithSignature(
+	return testRootPlanWithSignature(
 		sourceRef,
 		targetRef,
 		sourceDecl,
@@ -2159,7 +2195,7 @@ func testExplicitRootPlan(
 	)
 }
 
-func testExplicitRootPlanWithSignature(
+func testRootPlanWithSignature(
 	sourceRef, targetRef plan.TypeRef,
 	sourceDecl, targetDecl types.TypeDecl,
 	sourceType, targetType types.Type,

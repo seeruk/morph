@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPlanner_addExplicitRoot(t *testing.T) {
+func TestPlanner_addRoot(t *testing.T) {
 	t.Run("should register root state when adding a new mapper", func(t *testing.T) {
 		planner := NewPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
@@ -20,21 +20,21 @@ func TestPlanner_addExplicitRoot(t *testing.T) {
 		root := testPlanType("source.User", "target.User", "MapUser")
 		mapperKey := plan.TypeMapperKey(root.Source, root.Target, root.Signature)
 		pairKey := plan.TypePairKey(root.Source, root.Target)
-		variantKey := explicitRootVariantKey(location, root)
+		variantKey := rootVariantKey(location, root)
 
-		err := planner.addExplicitRoot(outputGroups, location, root)
+		err := planner.addRoot(outputGroups, location, root)
 		require.NoError(t, err)
 		require.Len(t, outputGroups[location].Roots, 1)
-		require.Len(t, planner.explicitRootsByTypePair[pairKey], 1)
+		require.Len(t, planner.rootVariantsByTypePair[pairKey], 1)
 
-		variant := planner.explicitRoots[spec.CallableRef{
+		variant := planner.rootVariantsByCallable[spec.CallableRef{
 			ImportPath: location.ImportPath,
 			Name:       root.FunctionName,
 		}]
 		require.NotNil(t, variant)
 
 		assert.Same(t, root, outputGroups[location].Roots[0])
-		assert.Same(t, root, planner.explicitRootsByTypePair[pairKey][0].Root)
+		assert.Same(t, root, planner.rootVariantsByTypePair[pairKey][0].Root)
 		assert.Same(t, root, planner.mappings[variantKey])
 		assert.Equal(t, mapperKey, plan.TypeMapperKey(variant.Root.Source, variant.Root.Target, variant.Root.Signature))
 		_, ok := planner.plannedOutputFiles[filepath.Clean(location.LogicalPath)]
@@ -48,9 +48,9 @@ func TestPlanner_addExplicitRoot(t *testing.T) {
 		root := testPlanType("source.User", "target.User", "MapUser")
 		duplicate := testPlanType("source.User", "target.User", "MapUser")
 
-		require.NoError(t, planner.addExplicitRoot(outputGroups, location, root))
+		require.NoError(t, planner.addRoot(outputGroups, location, root))
 
-		err := planner.addExplicitRoot(outputGroups, location, duplicate)
+		err := planner.addRoot(outputGroups, location, duplicate)
 		require.NoError(t, err)
 
 		require.Len(t, outputGroups[location].Roots, 1)
@@ -69,9 +69,9 @@ func TestPlanner_addExplicitRoot(t *testing.T) {
 			Values:   map[string]string{},
 		}
 
-		require.NoError(t, planner.addExplicitRoot(outputGroups, location, root))
+		require.NoError(t, planner.addRoot(outputGroups, location, root))
 
-		err := planner.addExplicitRoot(outputGroups, location, duplicate)
+		err := planner.addRoot(outputGroups, location, duplicate)
 		require.NoError(t, err)
 
 		require.Len(t, outputGroups[location].Roots, 1)
@@ -90,9 +90,9 @@ func TestPlanner_addExplicitRoot(t *testing.T) {
 			},
 		}
 
-		require.NoError(t, planner.addExplicitRoot(outputGroups, location, root))
+		require.NoError(t, planner.addRoot(outputGroups, location, root))
 
-		err := planner.addExplicitRoot(outputGroups, location, conflicting)
+		err := planner.addRoot(outputGroups, location, conflicting)
 		require.Error(t, err)
 
 		assert.ErrorContains(t, err, "conflicting mapper configuration")
@@ -105,9 +105,9 @@ func TestPlanner_addExplicitRoot(t *testing.T) {
 		root := testPlanType("source.User", "target.User", "MapUser")
 		variant := testPlanType("source.User", "target.User", "MapUserDifferently")
 
-		require.NoError(t, planner.addExplicitRoot(outputGroups, location, root))
+		require.NoError(t, planner.addRoot(outputGroups, location, root))
 
-		err := planner.addExplicitRoot(outputGroups, location, variant)
+		err := planner.addRoot(outputGroups, location, variant)
 		require.NoError(t, err)
 
 		require.Len(t, outputGroups[location].Roots, 2)
@@ -122,9 +122,9 @@ func TestPlanner_addExplicitRoot(t *testing.T) {
 		root := testPlanType("source.User", "target.User", "MapThing")
 		conflicting := testPlanType("source.Group", "target.Group", "MapThing")
 
-		require.NoError(t, planner.addExplicitRoot(outputGroups, location, root))
+		require.NoError(t, planner.addRoot(outputGroups, location, root))
 
-		err := planner.addExplicitRoot(outputGroups, location, conflicting)
+		err := planner.addRoot(outputGroups, location, conflicting)
 		require.Error(t, err)
 
 		assert.ErrorContains(t, err, "function name \"MapThing\" is planned for both")
@@ -138,9 +138,9 @@ func TestPlanner_addExplicitRoot(t *testing.T) {
 		firstRoot := testPlanType("source.User", "target.User", "MapThing")
 		secondRoot := testPlanType("source.Group", "target.Group", "MapThing")
 
-		require.NoError(t, planner.addExplicitRoot(outputGroups, firstLocation, firstRoot))
+		require.NoError(t, planner.addRoot(outputGroups, firstLocation, firstRoot))
 
-		err := planner.addExplicitRoot(outputGroups, secondLocation, secondRoot)
+		err := planner.addRoot(outputGroups, secondLocation, secondRoot)
 		require.NoError(t, err)
 
 		assert.Len(t, outputGroups[firstLocation].Roots, 1)
@@ -155,9 +155,9 @@ func TestPlanner_addExplicitRoot(t *testing.T) {
 		root := testPlanType("source.User", "target.User", "MapUser")
 		duplicate := testPlanType("source.User", "target.User", "MapUser")
 
-		require.NoError(t, planner.addExplicitRoot(outputGroups, firstLocation, root))
+		require.NoError(t, planner.addRoot(outputGroups, firstLocation, root))
 
-		err := planner.addExplicitRoot(outputGroups, secondLocation, duplicate)
+		err := planner.addRoot(outputGroups, secondLocation, duplicate)
 		require.NoError(t, err)
 
 		require.Len(t, outputGroups[firstLocation].Roots, 1)
@@ -173,7 +173,7 @@ func TestPlanner_isFunctionPendingGeneration(t *testing.T) {
 	location := testOutputLocation("github.com/seeruk/morph/out", "/repo/out/morph.gen.go")
 	root := testPlanType("source.User", "target.User", "MapUser")
 
-	require.NoError(t, planner.addExplicitRoot(outputGroups, location, root))
+	require.NoError(t, planner.addRoot(outputGroups, location, root))
 
 	tests := []struct {
 		name string
@@ -182,7 +182,7 @@ func TestPlanner_isFunctionPendingGeneration(t *testing.T) {
 		want bool
 	}{
 		{
-			name: "should return true when the explicit root function ref is planned",
+			name: "should return true when the root function ref is planned",
 			fn:   types.FunctionDecl{SourceFile: "/repo/other.go"},
 			ref:  spec.CallableRef{ImportPath: location.ImportPath, Name: root.FunctionName},
 			want: true,

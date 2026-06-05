@@ -50,16 +50,16 @@ type Planner struct {
 	workspace *Workspace
 
 	// Planning state:
-	// explicitRootsByTypePair contains explicitly requested root mappings grouped by source/target
-	// pair. Multiple variants can exist when the same type pair is emitted in different output
-	// packages or with different function names.
-	explicitRootsByTypePair map[string][]*explicitRootVariant // plan.TypePairKey -> variants
-	// explicitRoots reserves explicit-root function names within their output package.
+	// rootVariantsByTypePair contains requested root mappings grouped by source/target pair.
+	// Multiple variants can exist when the same type pair is emitted in different output packages
+	// or with different function names.
+	rootVariantsByTypePair map[string][]*rootVariant // plan.TypePairKey -> variants
+	// rootVariantsByCallable reserves root function names within their output package.
 	// Nested generated mappers are not tracked here; stale generated nested functions are excluded
 	// from discovery by plannedOutputFiles instead.
-	explicitRoots map[spec.CallableRef]*explicitRootVariant
-	// mappings contains all explicit and nested type mappings currently known to the planner.
-	mappings map[string]*plan.Type // output-scoped explicit root key or plan.TypeMapperKey -> *plan.Type
+	rootVariantsByCallable map[spec.CallableRef]*rootVariant
+	// mappings contains all requested root and nested type mappings currently known to the planner.
+	mappings map[string]*plan.Type // output-scoped root key or plan.TypeMapperKey -> *plan.Type
 	// plannedOutputFiles is a map of the logical paths of all output files Morph is planning to
 	// generate. This is useful for discovering functions in files we're about to generate.
 	plannedOutputFiles map[string]struct{} // clean logical path -> present
@@ -70,8 +70,8 @@ type Planner struct {
 	// As shallow plans are made, they'll be added to this map.
 	// As these mappings are fully planned, they will be removed from this map.
 	shallowMappings map[string]struct{} // plan.TypeMapperKey -> present
-	// currentOutputLocation is temporary planning context used for output-aware explicit-root
-	// candidate ranking while an output group is being deeply planned.
+	// currentOutputLocation is temporary planning context used for output-aware root candidate
+	// ranking while an output group is being deeply planned.
 	currentOutputLocation *plan.OutputLocation
 
 	diagnostics []plan.Diagnostic
@@ -84,14 +84,14 @@ func NewPlanner(specification Spec, workingDir, ident string) *Planner {
 		workingDir: workingDir,
 		ident:      ident,
 
-		explicitRootsByTypePair: make(map[string][]*explicitRootVariant),
-		explicitRoots:           make(map[spec.CallableRef]*explicitRootVariant),
-		mappings:                make(map[string]*plan.Type),
-		plannedOutputFiles:      make(map[string]struct{}),
-		planningMappings:        make(map[string]struct{}),
-		shallowMappings:         make(map[string]struct{}),
-		callables:               make(map[spec.CallableRef]registeredCallable),
-		conversions:             conversionSet(specification.Conversions),
+		rootVariantsByTypePair: make(map[string][]*rootVariant),
+		rootVariantsByCallable: make(map[spec.CallableRef]*rootVariant),
+		mappings:               make(map[string]*plan.Type),
+		plannedOutputFiles:     make(map[string]struct{}),
+		planningMappings:       make(map[string]struct{}),
+		shallowMappings:        make(map[string]struct{}),
+		callables:              make(map[spec.CallableRef]registeredCallable),
+		conversions:            conversionSet(specification.Conversions),
 	}
 }
 
@@ -515,8 +515,8 @@ func (p *Planner) shallowPackagePlan(outputGroups map[plan.OutputLocation]plan.O
 			return fmt.Errorf("failed to shallow plan type for packages %q -> %q: %w", pkgSpec.Source, pkgSpec.Target, err)
 		}
 
-		if err = p.addExplicitRoot(outputGroups, location, root); err != nil {
-			return fmt.Errorf("failed to add explicit root plan for packages %q -> %q: %w", pkgSpec.Source, pkgSpec.Target, err)
+		if err = p.addRoot(outputGroups, location, root); err != nil {
+			return fmt.Errorf("failed to add root plan for packages %q -> %q: %w", pkgSpec.Source, pkgSpec.Target, err)
 		}
 	}
 
@@ -664,27 +664,27 @@ func validateStructFieldMappings(typ *plan.Type) []plan.Diagnostic {
 	return out
 }
 
-type explicitRootVariant struct {
+type rootVariant struct {
 	Key      string
 	Location plan.OutputLocation
 	Root     *plan.Type
 }
 
-// addExplicitRoot records an explicitly requested mapper in the shallow plan. It indexes the root
-// as an output-scoped variant, reserves the generated function name within its Go package, tracks
-// the output file so discovery can ignore stale generated functions, and attaches the root to the
+// addRoot records a requested root mapper in the shallow plan. It indexes the root as an
+// output-scoped variant, reserves the generated function name within its Go package, tracks the
+// output file so discovery can ignore stale generated functions, and attaches the root to the
 // output group that will emit it.
-func (p *Planner) addExplicitRoot(
+func (p *Planner) addRoot(
 	outputGroups map[plan.OutputLocation]plan.OutputGroup,
 	location plan.OutputLocation,
 	root *plan.Type,
 ) error {
 	mapperKey := plan.TypeMapperKey(root.Source, root.Target, root.Signature)
 	pairKey := plan.TypePairKey(root.Source, root.Target)
-	variantKey := explicitRootVariantKey(location, root)
+	variantKey := rootVariantKey(location, root)
 	ref := spec.CallableRef{ImportPath: location.ImportPath, Name: root.FunctionName}
 
-	if existing, ok := p.explicitRoots[ref]; ok {
+	if existing, ok := p.rootVariantsByCallable[ref]; ok {
 		existingMapperKey := plan.TypeMapperKey(existing.Root.Source, existing.Root.Target, existing.Root.Signature)
 		if existing.Key != variantKey {
 			return fmt.Errorf("function name %q is planned for both %s and %s", root.FunctionName, existingMapperKey, mapperKey)
@@ -698,16 +698,16 @@ func (p *Planner) addExplicitRoot(
 		return nil
 	}
 
-	variant := &explicitRootVariant{
+	variant := &rootVariant{
 		Key:      variantKey,
 		Location: location,
 		Root:     root,
 	}
 
-	p.explicitRootsByTypePair[pairKey] = append(p.explicitRootsByTypePair[pairKey], variant)
+	p.rootVariantsByTypePair[pairKey] = append(p.rootVariantsByTypePair[pairKey], variant)
 	p.mappings[variantKey] = root
 	p.shallowMappings[variantKey] = struct{}{}
-	p.explicitRoots[ref] = variant
+	p.rootVariantsByCallable[ref] = variant
 	p.plannedOutputFiles[filepath.Clean(location.LogicalPath)] = struct{}{}
 
 	outputGroup, ok := outputGroups[location]
@@ -723,7 +723,7 @@ func (p *Planner) addExplicitRoot(
 	return nil
 }
 
-func explicitRootVariantKey(location plan.OutputLocation, root *plan.Type) string {
+func rootVariantKey(location plan.OutputLocation, root *plan.Type) string {
 	return strings.Join([]string{
 		plan.TypeMapperKey(root.Source, root.Target, root.Signature),
 		location.ImportPath,
@@ -770,7 +770,7 @@ func sameTieredCallables(a, b []spec.TieredCallables) bool {
 }
 
 func (p *Planner) isFunctionPendingGeneration(fn types.FunctionDecl, ref spec.CallableRef) bool {
-	_, plannedFunc := p.explicitRoots[ref]
+	_, plannedFunc := p.rootVariantsByCallable[ref]
 	_, plannedFile := p.plannedOutputFiles[filepath.Clean(fn.SourceFile)]
 	return plannedFunc || plannedFile
 }
@@ -855,7 +855,7 @@ func (p *Planner) planOutputGroup(outputGroup plan.OutputGroup) {
 	}()
 
 	for _, typ := range outputGroup.Roots {
-		p.planTypeWithKey(explicitRootVariantKey(outputGroup.Location, typ), typ)
+		p.planTypeWithKey(rootVariantKey(outputGroup.Location, typ), typ)
 	}
 }
 

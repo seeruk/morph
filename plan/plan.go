@@ -71,7 +71,9 @@ type Field struct {
 }
 
 // Value describes how to map one value to another. Compound mappings point to child mappings for
-// elements, keys, or values (i.e. for nested types).
+// elements, keys, or values (i.e. for nested types). Generators should apply SourceAdaptations to
+// the source expression in order, emit Operation, then apply TargetAdaptations to the operation
+// result in order. Empty adaptation slices mean no adaptation.
 type Value struct {
 	Operation         Operation
 	Source            types.Type
