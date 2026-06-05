@@ -101,7 +101,7 @@ func (p *attemptPlanner) planValue(
 
 	// If broad package discovery found a suitable function to use for this pair of types, use that.
 	if fn, compatibility, ok := p.discoverFunctionCallable(sourceType, targetType, plan.CallableSourceDiscovered); ok {
-		return planCallableValue(sourceType, targetType, fn, compatibility, optionality)
+		return p.callableValue(sourceType, targetType, path, fn, compatibility, optionality, nil)
 	}
 
 	if value, diagnostics, ok := p.planDiscoveredHigherOrderCallable(
@@ -265,8 +265,23 @@ func (p *attemptPlanner) planFieldCallable(
 	targetType = types.UnwrapAlias(targetType)
 
 	refs := []spec.CallableRef{ref}
-	if callable, compatibility, ok := p.discoverExplicitCallable(sourceType, targetType, refs); ok {
-		return planCallableValue(sourceType, targetType, callable, compatibility, optionality)
+	if callable, compatibility, diagnostics, ok := p.discoverExplicitCallable(sourceType, targetType, path, refs); ok {
+		return p.callableValue(sourceType, targetType, path, callable, compatibility, optionality, nil, diagnostics...)
+	} else if len(diagnostics) > 0 {
+		return appendUnsupportedDiagnostics(
+			unsupportedMapping(
+				sourceType,
+				targetType,
+				path,
+				fmt.Sprintf(
+					"configured field callable %q cannot be imported by generated code; expected callable to accept %s and return %s",
+					ref.String(),
+					types.TypeKey(sourceType),
+					types.TypeKey(targetType),
+				),
+			),
+			diagnostics...,
+		)
 	}
 
 	if value, diagnostics, ok := p.planExplicitHigherOrderCallable(
@@ -319,8 +334,11 @@ func (p *attemptPlanner) planTieredCallables(
 	var deferredDiagnostics []plan.Diagnostic
 
 	for _, tier := range callables {
-		if callable, compatibility, ok := p.discoverExplicitCallable(sourceType, targetType, tier.Callables); ok {
-			return planCallableValue(sourceType, targetType, callable, compatibility, optionality), nil, true
+		if callable, compatibility, diagnostics, ok := p.discoverExplicitCallable(sourceType, targetType, path, tier.Callables); ok {
+			value := p.callableValue(sourceType, targetType, path, callable, compatibility, optionality, nil, diagnostics...)
+			return value, value.Diagnostics, true
+		} else {
+			deferredDiagnostics = appendDiagnostic(deferredDiagnostics, diagnostics...)
 		}
 		if value, diagnostics, ok := p.planExplicitHigherOrderCallable(
 			sourceType,
@@ -358,6 +376,22 @@ func planCallableValue(
 	}
 }
 
+func (p *attemptPlanner) callableValue(
+	sourceType, targetType types.Type,
+	path string,
+	callable plan.CallableRef,
+	compatibility callableCompatibility,
+	optionality spec.Optionality,
+	args []plan.CallableArg,
+	diagnostics ...plan.Diagnostic,
+) plan.Value {
+	value := planCallableValue(sourceType, targetType, callable, compatibility, optionality)
+	value.CallableArgs = args
+	value.Diagnostics = appendDiagnostic(value.Diagnostics, diagnostics...)
+	value.Diagnostics = appendDiagnostic(value.Diagnostics, p.recordCallableImport(path, callable)...)
+	return value
+}
+
 // planRoot is used to just-in-time plan a requested root, so that if we're going to generate a
 // mapping function for a type pair, and we could use it elsewhere, we'll be able to refer to it in
 // the plan. We already have the shallow plan; the key thing we need to know is whether this root
@@ -376,7 +410,15 @@ func (p *attemptPlanner) planRoot(source, target types.Type, optionality spec.Op
 		operation = plan.OperationEnum
 	}
 
-	return generatedMapperValue(operation, source, target, typePlan, optionality, compatibility), true
+	return p.generatedMapperCallValue(
+		plan.TypesPath(source, target),
+		operation,
+		source,
+		target,
+		typePlan,
+		optionality,
+		compatibility,
+	), true
 }
 
 func (p *attemptPlanner) root(source, target types.Type) *plan.Type {
@@ -392,12 +434,7 @@ func (p *attemptPlanner) rootVariant(source, target types.Type) (*rootVariant, c
 	sourceRef := plan.TypeRefFromType(sourceLookup)
 	targetRef := plan.TypeRefFromType(targetLookup)
 
-	variants := slices.Clone(p.rootVariantsByTypePair[plan.TypePairKey(sourceRef, targetRef)])
-	if p.currentOutputLocation != nil {
-		variants = slices.DeleteFunc(variants, func(candidate *rootVariant) bool {
-			return !p.canUseRootVariant(*p.currentOutputLocation, candidate)
-		})
-	}
+	variants := p.usableRootVariants(slices.Clone(p.rootVariantsByTypePair[plan.TypePairKey(sourceRef, targetRef)]))
 
 	var candidates []rootCandidate
 	for _, variant := range variants {
@@ -418,6 +455,11 @@ func (p *attemptPlanner) rootVariant(source, target types.Type) (*rootVariant, c
 	for i := range candidates {
 		p.planRootVariant(candidates[i].Variant)
 		candidates[i].Compatibility.ReturnsError = candidates[i].Variant.Root.CanError
+	}
+	candidates = p.usableRootCandidates(candidates)
+
+	if len(candidates) == 0 {
+		return nil, callableCompatibility{}, false
 	}
 
 	slices.SortFunc(candidates, func(a, b rootCandidate) int {
@@ -444,6 +486,28 @@ func (p *attemptPlanner) rootVariant(source, target types.Type) (*rootVariant, c
 	return candidates[0].Variant, candidates[0].Compatibility, true
 }
 
+func (p *attemptPlanner) usableRootVariants(variants []*rootVariant) []*rootVariant {
+	if p.currentOutputLocation == nil {
+		return variants
+	}
+
+	// Filter before planning so already impossible output-package choices don't get deep planned.
+	return slices.DeleteFunc(variants, func(candidate *rootVariant) bool {
+		return !p.canUseRootVariant(*p.currentOutputLocation, candidate)
+	})
+}
+
+func (p *attemptPlanner) usableRootCandidates(candidates []rootCandidate) []rootCandidate {
+	if p.currentOutputLocation == nil {
+		return candidates
+	}
+
+	// Deep planning candidates can record new generated imports, so re-check before ranking.
+	return slices.DeleteFunc(candidates, func(candidate rootCandidate) bool {
+		return !p.canUseRootVariant(*p.currentOutputLocation, candidate.Variant)
+	})
+}
+
 func (p *attemptPlanner) planRootVariant(variant *rootVariant) {
 	previous := p.currentOutputLocation
 	p.currentOutputLocation = &variant.Location
@@ -451,7 +515,7 @@ func (p *attemptPlanner) planRootVariant(variant *rootVariant) {
 		p.currentOutputLocation = previous
 	}()
 
-	p.planTypeWithKey(variant.Key, variant.Root)
+	p.planType(variant.Root, variant.Key)
 }
 
 type rootCandidate struct {
@@ -495,6 +559,19 @@ func generatedMapperValue(
 	}
 }
 
+func (p *attemptPlanner) generatedMapperCallValue(
+	path string,
+	operation plan.Operation,
+	source, target types.Type,
+	mapper *plan.Type,
+	optionality spec.Optionality,
+	compatibility callableCompatibility,
+) plan.Value {
+	value := generatedMapperValue(operation, source, target, mapper, optionality, compatibility)
+	value.Diagnostics = appendDiagnostic(value.Diagnostics, p.recordGeneratedMapperCallImport(path, mapper)...)
+	return value
+}
+
 func generatedMapperParameterType(root *plan.Type) types.Type {
 	if root.Signature.Accepts == spec.ParameterKindPointer {
 		return types.PointerTo(root.SourceType)
@@ -516,7 +593,7 @@ func (p *attemptPlanner) canUseRootVariant(current plan.OutputLocation, candidat
 	if p.importGraph == nil {
 		return true
 	}
-	return p.importGraph.canAddEdge(current.ImportPath, candidate.Location.ImportPath)
+	return p.importGraph.CanAddEdge(current.ImportPath, candidate.Location.ImportPath)
 }
 
 func rootVariantPackageRank(current plan.OutputLocation, candidate *rootVariant) int {
@@ -582,7 +659,7 @@ func (p *attemptPlanner) planNestedStruct(
 	if existing, ok := p.nestedMapper(ownerLocation.ImportPath, mapperKey); ok {
 		p.planNestedMapper(ownerLocation, key, existing)
 		compatibility := assessGeneratedMapperCompatibility(source, target, existing)
-		return generatedMapperValue(plan.OperationStruct, source, target, existing, optionality, compatibility), true
+		return p.generatedMapperCallValue(path, plan.OperationStruct, source, target, existing, optionality, compatibility), true
 	}
 
 	var err error
@@ -590,15 +667,27 @@ func (p *attemptPlanner) planNestedStruct(
 	if err != nil {
 		return unsupportedMapping(source, target, path, fmt.Sprintf("failed to generate nested function name: %v", err)), true
 	}
+
 	if err := p.reserveGeneratedFunction(ownerLocation, nested.FunctionName, key); err != nil {
 		return unsupportedMapping(source, target, path, fmt.Sprintf("failed to reserve nested function name: %v", err)), true
+	}
+
+	signatureDiagnostics := p.recordMapperSignatureImports(
+		ownerLocation.ImportPath,
+		fmt.Sprintf("nested mapper %q", nested.FunctionName),
+		&nested,
+	)
+	if len(signatureDiagnostics) > 0 {
+		value := unsupportedMapping(source, target, path, "nested mapper signature would create an import cycle")
+		value.Diagnostics = appendDiagnostic(value.Diagnostics, signatureDiagnostics...)
+		return value, true
 	}
 
 	p.addNestedMapper(ownerLocation, mapperKey, key, &nested)
 	p.planNestedMapper(ownerLocation, key, &nested)
 
 	compatibility := assessGeneratedMapperCompatibility(source, target, &nested)
-	return generatedMapperValue(plan.OperationStruct, source, target, &nested, optionality, compatibility), true
+	return p.generatedMapperCallValue(path, plan.OperationStruct, source, target, &nested, optionality, compatibility), true
 }
 
 func (p *attemptPlanner) planNestedMapper(location plan.OutputLocation, key string, nested *plan.Type) {
@@ -608,7 +697,7 @@ func (p *attemptPlanner) planNestedMapper(location plan.OutputLocation, key stri
 		p.currentOutputLocation = previous
 	}()
 
-	p.planTypeWithKey(key, nested)
+	p.planType(nested, key)
 }
 
 func (p *attemptPlanner) nestedOwnerLocation(current plan.OutputLocation) plan.OutputLocation {
@@ -624,6 +713,7 @@ func (p *attemptPlanner) nestedOwnerLocation(current plan.OutputLocation) plan.O
 			locations = append(locations, location)
 		}
 	}
+
 	if len(locations) == 0 {
 		return current
 	}
@@ -741,6 +831,9 @@ func (p *attemptPlanner) discoverFunctionCallable(
 		if !ok {
 			continue
 		}
+		if !p.canUseCallable(callable) {
+			continue
+		}
 
 		compatibility := assessFunctionCompatibility(sourceType, targetType, fn)
 		if !compatibility.Compatible() {
@@ -759,9 +852,11 @@ func (p *attemptPlanner) discoverFunctionCallable(
 
 func (p *attemptPlanner) discoverExplicitCallable(
 	sourceType, targetType types.Type,
+	path string,
 	refs []spec.CallableRef,
-) (plan.CallableRef, callableCompatibility, bool) {
+) (plan.CallableRef, callableCompatibility, []plan.Diagnostic, bool) {
 	candidates := make(map[plan.CallableRef]callableCompatibility)
+	var diagnostics []plan.Diagnostic
 	for _, ref := range refs {
 		callable, ok := p.callables[ref]
 		if !ok {
@@ -777,6 +872,10 @@ func (p *attemptPlanner) discoverExplicitCallable(
 			}
 			compatibility := assessFunctionCompatibility(sourceType, targetType, fn)
 			if compatibility.Compatible() {
+				if diagnostic, ok := p.callableImportDiagnostic(path, callableRef); ok {
+					diagnostics = appendDiagnostic(diagnostics, diagnostic)
+					continue
+				}
 				candidates[callableRef] = compatibility
 			}
 		case callable.Method != nil:
@@ -794,9 +893,9 @@ func (p *attemptPlanner) discoverExplicitCallable(
 
 	callable, compatibility, ok := bestCallableCandidate(candidates)
 	if !ok {
-		return plan.CallableRef{}, callableCompatibility{}, false
+		return plan.CallableRef{}, callableCompatibility{}, diagnostics, false
 	}
-	return callable, compatibility, true
+	return callable, compatibility, nil, true
 }
 
 func (p *attemptPlanner) planDiscoveredHigherOrderCallable(
@@ -810,6 +909,9 @@ func (p *attemptPlanner) planDiscoveredHigherOrderCallable(
 	for _, fn := range p.registry.Candidates(sourceType, targetType, plan.CallableSourceDiscovered) {
 		callable, ok := plan.CallableRefFromFunctionDecl(fn, plan.CallableSourceDiscovered)
 		if !ok {
+			continue
+		}
+		if !p.canUseCallable(callable) {
 			continue
 		}
 		if p.isCallableBanned(path, sourceType, targetType, callable) {
@@ -839,19 +941,17 @@ func (p *attemptPlanner) planDiscoveredHigherOrderCallable(
 		}
 
 		callable := candidate.Callable
-		adaptations := adaptationsForCompatibility(candidate.Compatibility, optionality)
-		return plan.Value{
-			Operation:         plan.OperationFunction,
-			Source:            sourceType,
-			Target:            targetType,
-			Callable:          &callable,
-			CallableArgs:      args,
-			SourceAdaptations: adaptations.Source,
-			TargetAdaptations: adaptations.Target,
-			Optionality:       optionality,
-			CanError:          callable.ReturnsError || adaptations.CanError,
-			Diagnostics:       diagnostics,
-		}, diagnostics, true
+		value := p.callableValue(
+			sourceType,
+			targetType,
+			path,
+			callable,
+			candidate.Compatibility,
+			optionality,
+			args,
+			diagnostics...,
+		)
+		return value, value.Diagnostics, true
 	}
 
 	return plan.Value{}, deferredDiagnostics, false
@@ -866,6 +966,7 @@ func (p *attemptPlanner) planExplicitHigherOrderCallable(
 	callables []spec.TieredCallables,
 ) (plan.Value, []plan.Diagnostic, bool) {
 	candidates := make(map[plan.CallableRef]callableCompatibility)
+	var deferredDiagnostics []plan.Diagnostic
 	for _, ref := range refs {
 		callable, ok := p.callables[ref]
 		if !ok || callable.Function == nil {
@@ -882,12 +983,17 @@ func (p *attemptPlanner) planExplicitHigherOrderCallable(
 		}
 
 		compatibility := assessHigherOrderFunctionCompatibility(sourceType, targetType, fn)
-		if compatibility.Compatible() {
-			candidates[callableRef] = compatibility
+		if !compatibility.Compatible() {
+			continue
 		}
+		if diagnostic, ok := p.callableImportDiagnostic(path, callableRef); ok {
+			deferredDiagnostics = appendDiagnostic(deferredDiagnostics, diagnostic)
+			continue
+		}
+
+		candidates[callableRef] = compatibility
 	}
 
-	var deferredDiagnostics []plan.Diagnostic
 	for _, candidate := range rankedCallableCandidates(candidates) {
 		args, diagnostics, ok := p.planCallableArgs(
 			candidate.Compatibility.MapperArgs,
@@ -902,19 +1008,17 @@ func (p *attemptPlanner) planExplicitHigherOrderCallable(
 		}
 
 		callable := candidate.Callable
-		adaptations := adaptationsForCompatibility(candidate.Compatibility, optionality)
-		return plan.Value{
-			Operation:         plan.OperationFunction,
-			Source:            sourceType,
-			Target:            targetType,
-			Callable:          &callable,
-			CallableArgs:      args,
-			SourceAdaptations: adaptations.Source,
-			TargetAdaptations: adaptations.Target,
-			Optionality:       optionality,
-			CanError:          callable.ReturnsError || adaptations.CanError,
-			Diagnostics:       diagnostics,
-		}, diagnostics, true
+		value := p.callableValue(
+			sourceType,
+			targetType,
+			path,
+			callable,
+			candidate.Compatibility,
+			optionality,
+			args,
+			diagnostics...,
+		)
+		return value, value.Diagnostics, true
 	}
 
 	return plan.Value{}, deferredDiagnostics, false

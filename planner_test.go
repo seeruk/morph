@@ -264,9 +264,9 @@ func TestPlanner_prepareImportGraph(t *testing.T) {
 		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
 		planner.importGraph = importGraph{}
 		graph := importGraph{}
-		graph.addEdge("module.test/source", "module.test/target")
+		graph.AddEdge("module.test/source", "module.test/target")
 
-		err := graph.addGeneratedImport("module.test/target", "module.test/source")
+		err := graph.AddGeneratedImport("module.test/target", "module.test/source")
 
 		require.Error(t, err)
 		assert.ErrorContains(t, err, "would create an import cycle")

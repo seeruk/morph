@@ -29,8 +29,6 @@ type Planner struct {
 	// the config file used for this run). It doesn't need to be hyper-specific, as it's used to
 	// build a hash along with the workspace.
 	ident string
-	// runHash is a stable run hash for this module / location / spec origin.
-	runHash string
 
 	// loader is the initialized type loader for this planner
 	loader *types.Loader
@@ -38,6 +36,8 @@ type Planner struct {
 	conversions map[spec.Conversion]struct{}
 	// workspace contains the module and filesystem environment Morph is planning within
 	workspace *Workspace
+	// runHash is a stable run hash for this module / location / spec origin.
+	runHash string
 }
 
 // NewPlanner returns a new Planner, set to plan the given Spec.
@@ -70,24 +70,24 @@ func (p *Planner) Plan() (Plan, error) {
 	for {
 		planner := p.newAttempt(bans)
 
-		attempt, retryBan, err := planner.plan()
+		attempt, ban, err := planner.Plan()
 		if err != nil {
 			return attempt, err
 		}
 
 		// If no retry ban is returned, the plan is valid and we're done!
-		if retryBan == nil {
+		if ban == nil {
 			return attempt, nil
 		}
 
 		// We've hit a ban we can't avoid, return the attempt, and it should contain a fatal
 		// diagnostic which should halt execution.
-		if _, exists := bans[*retryBan]; exists {
+		if _, exists := bans[*ban]; exists {
 			return attempt, nil
 		}
 
 		// If we've not seen the ban before, we keep track of it and go again...
-		bans[*retryBan] = struct{}{}
+		bans[*ban] = struct{}{}
 	}
 }
 
@@ -115,7 +115,7 @@ type attemptPlanner struct {
 	// callables contains explicitly referenced functions and methods available to scoped callable
 	// selection, keyed by the user-provided callable reference.
 	callables map[spec.CallableRef]registeredCallable
-	// importGraph contains existing imports plus shallow-planned generated imports.
+	// importGraph contains existing imports plus generated imports recorded while planning.
 	importGraph importGraph
 	// rootVariantsByTypePair contains requested root mappings grouped by source/target pair.
 	// Multiple variants can exist when the same type pair is emitted in different output packages
@@ -182,7 +182,7 @@ func newAttemptPlanner(
 	}
 }
 
-func (p *attemptPlanner) plan() (Plan, *callableBan, error) {
+func (p *attemptPlanner) Plan() (Plan, *callableBan, error) {
 	var out Plan
 
 	// Next we'll do a shallow pass over the spec to determine all the mapping functions we're going
@@ -217,11 +217,11 @@ func (p *attemptPlanner) plan() (Plan, *callableBan, error) {
 
 	p.finalizePlanErrability(out.OutputGroups)
 
-	retryBan := p.validateCallableErrability(out.OutputGroups)
+	ban := p.validateFinalPlan(out.OutputGroups)
 
 	out.Diagnostics = p.diagnostics
 
-	return out, retryBan, nil
+	return out, ban, nil
 }
 
 // prepare sets up this planner instance, initializing the type loader, setting up the workspace,
@@ -337,113 +337,6 @@ func (p *Planner) prepareWorkspace() error {
 	}
 
 	return fmt.Errorf("failed to determine working directory: couldn't find main module")
-}
-
-func (p *attemptPlanner) prepareImportGraph(outputGroups map[plan.OutputLocation]plan.OutputGroup) error {
-	graph := p.baseImportGraph()
-
-	for _, outputGroup := range sortedOutputGroups(outputGroups) {
-		for _, root := range outputGroup.Roots {
-			// A generated mapper in the output package must refer to both mapped packages. Adding
-			// each generated edge up front prevents Morph from producing a plan that Go could not
-			// compile due to import cycles.
-			if err := graph.addGeneratedImport(outputGroup.Location.ImportPath, root.Source.ImportPath); err != nil {
-				return fmt.Errorf("output %q: %w", outputGroup.Location.ImportPath, err)
-			}
-			if err := graph.addGeneratedImport(outputGroup.Location.ImportPath, root.Target.ImportPath); err != nil {
-				return fmt.Errorf("output %q: %w", outputGroup.Location.ImportPath, err)
-			}
-		}
-	}
-
-	p.importGraph = graph
-	return nil
-}
-
-func (p *attemptPlanner) baseImportGraph() importGraph {
-	graph := make(importGraph)
-	if p.loader == nil {
-		return graph
-	}
-	for _, pkg := range p.loader.Packages() {
-		for _, importPath := range pkg.Imports {
-			graph.addEdge(pkg.ImportPath, importPath)
-		}
-	}
-	return graph
-}
-
-// importGraph is an adjacency list of direct package imports:
-//
-//	importer package -> imported package -> present
-//
-// Existing imports are loaded from Go packages. During shallow planning, Morph also adds the
-// imports that generated files would need, from each output package to the source and target
-// packages referenced by roots emitted there.
-type importGraph map[string]map[string]struct{}
-
-// addGeneratedImport records an import that Morph-generated code would add. It rejects the edge if
-// the imported package already reaches the importer, because adding importer -> imported would then
-// complete a cycle.
-func (g importGraph) addGeneratedImport(from, to string) error {
-	if p := g.path(to, from); len(p) > 0 {
-		return fmt.Errorf(
-			"generated import %q -> %q would create an import cycle; existing path: %s",
-			from,
-			to,
-			strings.Join(p, " -> "),
-		)
-	}
-	g.addEdge(from, to)
-	return nil
-}
-
-// canAddEdge reports whether a direct import from -> to can be added without creating a cycle.
-func (g importGraph) canAddEdge(from, to string) bool {
-	return len(g.path(to, from)) == 0
-}
-
-func (g importGraph) addEdge(from, to string) {
-	if from == "" || to == "" || from == to {
-		return
-	}
-	if _, ok := g[from]; !ok {
-		g[from] = make(map[string]struct{})
-	}
-	g[from][to] = struct{}{}
-}
-
-// path returns one import path from `from` to `to` by following existing direct imports. An empty
-// slice means no path exists. Self-imports and empty package paths are ignored because Go does not
-// emit imports for references within the generated file's own package.
-func (g importGraph) path(from, to string) []string {
-	if from == "" || to == "" {
-		return nil
-	}
-	if from == to {
-		return nil
-	}
-
-	seen := make(map[string]struct{})
-	var walk func(string) []string
-	walk = func(current string) []string {
-		if current == to {
-			return []string{current}
-		}
-		if _, ok := seen[current]; ok {
-			return nil
-		}
-		seen[current] = struct{}{}
-
-		for next := range g[current] {
-			if p := walk(next); len(p) > 0 {
-				return append([]string{current}, p...)
-			}
-		}
-		return nil
-	}
-
-	return walk(from)
 }
 
 func (p *attemptPlanner) registerDiscovery() error {
@@ -765,9 +658,10 @@ func (p *attemptPlanner) addRoot(
 	mapperKey := plan.TypeMapperKey(root.Source, root.Target, root.Signature)
 	pairKey := plan.TypePairKey(root.Source, root.Target)
 	variantKey := rootVariantKey(location, root)
-	ref := spec.CallableRef{ImportPath: location.ImportPath, Name: root.FunctionName}
+
 	root.Location = location
 
+	ref := spec.CallableRef{ImportPath: location.ImportPath, Name: root.FunctionName}
 	if existing, ok := p.rootVariantsByCallable[ref]; ok {
 		existingMapperKey := plan.TypeMapperKey(existing.Root.Source, existing.Root.Target, existing.Root.Signature)
 		if existing.Key != variantKey {
@@ -781,6 +675,7 @@ func (p *attemptPlanner) addRoot(
 		}
 		return nil
 	}
+
 	if err := p.reserveGeneratedFunction(location, root.FunctionName, variantKey); err != nil {
 		return err
 	}
@@ -791,10 +686,10 @@ func (p *attemptPlanner) addRoot(
 		Root:     root,
 	}
 
+	p.rootVariantsByCallable[ref] = variant
 	p.rootVariantsByTypePair[pairKey] = append(p.rootVariantsByTypePair[pairKey], variant)
 	p.mappings[variantKey] = root
 	p.shallowMappings[variantKey] = struct{}{}
-	p.rootVariantsByCallable[ref] = variant
 	p.plannedOutputFiles[filepath.Clean(location.LogicalPath)] = struct{}{}
 
 	outputGroup, ok := outputGroups[location]
@@ -956,15 +851,11 @@ func (p *attemptPlanner) planOutputGroup(location plan.OutputLocation) {
 
 	outputGroup := p.outputGroups[location]
 	for _, typ := range outputGroup.Roots {
-		p.planTypeWithKey(rootVariantKey(location, typ), typ)
+		p.planType(typ, rootVariantKey(location, typ))
 	}
 }
 
-func (p *attemptPlanner) planType(typ *plan.Type) {
-	p.planTypeWithKey(plan.TypeMapperKey(typ.Source, typ.Target, typ.Signature), typ)
-}
-
-func (p *attemptPlanner) planTypeWithKey(key string, typ *plan.Type) {
+func (p *attemptPlanner) planType(typ *plan.Type, key string) {
 	if _, isPlanning := p.planningMappings[key]; isPlanning {
 		return
 	}

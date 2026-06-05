@@ -30,6 +30,11 @@ type callableErrabilityFailure struct {
 	Diagnostic plan.Diagnostic
 }
 
+type finalPlanValidation struct {
+	ImportSites      []importRequirementSite
+	CallableFailures []callableErrabilityFailure
+}
+
 func (p *attemptPlanner) isCallableBanned(path string, source, target types.Type, callable plan.CallableRef) bool {
 	_, banned := p.callableBans[callableBanFor(path, source, target, callable)]
 	return banned
@@ -38,28 +43,28 @@ func (p *attemptPlanner) isCallableBanned(path string, source, target types.Type
 func (p *attemptPlanner) finalizePlanErrability(outputGroups []plan.OutputGroup) {
 	for {
 		var changed bool
-		seen := make(map[*plan.Type]struct{})
-		for _, outputGroup := range outputGroups {
-			for _, root := range outputGroup.Roots {
-				if finalizeTypeErrability(root, seen) {
+		walkOutputGroups(outputGroups, walkCallbacks{
+			ValuePost: func(ctx walkContext) {
+				if finalizeValueErrability(ctx.Value) {
 					changed = true
 				}
-			}
-		}
+			},
+			TypePost: func(ctx walkContext) {
+				if finalizeTypeErrability(ctx.Type) {
+					changed = true
+				}
+			},
+		})
 		if !changed {
 			return
 		}
 	}
 }
 
-func finalizeTypeErrability(typ *plan.Type, seen map[*plan.Type]struct{}) bool {
+func finalizeTypeErrability(typ *plan.Type) bool {
 	if typ == nil {
 		return false
 	}
-	if _, ok := seen[typ]; ok {
-		return false
-	}
-	seen[typ] = struct{}{}
 
 	var canError, changed bool
 
@@ -71,9 +76,6 @@ func finalizeTypeErrability(typ *plan.Type, seen map[*plan.Type]struct{}) bool {
 		// Structs can have callables, so we need to check each field.
 		for i := range typ.StructPlan.Fields {
 			field := &typ.StructPlan.Fields[i]
-			if finalizeValueErrability(&field.Mapping, seen) {
-				changed = true
-			}
 			canError = canError || field.Mapping.CanError
 		}
 	}
@@ -86,28 +88,9 @@ func finalizeTypeErrability(typ *plan.Type, seen map[*plan.Type]struct{}) bool {
 	return changed
 }
 
-func finalizeValueErrability(value *plan.Value, seen map[*plan.Type]struct{}) bool {
+func finalizeValueErrability(value *plan.Value) bool {
 	if value == nil {
 		return false
-	}
-
-	var changed bool
-	if value.Plan != nil && finalizeTypeErrability(value.Plan, seen) {
-		changed = true
-	}
-	if value.Elem != nil && finalizeValueErrability(value.Elem, seen) {
-		changed = true
-	}
-	if value.Key != nil && finalizeValueErrability(value.Key, seen) {
-		changed = true
-	}
-	if value.Value != nil && finalizeValueErrability(value.Value, seen) {
-		changed = true
-	}
-	for i := range value.CallableArgs {
-		if finalizeValueErrability(&value.CallableArgs[i].Mapping, seen) {
-			changed = true
-		}
 	}
 
 	canError := adaptationsCanError(value.SourceAdaptations, value.Optionality) ||
@@ -124,10 +107,10 @@ func finalizeValueErrability(value *plan.Value, seen map[*plan.Type]struct{}) bo
 
 	if value.CanError != canError {
 		value.CanError = canError
-		changed = true
+		return true
 	}
 
-	return changed
+	return false
 }
 
 func valueChildrenCanError(value *plan.Value) bool {
@@ -136,15 +119,18 @@ func valueChildrenCanError(value *plan.Value) bool {
 		value.Value != nil && value.Value.CanError
 }
 
-func (p *attemptPlanner) validateCallableErrability(outputGroups []plan.OutputGroup) *callableBan {
-	failures := collectCallableErrabilityFailures(outputGroups)
-	for _, failure := range failures {
+func (p *attemptPlanner) validateFinalPlan(outputGroups []plan.OutputGroup) *callableBan {
+	validation := collectFinalPlanValidation(outputGroups)
+	for _, failure := range validation.CallableFailures {
 		if _, banned := p.callableBans[failure.Ban]; !banned {
-			return new(failure.Ban)
+			ban := failure.Ban
+			return &ban
 		}
 	}
 
-	for _, failure := range failures {
+	p.validateImportRequirements(validation.ImportSites)
+
+	for _, failure := range validation.CallableFailures {
 		failure.Value.Diagnostics = appendDiagnostic(failure.Value.Diagnostics, failure.Diagnostic)
 		if failure.Type != nil {
 			failure.Type.Diagnostics = appendDiagnostic(failure.Type.Diagnostics, failure.Diagnostic)
@@ -154,114 +140,46 @@ func (p *attemptPlanner) validateCallableErrability(outputGroups []plan.OutputGr
 	return nil
 }
 
-func collectCallableErrabilityFailures(outputGroups []plan.OutputGroup) []callableErrabilityFailure {
-	var failures []callableErrabilityFailure
-	seen := make(map[*plan.Type]struct{})
-	for _, outputGroup := range outputGroups {
-		for _, root := range outputGroup.Roots {
-			failures = append(failures, collectTypeCallableErrabilityFailures(root, seen)...)
-		}
-	}
-	return failures
+func collectFinalPlanValidation(outputGroups []plan.OutputGroup) finalPlanValidation {
+	var validation finalPlanValidation
+	walkOutputGroups(outputGroups, walkCallbacks{
+		TypePre: func(ctx walkContext) {
+			validation.ImportSites = append(validation.ImportSites, typeSignatureImportSites(ctx)...)
+		},
+		ValuePre: func(ctx walkContext) {
+			validation.ImportSites = append(validation.ImportSites, valueImportSites(ctx)...)
+			validation.CallableFailures = append(validation.CallableFailures, callableErrabilityFailures(ctx)...)
+		},
+	})
+	validation.ImportSites = dedupeImportRequirementSites(validation.ImportSites)
+	return validation
 }
 
-func collectTypeCallableErrabilityFailures(typ *plan.Type, seen map[*plan.Type]struct{}) []callableErrabilityFailure {
-	if typ == nil {
-		return nil
-	}
-	if _, ok := seen[typ]; ok {
-		return nil
-	}
-
-	seen[typ] = struct{}{}
-
-	var failures []callableErrabilityFailure
-	if typ.StructPlan == nil {
-		return failures
-	}
-
-	for i := range typ.StructPlan.Fields {
-		field := &typ.StructPlan.Fields[i]
-		path := plan.FieldPath(typ.SourceType, typ.TargetType, field.SourceField, field.TargetField)
-		failures = append(failures, collectValueCallableErrabilityFailures(
-			&field.Mapping,
-			typ,
-			path,
-			seen,
-		)...)
-	}
-
-	return failures
-}
-
-func collectValueCallableErrabilityFailures(
-	value *plan.Value,
-	typ *plan.Type,
-	path string,
-	seen map[*plan.Type]struct{},
-) []callableErrabilityFailure {
-	if value == nil {
+func callableErrabilityFailures(ctx walkContext) []callableErrabilityFailure {
+	value := ctx.Value
+	if value == nil || value.Callable == nil {
 		return nil
 	}
 
 	var failures []callableErrabilityFailure
-	if value.Callable != nil {
-		for i := range value.CallableArgs {
-			arg := &value.CallableArgs[i]
-			argPath := callableArgPath(path, i)
-			if arg.Mapping.CanError && !arg.ReturnsError {
-				failures = append(failures, callableErrabilityFailure{
-					Ban: callableBanFor(
-						path,
-						value.Source,
-						value.Target,
-						*value.Callable,
-					),
-					Value:      value,
-					Type:       typ,
-					Diagnostic: callableErrabilityDiagnostic(argPath, i, arg.Mapping),
-				})
-			}
-			failures = append(failures, collectValueCallableErrabilityFailures(
-				&arg.Mapping,
-				typ,
-				argPath,
-				seen,
-			)...)
+	for i := range value.CallableArgs {
+		arg := &value.CallableArgs[i]
+		if !arg.Mapping.CanError || arg.ReturnsError {
+			continue
 		}
-	}
 
-	if value.Elem != nil {
-		failures = append(failures, collectValueCallableErrabilityFailures(
-			value.Elem,
-			typ,
-			path+"[]",
-			seen,
-		)...)
+		failures = append(failures, callableErrabilityFailure{
+			Ban: callableBanFor(
+				ctx.Path,
+				value.Source,
+				value.Target,
+				*value.Callable,
+			),
+			Value:      value,
+			Type:       ctx.Owner,
+			Diagnostic: callableErrabilityDiagnostic(callableArgPath(ctx.Path, i), i, arg.Mapping),
+		})
 	}
-
-	if value.Key != nil {
-		failures = append(failures, collectValueCallableErrabilityFailures(
-			value.Key,
-			typ,
-			path+"[key]",
-			seen,
-		)...)
-	}
-
-	if value.Value != nil {
-		failures = append(failures, collectValueCallableErrabilityFailures(
-			value.Value,
-			typ,
-			path+"[value]",
-			seen,
-		)...)
-	}
-
-	if value.Plan != nil {
-		failures = append(failures, collectTypeCallableErrabilityFailures(value.Plan, seen)...)
-	}
-
 	return failures
 }
 

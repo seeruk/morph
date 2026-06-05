@@ -844,7 +844,7 @@ func TestPlannerPlanStruct(t *testing.T) {
 		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
 		planner.registry = newFunctionRegistry()
 
-		planner.planType(&typ)
+		planner.planType(&typ, plan.TypeMapperKey(typ.Source, typ.Target, typ.Signature))
 
 		require.Len(t, typ.StructPlan.Fields, 1)
 		assert.Equal(t, plan.OperationUnsupported, typ.StructPlan.Fields[0].Mapping.Operation)
@@ -1344,12 +1344,98 @@ func TestPlannerPlanRoot(t *testing.T) {
 		require.NoError(t, planner.addRoot(outputGroups, unsafeLocation, unsafeRoot))
 		require.NoError(t, planner.addRoot(outputGroups, safeLocation, safeRoot))
 		planner.importGraph = importGraph{}
-		planner.importGraph.addEdge(unsafeLocation.ImportPath, currentLocation.ImportPath)
+		planner.importGraph.AddEdge(unsafeLocation.ImportPath, currentLocation.ImportPath)
 		planner.currentOutputLocation = &currentLocation
 
 		got := planner.root(sourceType, targetType)
 
 		assert.Same(t, safeRoot, got)
+	})
+
+	t.Run("records selected root imports", func(t *testing.T) {
+		currentLocation := testOutputLocation("module.test/current", "/repo/current/morph.gen.go")
+		rootLocation := testOutputLocation("module.test/root", "/repo/root/morph.gen.go")
+		root := testRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "MapUser")
+		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
+		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
+		require.NoError(t, planner.addRoot(outputGroups, rootLocation, root))
+		planner.importGraph = importGraph{}
+		planner.currentOutputLocation = &currentLocation
+
+		_, ok := planner.planRoot(sourceType, targetType, defaultOptionality())
+
+		require.True(t, ok)
+		assert.Contains(t, planner.importGraph[currentLocation.ImportPath], rootLocation.ImportPath)
+	})
+}
+
+func TestPlannerCallableImportFiltering(t *testing.T) {
+	sourceType := basicTestType("string")
+	targetType := basicTestType("int")
+	currentLocation := testOutputLocation("module.test/current", "/repo/current/morph.gen.go")
+
+	t.Run("skips discovered function callables that would create an import cycle", func(t *testing.T) {
+		unsafeFn := testFunctionDeclInPackage(
+			"module.test/unsafe",
+			"unsafe",
+			"StringToIntA",
+			sourceType,
+			targetType,
+		)
+		safeFn := testFunctionDeclInPackage(
+			"module.test/safe",
+			"safe",
+			"StringToIntZ",
+			sourceType,
+			targetType,
+		)
+		registry := newFunctionRegistry()
+		require.True(t, registry.Register(unsafeFn, plan.CallableSourceDiscovered))
+		require.True(t, registry.Register(safeFn, plan.CallableSourceDiscovered))
+		planner := &attemptPlanner{registry: registry}
+		planner.importGraph = importGraph{}
+		planner.importGraph.AddEdge("module.test/unsafe", currentLocation.ImportPath)
+		planner.currentOutputLocation = &currentLocation
+
+		got := planner.planValue(
+			sourceType,
+			targetType,
+			"Value",
+			defaultOptionality(),
+			defaultConversionsPolicy(),
+			nil,
+		)
+
+		require.Equal(t, plan.OperationFunction, got.Operation)
+		require.NotNil(t, got.Callable)
+		assert.Equal(t, "module.test/safe", got.Callable.Package.ImportPath)
+	})
+
+	t.Run("reports configured function callables that would create an import cycle", func(t *testing.T) {
+		unsafeFn := testFunctionDeclInPackage(
+			"module.test/unsafe",
+			"unsafe",
+			"StringToInt",
+			sourceType,
+			targetType,
+		)
+		planner := plannerWithCallables(unsafeFn)
+		planner.importGraph = importGraph{}
+		planner.importGraph.AddEdge("module.test/unsafe", currentLocation.ImportPath)
+		planner.currentOutputLocation = &currentLocation
+
+		got := planner.planValue(
+			sourceType,
+			targetType,
+			"Value",
+			defaultOptionality(),
+			defaultConversionsPolicy(),
+			[]spec.TieredCallables{callableTier(spec.CallableTierType, unsafeFn)},
+		)
+
+		require.Equal(t, plan.OperationUnsupported, got.Operation)
+		assert.True(t, plan.HasFatalDiagnostics(got.Diagnostics))
+		assert.Contains(t, diagnosticsMessages(got.Diagnostics), `function callable "StringToInt" requires generated package "module.test/current" to import "module.test/unsafe", but generated import "module.test/current" -> "module.test/unsafe" would create an import cycle; existing path: module.test/unsafe -> module.test/current`)
 	})
 }
 
