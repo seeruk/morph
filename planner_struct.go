@@ -60,7 +60,7 @@ func (p *attemptPlanner) planStruct(typ *plan.Type) {
 			)
 		}
 
-		typ.Diagnostics = appendDiagnostic(typ.Diagnostics, valuePlan.Diagnostics...)
+		typ.Diagnostics = appendDiagnostic(typ.Diagnostics, valueDiagnostics(valuePlan)...)
 
 		if valuePlan.CanError {
 			// Once set to true by any value mapping, this is never set back to false
@@ -144,7 +144,7 @@ func (p *attemptPlanner) planValue(
 			Elem:        &elemPlan,
 			Optionality: optionality,
 			CanError:    elemPlan.CanError,
-			Diagnostics: elemPlan.Diagnostics,
+			Diagnostics: valueDiagnostics(elemPlan),
 		}
 		return appendDiagnosticsOnFailure(value, deferredDiagnostics...)
 
@@ -179,7 +179,7 @@ func (p *attemptPlanner) planValue(
 			Elem:        &elemPlan,
 			Optionality: optionality,
 			CanError:    elemPlan.CanError,
-			Diagnostics: elemPlan.Diagnostics,
+			Diagnostics: valueDiagnostics(elemPlan),
 		}
 		return appendDiagnosticsOnFailure(value, deferredDiagnostics...)
 
@@ -201,8 +201,8 @@ func (p *attemptPlanner) planValue(
 			callables,
 		)
 
-		diagnostics := append([]plan.Diagnostic{}, key.Diagnostics...)
-		diagnostics = append(diagnostics, value.Diagnostics...)
+		diagnostics := valueDiagnostics(key)
+		diagnostics = appendDiagnostic(diagnostics, valueDiagnostics(value)...)
 
 		operation := plan.OperationMap
 		if valueMappingFailed(key) || valueMappingFailed(value) {
@@ -555,7 +555,6 @@ func generatedMapperValue(
 		Plan:              mapper,
 		Optionality:       optionality,
 		CanError:          mapper.CanError || adaptations.CanError,
-		Diagnostics:       mapper.Diagnostics,
 	}
 }
 
@@ -799,7 +798,7 @@ func (p *attemptPlanner) planPointerAdaptation(
 			Optionality: optionality,
 			CanError: elem.CanError ||
 				sourcePointer && adaptationsCanError([]plan.ValueAdaptation{plan.ValueAdaptationDeref}, optionality),
-			Diagnostics: elem.Diagnostics,
+			Diagnostics: valueDiagnostics(elem),
 		}
 	}
 
@@ -1056,7 +1055,7 @@ func (p *attemptPlanner) planCallableArgs(
 					types.TypeKey(arg.Target),
 				),
 			})
-			diagnostics = appendDiagnostic(diagnostics, mapping.Diagnostics...)
+			diagnostics = appendDiagnostic(diagnostics, valueDiagnostics(mapping)...)
 			return nil, diagnostics, false
 		}
 
@@ -1078,7 +1077,7 @@ func (p *attemptPlanner) planCallableArgs(
 			Mapping:      mapping,
 			ReturnsError: arg.ReturnsError,
 		})
-		diagnostics = appendDiagnostic(diagnostics, mapping.Diagnostics...)
+		diagnostics = appendDiagnostic(diagnostics, valueDiagnostics(mapping)...)
 	}
 
 	return out, diagnostics, true
@@ -2027,5 +2026,26 @@ func appendDiagnosticsOnFailure(value plan.Value, diagnostics ...plan.Diagnostic
 }
 
 func valueMappingFailed(value plan.Value) bool {
-	return value.Operation == plan.OperationUnsupported || plan.HasFatalDiagnostics(value.Diagnostics)
+	return value.Operation == plan.OperationUnsupported || plan.HasFatalDiagnostics(valueDiagnostics(value))
+}
+
+func valueDiagnostics(value plan.Value) []plan.Diagnostic {
+	var diagnostics []plan.Diagnostic
+	diagnostics = appendDiagnostic(diagnostics, value.Diagnostics...)
+	if value.Plan != nil {
+		diagnostics = appendDiagnostic(diagnostics, value.Plan.Diagnostics...)
+	}
+	if value.Elem != nil {
+		diagnostics = appendDiagnostic(diagnostics, valueDiagnostics(*value.Elem)...)
+	}
+	if value.Key != nil {
+		diagnostics = appendDiagnostic(diagnostics, valueDiagnostics(*value.Key)...)
+	}
+	if value.Value != nil {
+		diagnostics = appendDiagnostic(diagnostics, valueDiagnostics(*value.Value)...)
+	}
+	for i := range value.CallableArgs {
+		diagnostics = appendDiagnostic(diagnostics, valueDiagnostics(value.CallableArgs[i].Mapping)...)
+	}
+	return diagnostics
 }

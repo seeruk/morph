@@ -1132,6 +1132,25 @@ func TestPlannerPlanRoot(t *testing.T) {
 		assert.False(t, got.CanError)
 	})
 
+	t.Run("keeps generated mapper diagnostics on the referenced plan", func(t *testing.T) {
+		root := testRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "MapUser")
+		root.Diagnostics = []plan.Diagnostic{{
+			Level:   plan.DiagnosticLevelFatal,
+			Path:    plan.TypesPath(sourceType, targetType),
+			Message: "referenced mapper diagnostic",
+		}}
+		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
+		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
+		require.NoError(t, planner.addRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
+
+		got, ok := planner.planRoot(sourceType, targetType, defaultOptionality())
+
+		require.True(t, ok)
+		assert.Empty(t, got.Diagnostics)
+		require.Same(t, root, got.Plan)
+		assert.Equal(t, root.Diagnostics, got.Plan.Diagnostics)
+	})
+
 	t.Run("records auto-deref generated mapper input adaptation", func(t *testing.T) {
 		root := testRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "MapUser")
 		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
