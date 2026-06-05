@@ -97,8 +97,15 @@ type WarningThing struct {
 }
 
 type Node struct {
-	Name string
-	Next *Node
+	Name     string
+	Children []Node
+	Required string
+	Next     *Node
+}
+
+type OptionalRecursiveNode struct {
+	Maybe    Optional[[]OptionalRecursiveNode]
+	Required string
 }
 
 type Box[T any] struct {

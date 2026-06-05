@@ -30,7 +30,7 @@ func TestPlanner_planEnumValues(t *testing.T) {
 			SourceType: sourceDecl.Type,
 			TargetType: targetDecl.Type,
 		}
-		planner := &Planner{}
+		planner := &attemptPlanner{}
 
 		values, diagnostics := planner.planEnumValues(&typ)
 
@@ -67,7 +67,7 @@ func TestPlanner_planEnumValues(t *testing.T) {
 				},
 			},
 		}
-		planner := &Planner{}
+		planner := &attemptPlanner{}
 
 		_, diagnostics := planner.planEnumValues(&typ)
 
@@ -94,7 +94,7 @@ func TestPlanner_planEnumValues(t *testing.T) {
 			SourceType: sourceDecl.Type,
 			TargetType: targetDecl.Type,
 		}
-		planner := &Planner{}
+		planner := &attemptPlanner{}
 
 		_, diagnostics := planner.planEnumValues(&typ)
 

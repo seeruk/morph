@@ -12,9 +12,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func newTestAttemptPlanner(specification Spec, workingDir, ident string) *attemptPlanner {
+	return NewPlanner(specification, workingDir, ident).newAttempt(nil)
+}
+
 func TestPlanner_addRoot(t *testing.T) {
 	t.Run("should register root state when adding a new mapper", func(t *testing.T) {
-		planner := NewPlanner(Spec{}, ".", "morph.yaml")
+		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
 		location := testOutputLocation("github.com/seeruk/morph/out", "/repo/out/morph.gen.go")
 		root := testPlanType("source.User", "target.User", "MapUser")
@@ -42,7 +46,7 @@ func TestPlanner_addRoot(t *testing.T) {
 	})
 
 	t.Run("should not append a duplicate root when mapper and function match", func(t *testing.T) {
-		planner := NewPlanner(Spec{}, ".", "morph.yaml")
+		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
 		location := testOutputLocation("github.com/seeruk/morph/out", "/repo/out/morph.gen.go")
 		root := testPlanType("source.User", "target.User", "MapUser")
@@ -58,7 +62,7 @@ func TestPlanner_addRoot(t *testing.T) {
 	})
 
 	t.Run("should treat empty and omitted mapper configuration as matching", func(t *testing.T) {
-		planner := NewPlanner(Spec{}, ".", "morph.yaml")
+		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
 		location := testOutputLocation("github.com/seeruk/morph/out", "/repo/out/morph.gen.go")
 		root := testPlanType("source.User", "target.User", "MapUser")
@@ -79,7 +83,7 @@ func TestPlanner_addRoot(t *testing.T) {
 	})
 
 	t.Run("should error when the same mapper has different configuration", func(t *testing.T) {
-		planner := NewPlanner(Spec{}, ".", "morph.yaml")
+		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
 		location := testOutputLocation("github.com/seeruk/morph/out", "/repo/out/morph.gen.go")
 		root := testPlanType("source.User", "target.User", "MapUser")
@@ -99,7 +103,7 @@ func TestPlanner_addRoot(t *testing.T) {
 	})
 
 	t.Run("should allow the same mapper with different function names", func(t *testing.T) {
-		planner := NewPlanner(Spec{}, ".", "morph.yaml")
+		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
 		location := testOutputLocation("github.com/seeruk/morph/out", "/repo/out/morph.gen.go")
 		root := testPlanType("source.User", "target.User", "MapUser")
@@ -116,7 +120,7 @@ func TestPlanner_addRoot(t *testing.T) {
 	})
 
 	t.Run("should error when different mappers use the same function name in one package", func(t *testing.T) {
-		planner := NewPlanner(Spec{}, ".", "morph.yaml")
+		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
 		location := testOutputLocation("github.com/seeruk/morph/out", "/repo/out/morph.gen.go")
 		root := testPlanType("source.User", "target.User", "MapThing")
@@ -131,7 +135,7 @@ func TestPlanner_addRoot(t *testing.T) {
 	})
 
 	t.Run("should allow the same function name in different packages", func(t *testing.T) {
-		planner := NewPlanner(Spec{}, ".", "morph.yaml")
+		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
 		firstLocation := testOutputLocation("github.com/seeruk/morph/one", "/repo/one/morph.gen.go")
 		secondLocation := testOutputLocation("github.com/seeruk/morph/two", "/repo/two/morph.gen.go")
@@ -148,7 +152,7 @@ func TestPlanner_addRoot(t *testing.T) {
 	})
 
 	t.Run("should plan separate variants when the same mapper is added in different packages", func(t *testing.T) {
-		planner := NewPlanner(Spec{}, ".", "morph.yaml")
+		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
 		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
 		firstLocation := testOutputLocation("github.com/seeruk/morph/one", "/repo/one/morph.gen.go")
 		secondLocation := testOutputLocation("github.com/seeruk/morph/two", "/repo/two/morph.gen.go")
@@ -168,7 +172,7 @@ func TestPlanner_addRoot(t *testing.T) {
 }
 
 func TestPlanner_isFunctionPendingGeneration(t *testing.T) {
-	planner := NewPlanner(Spec{}, ".", "morph.yaml")
+	planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
 	outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
 	location := testOutputLocation("github.com/seeruk/morph/out", "/repo/out/morph.gen.go")
 	root := testPlanType("source.User", "target.User", "MapUser")
@@ -210,7 +214,7 @@ func TestPlanner_isFunctionPendingGeneration(t *testing.T) {
 
 func TestPlanner_prepareImportGraph(t *testing.T) {
 	t.Run("should allow single package and source package outputs for the same package pair", func(t *testing.T) {
-		planner := NewPlanner(Spec{}, ".", "morph.yaml")
+		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
 		mappingLocation := testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go")
 		sourceLocation := testOutputLocation("module.test/source", "/repo/source/morph.gen.go")
 		root := testPlanTypeWithPackages("module.test/source", "User", "module.test/target", "User", "MapUser")
@@ -226,7 +230,7 @@ func TestPlanner_prepareImportGraph(t *testing.T) {
 	})
 
 	t.Run("should reject source package and target package outputs for the same package pair", func(t *testing.T) {
-		planner := NewPlanner(Spec{}, ".", "morph.yaml")
+		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
 		sourceLocation := testOutputLocation("module.test/source", "/repo/source/morph.gen.go")
 		targetLocation := testOutputLocation("module.test/target", "/repo/target/morph.gen.go")
 		root := testPlanTypeWithPackages("module.test/source", "User", "module.test/target", "User", "MapUser")
@@ -244,7 +248,7 @@ func TestPlanner_prepareImportGraph(t *testing.T) {
 	})
 
 	t.Run("should reject output that reverses an existing import", func(t *testing.T) {
-		planner := NewPlanner(Spec{}, ".", "morph.yaml")
+		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
 		planner.importGraph = importGraph{}
 		graph := importGraph{}
 		graph.addEdge("module.test/source", "module.test/target")

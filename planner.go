@@ -34,47 +34,10 @@ type Planner struct {
 
 	// loader is the initialized type loader for this planner
 	loader *types.Loader
-	// registry is the functionRegistry used by this planner to find callables that could be used
-	// to map between types
-	registry *functionRegistry
-	// callables contains explicitly referenced functions and methods available to scoped callable
-	// selection, keyed by the user-provided callable reference.
-	callables map[spec.CallableRef]registeredCallable
 	// conversions contains explicitly permitted directional named type conversions.
 	conversions map[spec.Conversion]struct{}
-
-	// Prepared state:
-	// importGraph contains existing imports plus shallow-planned generated imports.
-	importGraph importGraph
 	// workspace contains the module and filesystem environment Morph is planning within
 	workspace *Workspace
-
-	// Planning state:
-	// rootVariantsByTypePair contains requested root mappings grouped by source/target pair.
-	// Multiple variants can exist when the same type pair is emitted in different output packages
-	// or with different function names.
-	rootVariantsByTypePair map[string][]*rootVariant // plan.TypePairKey -> variants
-	// rootVariantsByCallable reserves root function names within their output package.
-	// Nested generated mappers are not tracked here; stale generated nested functions are excluded
-	// from discovery by plannedOutputFiles instead.
-	rootVariantsByCallable map[spec.CallableRef]*rootVariant
-	// mappings contains all requested root and nested type mappings currently known to the planner.
-	mappings map[string]*plan.Type // output-scoped root key or plan.TypeMapperKey -> *plan.Type
-	// plannedOutputFiles is a map of the logical paths of all output files Morph is planning to
-	// generate. This is useful for discovering functions in files we're about to generate.
-	plannedOutputFiles map[string]struct{} // clean logical path -> present
-	// planningMappings contains mappings currently being planned. This prevents recursive nested
-	// struct mappings from repeatedly attempting to plan themselves.
-	planningMappings map[string]struct{} // plan.TypeMapperKey -> present
-	// shallowMappings contains mappings currently shallow planned.
-	// As shallow plans are made, they'll be added to this map.
-	// As these mappings are fully planned, they will be removed from this map.
-	shallowMappings map[string]struct{} // plan.TypeMapperKey -> present
-	// currentOutputLocation is temporary planning context used for output-aware root candidate
-	// ranking while an output group is being deeply planned.
-	currentOutputLocation *plan.OutputLocation
-
-	diagnostics []plan.Diagnostic
 }
 
 // NewPlanner returns a new Planner, set to plan the given Spec.
@@ -84,14 +47,7 @@ func NewPlanner(specification Spec, workingDir, ident string) *Planner {
 		workingDir: workingDir,
 		ident:      ident,
 
-		rootVariantsByTypePair: make(map[string][]*rootVariant),
-		rootVariantsByCallable: make(map[spec.CallableRef]*rootVariant),
-		mappings:               make(map[string]*plan.Type),
-		plannedOutputFiles:     make(map[string]struct{}),
-		planningMappings:       make(map[string]struct{}),
-		shallowMappings:        make(map[string]struct{}),
-		callables:              make(map[spec.CallableRef]registeredCallable),
-		conversions:            conversionSet(specification.Conversions),
+		conversions: conversionSet(specification.Conversions),
 	}
 }
 
@@ -109,17 +65,128 @@ func (p *Planner) Plan() (Plan, error) {
 
 	p.runHash = hash
 
+	bans := make(map[callableBan]struct{})
+
+	for {
+		planner := p.newAttempt(bans)
+
+		attempt, retryBan, err := planner.plan()
+		if err != nil {
+			return attempt, err
+		}
+
+		// If no retry ban is returned, the plan is valid and we're done!
+		if retryBan == nil {
+			return attempt, nil
+		}
+
+		// We've hit a ban we can't avoid, return the attempt, and it should contain a fatal
+		// diagnostic which should halt execution.
+		if _, exists := bans[*retryBan]; exists {
+			return attempt, nil
+		}
+
+		// If we've not seen the ban before, we keep track of it and go again...
+		bans[*retryBan] = struct{}{}
+	}
+}
+
+func (p *Planner) newAttempt(bans map[callableBan]struct{}) *attemptPlanner {
+	return newAttemptPlanner(
+		p.spec,
+		p.runHash,
+		p.loader,
+		p.workspace,
+		p.conversions,
+		bans,
+	)
+}
+
+type attemptPlanner struct {
+	spec        Spec
+	runHash     string
+	loader      *types.Loader
+	workspace   *Workspace
+	conversions map[spec.Conversion]struct{}
+
+	// registry is the functionRegistry used by this planner to find callables that could be used
+	// to map between types
+	registry *functionRegistry
+	// callables contains explicitly referenced functions and methods available to scoped callable
+	// selection, keyed by the user-provided callable reference.
+	callables map[spec.CallableRef]registeredCallable
+	// importGraph contains existing imports plus shallow-planned generated imports.
+	importGraph importGraph
+	// rootVariantsByTypePair contains requested root mappings grouped by source/target pair.
+	// Multiple variants can exist when the same type pair is emitted in different output packages
+	// or with different function names.
+	rootVariantsByTypePair map[string][]*rootVariant // plan.TypePairKey -> variants
+	// rootVariantsByCallable reserves root function names within their output package.
+	// Nested generated mappers are not tracked here; stale generated nested functions are excluded
+	// from discovery by plannedOutputFiles instead.
+	rootVariantsByCallable map[spec.CallableRef]*rootVariant
+	// callableBans contains callable selections that were invalidated by final errorability
+	// checks and should be skipped by later planning attempts.
+	callableBans map[callableBan]struct{}
+	// mappings contains all requested root and nested type mappings currently known to the planner.
+	mappings map[string]*plan.Type // output-scoped root key or plan.TypeMapperKey -> *plan.Type
+	// plannedOutputFiles is a map of the logical paths of all output files Morph is planning to
+	// generate. This is useful for discovering functions in files we're about to generate.
+	plannedOutputFiles map[string]struct{} // clean logical path -> present
+	// planningMappings contains mappings currently being planned. This prevents recursive nested
+	// struct mappings from repeatedly attempting to plan themselves.
+	planningMappings map[string]struct{} // planner mapping key -> present
+	// shallowMappings contains mappings currently shallow planned.
+	// As shallow plans are made, they'll be added to this map.
+	// As these mappings are fully planned, they will be removed from this map.
+	shallowMappings map[string]struct{} // planner mapping key -> present
+	// currentOutputLocation is temporary planning context used for output-aware root candidate
+	// ranking while an output group is being deeply planned.
+	currentOutputLocation *plan.OutputLocation
+
+	diagnostics []plan.Diagnostic
+}
+
+func newAttemptPlanner(
+	specification Spec,
+	runHash string,
+	loader *types.Loader,
+	workspace *Workspace,
+	conversions map[spec.Conversion]struct{},
+	bans map[callableBan]struct{},
+) *attemptPlanner {
+	return &attemptPlanner{
+		spec:        specification,
+		runHash:     runHash,
+		loader:      loader,
+		workspace:   workspace,
+		conversions: conversions,
+
+		rootVariantsByTypePair: make(map[string][]*rootVariant),
+		rootVariantsByCallable: make(map[spec.CallableRef]*rootVariant),
+		mappings:               make(map[string]*plan.Type),
+		plannedOutputFiles:     make(map[string]struct{}),
+		planningMappings:       make(map[string]struct{}),
+		shallowMappings:        make(map[string]struct{}),
+		callableBans:           maps.Clone(bans),
+		callables:              make(map[spec.CallableRef]registeredCallable),
+	}
+}
+
+func (p *attemptPlanner) plan() (Plan, *callableBan, error) {
+	var out Plan
+
 	// Next we'll do a shallow pass over the spec to determine all the mapping functions we're going
 	// to generate. This allows us to avoid auto-discovering functions we're about to generate when
 	// we're planning value mapping, and also allows Morph to detect some other potential issues
 	// earlier, for example, cyclic dependency issues.
 	outputGroups, err := p.shallowPlan()
 	if err != nil {
-		return out, fmt.Errorf("failed shallow planning pass: %w", err)
+		return out, nil, fmt.Errorf("failed shallow planning pass: %w", err)
 	}
 
 	if err := p.prepareImportGraph(outputGroups); err != nil {
-		return out, fmt.Errorf("failed import cycle validation: %w", err)
+		return out, nil, fmt.Errorf("failed import cycle validation: %w", err)
 	}
 
 	out.OutputGroups = sortedOutputGroups(outputGroups)
@@ -127,7 +194,7 @@ func (p *Planner) Plan() (Plan, error) {
 	// Now the shallow plan is complete; we can safely set up discovery, knowing we're not going to
 	// allow discovery to pick up on functions we're about to generate.
 	if err := p.registerDiscovery(); err != nil {
-		return out, fmt.Errorf("failed to register discovery: %w", err)
+		return out, nil, fmt.Errorf("failed to register discovery: %w", err)
 	}
 
 	// Now we're ready to plan value mappings. This is a deeper pass over the spec, actually based
@@ -136,9 +203,13 @@ func (p *Planner) Plan() (Plan, error) {
 		p.planOutputGroup(og)
 	}
 
+	p.finalizePlanErrability(out.OutputGroups)
+
+	retryBan := p.validateCallableErrability(out.OutputGroups)
+
 	out.Diagnostics = p.diagnostics
 
-	return out, nil
+	return out, retryBan, nil
 }
 
 // prepare sets up this planner instance, initializing the type loader, setting up the workspace,
@@ -256,7 +327,7 @@ func (p *Planner) prepareWorkspace() error {
 	return fmt.Errorf("failed to determine working directory: couldn't find main module")
 }
 
-func (p *Planner) prepareImportGraph(outputGroups map[plan.OutputLocation]plan.OutputGroup) error {
+func (p *attemptPlanner) prepareImportGraph(outputGroups map[plan.OutputLocation]plan.OutputGroup) error {
 	graph := p.baseImportGraph()
 
 	for _, outputGroup := range sortedOutputGroups(outputGroups) {
@@ -277,7 +348,7 @@ func (p *Planner) prepareImportGraph(outputGroups map[plan.OutputLocation]plan.O
 	return nil
 }
 
-func (p *Planner) baseImportGraph() importGraph {
+func (p *attemptPlanner) baseImportGraph() importGraph {
 	graph := make(importGraph)
 	if p.loader == nil {
 		return graph
@@ -363,7 +434,7 @@ func (g importGraph) path(from, to string) []string {
 	return walk(from)
 }
 
-func (p *Planner) registerDiscovery() error {
+func (p *attemptPlanner) registerDiscovery() error {
 	pkgs := p.loader.Packages()
 
 	registry := newFunctionRegistry()
@@ -386,7 +457,7 @@ type registeredCallable struct {
 	Method   *types.Method
 }
 
-func (p *Planner) registerExplicitCallables(pkgs map[string]types.Package) (map[spec.CallableRef]registeredCallable, error) {
+func (p *attemptPlanner) registerExplicitCallables(pkgs map[string]types.Package) (map[spec.CallableRef]registeredCallable, error) {
 	out := make(map[spec.CallableRef]registeredCallable)
 	for _, ref := range explicitCallableRefs(p.spec) {
 		callable, err := registeredCallableFromRef(pkgs, ref)
@@ -429,7 +500,7 @@ func registeredCallableFromRef(pkgs map[string]types.Package, ref spec.CallableR
 	return registeredCallable{Method: &method}, nil
 }
 
-func (p *Planner) registerDiscoveryPackages(registry *functionRegistry, pkgs map[string]types.Package) error {
+func (p *attemptPlanner) registerDiscoveryPackages(registry *functionRegistry, pkgs map[string]types.Package) error {
 	// NOTE: Functions added to the registry here are based on code that already exists. In other
 	// words, functions previously generated by Morph can be added here, i.e. ones that could be
 	// removed by this run of Morph. Therefore, when deciding whether to use a discovered function
@@ -466,7 +537,7 @@ func (p *Planner) registerDiscoveryPackages(registry *functionRegistry, pkgs map
 // shallowPlan does a shallow planning pass over the spec, not attempting to plan any value
 // mappings, instead just determining the output groups and the explicitly requested mapping
 // functions that need to be generated.
-func (p *Planner) shallowPlan() (map[plan.OutputLocation]plan.OutputGroup, error) {
+func (p *attemptPlanner) shallowPlan() (map[plan.OutputLocation]plan.OutputGroup, error) {
 	outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
 	for _, pkgSpec := range p.spec.Packages {
 		if err := p.shallowPackagePlan(outputGroups, pkgSpec); err != nil {
@@ -478,7 +549,7 @@ func (p *Planner) shallowPlan() (map[plan.OutputLocation]plan.OutputGroup, error
 }
 
 // shallowPackagePlan does a shallow planning pass for the given package spec.
-func (p *Planner) shallowPackagePlan(outputGroups map[plan.OutputLocation]plan.OutputGroup, pkgSpec spec.Package) error {
+func (p *attemptPlanner) shallowPackagePlan(outputGroups map[plan.OutputLocation]plan.OutputGroup, pkgSpec spec.Package) error {
 	pkgs := p.loader.Packages()
 
 	outputSourcePkg, ok := pkgs[pkgSpec.Source]
@@ -523,7 +594,7 @@ func (p *Planner) shallowPackagePlan(outputGroups map[plan.OutputLocation]plan.O
 	return nil
 }
 
-func (p *Planner) shallowTypePlan(sourcePkg, targetPkg types.Package, typeSpec spec.Type) (*plan.Type, error) {
+func (p *attemptPlanner) shallowTypePlan(sourcePkg, targetPkg types.Package, typeSpec spec.Type) (*plan.Type, error) {
 	sourceDecl, ok := sourcePkg.Types[typeSpec.Source]
 	if !ok {
 		return nil, fmt.Errorf("source type not found %q in package %q", typeSpec.Source, sourcePkg.ImportPath)
@@ -543,7 +614,7 @@ func (p *Planner) shallowTypePlan(sourcePkg, targetPkg types.Package, typeSpec s
 }
 
 // shallowRootPlan prepares a shallow plan for a particular type mapping.
-func (p *Planner) shallowRootPlan(sourceDecl, targetDecl types.TypeDecl, typeSpec spec.Type) (*plan.Type, error) {
+func (p *attemptPlanner) shallowRootPlan(sourceDecl, targetDecl types.TypeDecl, typeSpec spec.Type) (*plan.Type, error) {
 	nameInput := NameInput{
 		Source:    sourceDecl.Type,
 		Target:    targetDecl.Type,
@@ -674,7 +745,7 @@ type rootVariant struct {
 // output-scoped variant, reserves the generated function name within its Go package, tracks the
 // output file so discovery can ignore stale generated functions, and attaches the root to the
 // output group that will emit it.
-func (p *Planner) addRoot(
+func (p *attemptPlanner) addRoot(
 	outputGroups map[plan.OutputLocation]plan.OutputGroup,
 	location plan.OutputLocation,
 	root *plan.Type,
@@ -769,13 +840,13 @@ func sameTieredCallables(a, b []spec.TieredCallables) bool {
 	})
 }
 
-func (p *Planner) isFunctionPendingGeneration(fn types.FunctionDecl, ref spec.CallableRef) bool {
+func (p *attemptPlanner) isFunctionPendingGeneration(fn types.FunctionDecl, ref spec.CallableRef) bool {
 	_, plannedFunc := p.rootVariantsByCallable[ref]
 	_, plannedFile := p.plannedOutputFiles[filepath.Clean(fn.SourceFile)]
 	return plannedFunc || plannedFile
 }
 
-func (p *Planner) outputLocationForPackages(
+func (p *attemptPlanner) outputLocationForPackages(
 	sourcePkg types.Package,
 	targetPkg types.Package,
 	output spec.Output,
@@ -792,7 +863,7 @@ func (p *Planner) outputLocationForPackages(
 	}
 }
 
-func (p *Planner) outputLocationForPackage(output spec.Output) (plan.OutputLocation, error) {
+func (p *attemptPlanner) outputLocationForPackage(output spec.Output) (plan.OutputLocation, error) {
 	pkgs := p.loader.Packages()
 
 	logicalDir := filepath.ToSlash(filepath.Clean(filepath.Join(p.workspace.WorkingDir, output.Path)))
@@ -839,7 +910,7 @@ func (p *Planner) outputLocationForPackage(output spec.Output) (plan.OutputLocat
 	}, nil
 }
 
-func (p *Planner) outputLocationForExistingPackage(pkg types.Package, output spec.Output) plan.OutputLocation {
+func (p *attemptPlanner) outputLocationForExistingPackage(pkg types.Package, output spec.Output) plan.OutputLocation {
 	return plan.OutputLocation{
 		LogicalPath: filepath.ToSlash(filepath.Join(pkg.Dir, output.Filename)),
 		ImportPath:  pkg.ImportPath,
@@ -847,7 +918,7 @@ func (p *Planner) outputLocationForExistingPackage(pkg types.Package, output spe
 	}
 }
 
-func (p *Planner) planOutputGroup(outputGroup plan.OutputGroup) {
+func (p *attemptPlanner) planOutputGroup(outputGroup plan.OutputGroup) {
 	previous := p.currentOutputLocation
 	p.currentOutputLocation = &outputGroup.Location
 	defer func() {
@@ -859,11 +930,11 @@ func (p *Planner) planOutputGroup(outputGroup plan.OutputGroup) {
 	}
 }
 
-func (p *Planner) planType(typ *plan.Type) {
+func (p *attemptPlanner) planType(typ *plan.Type) {
 	p.planTypeWithKey(plan.TypeMapperKey(typ.Source, typ.Target, typ.Signature), typ)
 }
 
-func (p *Planner) planTypeWithKey(key string, typ *plan.Type) {
+func (p *attemptPlanner) planTypeWithKey(key string, typ *plan.Type) {
 	if _, isPlanning := p.planningMappings[key]; isPlanning {
 		return
 	}
@@ -899,7 +970,7 @@ func (p *Planner) planTypeWithKey(key string, typ *plan.Type) {
 	p.mappings[key] = typ
 }
 
-func (p *Planner) resolveStructType(typ types.Type) (types.TypeDecl, bool) {
+func (p *attemptPlanner) resolveStructType(typ types.Type) (types.TypeDecl, bool) {
 	typ = types.UnwrapAlias(typ)
 	if typ.Kind != types.TypeKindNamed {
 		return types.TypeDecl{}, false
@@ -913,7 +984,7 @@ func (p *Planner) resolveStructType(typ types.Type) (types.TypeDecl, bool) {
 	return typeDecl, true
 }
 
-func (p *Planner) resolveTypeDeclaration(typ types.Type) (types.TypeDecl, bool) {
+func (p *attemptPlanner) resolveTypeDeclaration(typ types.Type) (types.TypeDecl, bool) {
 	for _, pkg := range p.loader.Packages() {
 		if pkg.ImportPath != typ.Package.ImportPath {
 			continue

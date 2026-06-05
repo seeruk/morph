@@ -1,6 +1,6 @@
 package from
 
-import to "github.com/seeruk/morph/testdata/planner/to"
+import "github.com/seeruk/morph/testdata/planner/to"
 
 type Container struct {
 	First  Node
@@ -98,8 +98,15 @@ type WarningThing struct {
 }
 
 type Node struct {
-	Name string
-	Next *Node
+	Name     string
+	Children []Node
+	Required *string
+	Next     *Node
+}
+
+type OptionalRecursiveNode struct {
+	Maybe    Optional[[]OptionalRecursiveNode]
+	Required *string
 }
 
 type Box[T any] struct {
@@ -165,6 +172,22 @@ func MapOptional[I, O any](in Optional[I], mapValue func(I) O) to.Optional[O] {
 		Value: mapValue(in.Value),
 		OK:    true,
 	}
+}
+
+func MapOptionalWithError[I, O any](in Optional[I], mapValue func(I) (O, error)) (to.Optional[O], error) {
+	if !in.OK {
+		return to.Optional[O]{}, nil
+	}
+
+	value, err := mapValue(in.Value)
+	if err != nil {
+		return to.Optional[O]{}, err
+	}
+
+	return to.Optional[O]{
+		Value: value,
+		OK:    true,
+	}, nil
 }
 
 func MapFallibleThing(in FallibleThing) (to.FallibleThing, error) {

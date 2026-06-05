@@ -272,31 +272,10 @@ func TypeKey(t Type) string {
 	return t.Name
 }
 
-// Unwrap unwraps a chain of aliases and/or pointers (potentially interleaved) to return the
-// underlying type at the end of the chain.
-func Unwrap(typ Type) Type {
-	typ = UnwrapAlias(typ)
-	typ = UnwrapPointer(typ)
-
-	if typ.Kind == TypeKindAlias || typ.Kind == TypeKindPointer {
-		return Unwrap(typ)
-	}
-
-	return typ
-}
-
 // UnwrapAlias recursively unwraps a type alias to return the element it refers to.
 func UnwrapAlias(typ Type) Type {
 	if typ.Kind == TypeKindAlias && typ.Elem != nil {
 		return UnwrapAlias(*typ.Elem)
-	}
-	return typ
-}
-
-// UnwrapPointer recursively unwraps pointer types to return the element it refers to.
-func UnwrapPointer(typ Type) Type {
-	if typ.Kind == TypeKindPointer && typ.Elem != nil {
-		return UnwrapPointer(*typ.Elem)
 	}
 	return typ
 }

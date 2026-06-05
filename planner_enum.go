@@ -16,7 +16,7 @@ import (
 	"github.com/seeruk/morph/types"
 )
 
-func (p *Planner) planEnum(typ *plan.Type) {
+func (p *attemptPlanner) planEnum(typ *plan.Type) {
 	values, diagnostics := p.planEnumValues(typ)
 
 	typ.EnumPlan = &plan.Enum{
@@ -28,7 +28,7 @@ func (p *Planner) planEnum(typ *plan.Type) {
 	typ.Diagnostics = appendDiagnostic(typ.Diagnostics, diagnostics...)
 }
 
-func (p *Planner) planEnumValues(typ *plan.Type) ([]plan.EnumValue, []plan.Diagnostic) {
+func (p *attemptPlanner) planEnumValues(typ *plan.Type) ([]plan.EnumValue, []plan.Diagnostic) {
 	var values []plan.EnumValue
 	var diagnostics []plan.Diagnostic
 

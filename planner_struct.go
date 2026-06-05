@@ -12,7 +12,7 @@ import (
 	"github.com/seeruk/morph/types"
 )
 
-func (p *Planner) planStruct(typ *plan.Type) {
+func (p *attemptPlanner) planStruct(typ *plan.Type) {
 	sourceFields := plannableFieldsForType(typ.SourceDecl, typ.SourceType)
 	targetFields := plannableFieldsForType(typ.TargetDecl, typ.TargetType)
 
@@ -77,7 +77,7 @@ func (p *Planner) planStruct(typ *plan.Type) {
 	typ.StructPlan = &structPlan
 }
 
-func (p *Planner) planValue(
+func (p *attemptPlanner) planValue(
 	sourceType, targetType types.Type,
 	path string,
 	optionality spec.Optionality,
@@ -253,7 +253,7 @@ func (p *Planner) planValue(
 	), deferredDiagnostics...)
 }
 
-func (p *Planner) planFieldCallable(
+func (p *attemptPlanner) planFieldCallable(
 	sourceType, targetType types.Type,
 	path string,
 	optionality spec.Optionality,
@@ -309,7 +309,7 @@ func (p *Planner) planFieldCallable(
 	)
 }
 
-func (p *Planner) planTieredCallables(
+func (p *attemptPlanner) planTieredCallables(
 	sourceType, targetType types.Type,
 	path string,
 	optionality spec.Optionality,
@@ -362,7 +362,7 @@ func planCallableValue(
 // mapping function for a type pair, and we could use it elsewhere, we'll be able to refer to it in
 // the plan. We already have the shallow plan; the key thing we need to know is whether this root
 // can error, which we can only identify if we fully plan it.
-func (p *Planner) planRoot(source, target types.Type, optionality spec.Optionality) (plan.Value, bool) {
+func (p *attemptPlanner) planRoot(source, target types.Type, optionality spec.Optionality) (plan.Value, bool) {
 	variant, compatibility, ok := p.rootVariant(source, target)
 	if !ok {
 		return plan.Value{}, false
@@ -379,7 +379,7 @@ func (p *Planner) planRoot(source, target types.Type, optionality spec.Optionali
 	return generatedMapperValue(operation, source, target, typePlan, optionality, compatibility), true
 }
 
-func (p *Planner) root(source, target types.Type) *plan.Type {
+func (p *attemptPlanner) root(source, target types.Type) *plan.Type {
 	variant, _, ok := p.rootVariant(source, target)
 	if !ok {
 		return nil
@@ -387,7 +387,7 @@ func (p *Planner) root(source, target types.Type) *plan.Type {
 	return variant.Root
 }
 
-func (p *Planner) rootVariant(source, target types.Type) (*rootVariant, callableCompatibility, bool) {
+func (p *attemptPlanner) rootVariant(source, target types.Type) (*rootVariant, callableCompatibility, bool) {
 	sourceLookup, targetLookup := generatedMapperLookupPair(source, target)
 	sourceRef := plan.TypeRefFromType(sourceLookup)
 	targetRef := plan.TypeRefFromType(targetLookup)
@@ -444,7 +444,7 @@ func (p *Planner) rootVariant(source, target types.Type) (*rootVariant, callable
 	return candidates[0].Variant, candidates[0].Compatibility, true
 }
 
-func (p *Planner) planRootVariant(variant *rootVariant) {
+func (p *attemptPlanner) planRootVariant(variant *rootVariant) {
 	previous := p.currentOutputLocation
 	p.currentOutputLocation = &variant.Location
 	defer func() {
@@ -509,7 +509,7 @@ func generatedMapperResultType(root *plan.Type) types.Type {
 	return root.TargetType
 }
 
-func (p *Planner) canUseRootVariant(current plan.OutputLocation, candidate *rootVariant) bool {
+func (p *attemptPlanner) canUseRootVariant(current plan.OutputLocation, candidate *rootVariant) bool {
 	if current.ImportPath == candidate.Location.ImportPath {
 		return true
 	}
@@ -526,7 +526,7 @@ func rootVariantPackageRank(current plan.OutputLocation, candidate *rootVariant)
 	return 1
 }
 
-func (p *Planner) planNestedStruct(
+func (p *attemptPlanner) planNestedStruct(
 	source, target types.Type,
 	path string,
 	optionality spec.Optionality,
@@ -592,7 +592,7 @@ func (p *Planner) planNestedStruct(
 	return generatedMapperValue(plan.OperationStruct, source, target, &nested, optionality, compatibility), true
 }
 
-func (p *Planner) planPointerAdaptation(
+func (p *attemptPlanner) planPointerAdaptation(
 	source, target types.Type,
 	path string,
 	optionality spec.Optionality,
@@ -644,7 +644,7 @@ func (p *Planner) planPointerAdaptation(
 	return out
 }
 
-func (p *Planner) discoverFunctionCallable(
+func (p *attemptPlanner) discoverFunctionCallable(
 	sourceType, targetType types.Type,
 	source plan.CallableSource,
 ) (plan.CallableRef, callableCompatibility, bool) {
@@ -670,7 +670,7 @@ func (p *Planner) discoverFunctionCallable(
 	return callable, compatibility, true
 }
 
-func (p *Planner) discoverExplicitCallable(
+func (p *attemptPlanner) discoverExplicitCallable(
 	sourceType, targetType types.Type,
 	refs []spec.CallableRef,
 ) (plan.CallableRef, callableCompatibility, bool) {
@@ -712,7 +712,7 @@ func (p *Planner) discoverExplicitCallable(
 	return callable, compatibility, true
 }
 
-func (p *Planner) planDiscoveredHigherOrderCallable(
+func (p *attemptPlanner) planDiscoveredHigherOrderCallable(
 	sourceType, targetType types.Type,
 	path string,
 	optionality spec.Optionality,
@@ -723,6 +723,9 @@ func (p *Planner) planDiscoveredHigherOrderCallable(
 	for _, fn := range p.registry.Candidates(sourceType, targetType, plan.CallableSourceDiscovered) {
 		callable, ok := plan.CallableRefFromFunctionDecl(fn, plan.CallableSourceDiscovered)
 		if !ok {
+			continue
+		}
+		if p.isCallableBanned(path, sourceType, targetType, callable) {
 			continue
 		}
 
@@ -767,7 +770,7 @@ func (p *Planner) planDiscoveredHigherOrderCallable(
 	return plan.Value{}, deferredDiagnostics, false
 }
 
-func (p *Planner) planExplicitHigherOrderCallable(
+func (p *attemptPlanner) planExplicitHigherOrderCallable(
 	sourceType, targetType types.Type,
 	path string,
 	optionality spec.Optionality,
@@ -785,6 +788,9 @@ func (p *Planner) planExplicitHigherOrderCallable(
 		fn := *callable.Function
 		callableRef, ok := plan.CallableRefFromFunctionDecl(fn, plan.CallableSourceUser)
 		if !ok {
+			continue
+		}
+		if p.isCallableBanned(path, sourceType, targetType, callableRef) {
 			continue
 		}
 
@@ -827,7 +833,7 @@ func (p *Planner) planExplicitHigherOrderCallable(
 	return plan.Value{}, deferredDiagnostics, false
 }
 
-func (p *Planner) planCallableArgs(
+func (p *attemptPlanner) planCallableArgs(
 	args []callableMapperArgCompatibility,
 	path string,
 	optionality spec.Optionality,
@@ -838,7 +844,7 @@ func (p *Planner) planCallableArgs(
 	var diagnostics []plan.Diagnostic
 
 	for i, arg := range args {
-		argPath := fmt.Sprintf("%s :: callable argument %d", path, i+1)
+		argPath := callableArgPath(path, i)
 		mapping := p.planValue(
 			arg.Source,
 			arg.Target,
@@ -1434,7 +1440,7 @@ func callableCompatibilityRank(c callableCompatibility) (int, bool) {
 		inputRank, true
 }
 
-func (p *Planner) canConvert(
+func (p *attemptPlanner) canConvert(
 	source types.Type,
 	target types.Type,
 	conversion spec.ConversionsPolicy,
@@ -1460,7 +1466,7 @@ func canConvertBasicType(source types.Type, target types.Type) bool {
 	return canConvertNumericLosslessly(source.Name, target.Name)
 }
 
-func (p *Planner) hasRegisteredConversion(source types.Type, target types.Type) bool {
+func (p *attemptPlanner) hasRegisteredConversion(source types.Type, target types.Type) bool {
 	_, ok := p.conversions[spec.Conversion{
 		Source: spec.TypeRefFromType(source),
 		Target: spec.TypeRefFromType(target),
@@ -1468,7 +1474,7 @@ func (p *Planner) hasRegisteredConversion(source types.Type, target types.Type) 
 	return ok
 }
 
-func (p *Planner) canUseRegisteredConversion(source types.Type, target types.Type) bool {
+func (p *attemptPlanner) canUseRegisteredConversion(source types.Type, target types.Type) bool {
 	sourceUnderlying, sourceOK := p.basicUnderlying(source, map[plan.TypeRef]bool{})
 	targetUnderlying, targetOK := p.basicUnderlying(target, map[plan.TypeRef]bool{})
 	if !sourceOK || !targetOK {
@@ -1482,7 +1488,7 @@ func (p *Planner) canUseRegisteredConversion(source types.Type, target types.Typ
 
 // basicUnderlying recursively unwraps a type and/or its underlying type to find a basic type. Named
 // types only reach this check after an exact registered conversion pair has matched.
-func (p *Planner) basicUnderlying(typ types.Type, seen map[plan.TypeRef]bool) (types.Type, bool) {
+func (p *attemptPlanner) basicUnderlying(typ types.Type, seen map[plan.TypeRef]bool) (types.Type, bool) {
 	typ = types.UnwrapAlias(typ)
 	switch typ.Kind {
 	case types.TypeKindBasic:
@@ -1583,7 +1589,7 @@ func numericConversionInfoFor(name string) (numericInfo, bool) {
 	}
 }
 
-func (p *Planner) nestedFunctionName(
+func (p *attemptPlanner) nestedFunctionName(
 	source, target types.Type,
 	sourceKey, targetKey string,
 	callablesKey string,
