@@ -19,3 +19,31 @@ func New(workingDir string) *Engine {
 func (e *Engine) Plan(spec Spec, ident string) (Plan, error) {
 	return NewPlanner(spec, e.workingDir, ident).Plan()
 }
+
+// GeneratePlan generates output files for the supplied Plan.
+func (e *Engine) GeneratePlan(plan Plan) ([]OutputFile, error) {
+	files, err := NewGenerator().Generate(plan)
+	if err != nil {
+		return nil, err
+	}
+
+	return files, nil
+}
+
+// Generate generates a Plan for the supplied Spec, then generates output for that Plan.
+func (e *Engine) Generate(spec Spec, ident string) ([]OutputFile, Plan, error) {
+	plan, err := e.Plan(spec, ident)
+	if err != nil {
+		return nil, plan, err
+	}
+	if plan.HasFatalDiagnostics() {
+		return nil, plan, nil
+	}
+
+	files, err := e.GeneratePlan(plan)
+	if err != nil {
+		return nil, plan, err
+	}
+
+	return files, plan, nil
+}
