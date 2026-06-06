@@ -7,3 +7,5 @@
 * If using `single_package` output, package name detection includes files that have build 
   constraints, which could mean either the package name is incorrect, or that an error is returned
   when it shouldn't be.
+* Morph does not support creating mappers explicitly for generic types. See 
+  docs/decisions/01-high-order-explicit-roots.md for the rationale. 

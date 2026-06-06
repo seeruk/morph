@@ -8,19 +8,22 @@ Will not implement.
 
 Morph can already plan concrete nested generic instantiations. For example, a field mapping from
 `from.Optional[foopb.Bar]` to `to.Optional[foo.Bar]` can be planned as a concrete nested struct
-mapper, and the `foopb.Bar` to `foo.Bar` value can reuse an explicit root mapper.
+mapper, and the `foopb.Bar` to `foo.Bar` value can even reuse an explicit root mapper.
 
-Morph can also already reuse discovered higher-order functions. A user can provide a function such 
-as `MapOptional[I, O any](in Optional[I], mapValue func(I) O) to.Optional[O]`, include it in 
+Morph can also already use discovered higher-order functions. A user can provide a function such as 
+`MapOptional[I, O any](in Optional[I], mapValue func(I) O) to.Optional[O]`, include it in 
 discovery, and Morph can plan the mapper argument separately.
 
 ## Problem
 
 Generic explicit roots are ambiguous. A mapping that looks like `from.Optional[T]` to
 `to.Optional[T]` does not necessarily mean the source and target type arguments are the same type.
-The source package and target package may both happen to name their type parameter `T`. 
+The source package and target package may both happen to name their type parameter `T`. Furthermore,
+types with multiple type parameters are not only ambiguous in this way, but also in which type 
+parameters should map to one another; for example, with `Either[L, R]` to `Tuple[A, B]` is `L` meant
+to map to `A` or `B`?
 
-A higher-order combinator would express that mapping more honestly:
+A higher-order combinator would express that mapping with no ambiguity:
 
 ```go
 func MapOptional[I, O any](
@@ -29,11 +32,10 @@ func MapOptional[I, O any](
 ) to.Optional[O]
 ```
 
-However, once Morph starts generating these functions, it must also know which source type
-parameters map to which target type parameters. That can be ambiguous for renamed or crossed
-structures, such as `Either[L, R]` to `Tuple[A, B]`, unless the user provides explicit field and
-type-parameter mapping. While this is completely feasible, the configuration for this ends up being
-more verbose than just writing the mapping function and allowing Morph to use it.
+Once you see this signature, you may realize there's another issue. Morph would need to generate 
+many different versions of this higher-order mapper to support accepting mapper parameters which 
+could error. Types with multiple type parameters would need config to specify which possible 
+combinations to generate.
 
 ## Explored Design
 
@@ -65,12 +67,12 @@ A potential approach was explored, with the following requirements being determi
 
 The design is possible, but while planning the functionality, it became apparent that the volume of 
 configuration required was growing quickly. The user may need to specify mapper kind, type-parameter
-mappings, selected error variants, variant naming, field mappings, type-parameter naming behavior, 
+mappings, selected error variants, variant naming, field mappings, type-parameter naming behaviour, 
 and potentially per-argument value/pointer signatures.
 
 At that point, the configuration can approach the complexity of writing the higher-order mapper
 function directly, potentially even surpassing it. A user-written mapper is also clearer Go API 
-design: it lets the user choose the exact generic signature, error behavior, pointer/value shape, 
+design: it lets the user choose the exact generic signature, error behaviour, pointer/value shape, 
 and naming without Morph inventing a large schema around those choices.
 
 This would also significantly complicate both the planner and likely the code generator, as a 
