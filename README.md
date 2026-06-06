@@ -7,18 +7,41 @@ part of more complex code-generation pipelines.
 
 ## Why Morph?
 
-* What problem does it solve?
-* Why did I start making it?
-* Example of ProtoBuf? 
-* Not too long...
+Using certain libraries and tools can mean you to end up with what are essentially duplicated types. 
+For example, the ProtoBuf compiler doesn't generate idiomatic Go code, so you may want to represent 
+the same types with idiomatic Go code (e.g. using `time.Time`, with correct initialism in field 
+names, so on), or maybe you have a database library which uses code-gen. 
+
+Morph exists to attempt to alleviate the burden of writing boring, error-prone, time-consuming 
+manual mapping code for these types.
 
 ## Quick Start
 
-* How to install it
-* How to configure it
-* How to run it
-* See more in `examples/`?
+Install Morph using the Go toolchain:
 
+```bash
+$ go install github.com/seeruk/morph/cmd/morph@latest
+```
+
+Morph requires a configuration file to get started. You can find more about that in the 
+[Configuration Overview](#configuration-overview) section below.
+
+Once you have a valid configuration file, you can run Morph.
+
+If you have a `morph.yaml` in the same folder:
+
+```bash
+$ morph
+```
+
+If you want to point Morph at a specific configuration file:
+
+```bash
+$ morph -config path/to/config.yml
+```
+
+Morph plans and generates code based on where the config file is. The configuration file must be 
+within a Go module.
 
 ## Configuration Overview
 
