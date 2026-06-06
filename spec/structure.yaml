@@ -1,5 +1,6 @@
+# yaml-language-server: $schema=../schemas/config.schema.json
 # Defaults allows you to specify default values for many configuration options. Defaults have the
-# lowest precedence, so any options specified in styles, packages, or types will override these.
+# lowest precedence, so any options specified in presets, packages, or types will override these.
 defaults:
   packages:
     types:
@@ -71,21 +72,21 @@ packages:
 # packages, or individual type-pairs. Preset options are available at the package or type level
 # where applicable, and will be overridden by any more local options specified there.
 presets:
-- name: protobuf
-  bidirectional: true
-  enum:
-    failureMode: error
-  mappers:
-    forward:
-      name: Map{{ .Target.Package }}{{ .Target.Type }}FromProto
-      signature:
-        accepts: pointer
-        returns: value
-    inverse:
-      name: Map{{ .Target.Package }}{{ .Target.Type }}ToProto
-      signature:
-        accepts: value
-        returns: pointer
-  optionality:
-    onNilSourcePointer: zero
-    onZeroSourceValue: address
+  protobuf:
+    bidirectional: true
+    enum:
+      failureMode: error
+    mappers:
+      forward:
+        name: Map{{ .Target.Package }}{{ .Target.Type }}FromProto
+        signature:
+          accepts: pointer
+          returns: value
+      inverse:
+        name: Map{{ .Target.Package }}{{ .Target.Type }}ToProto
+        signature:
+          accepts: value
+          returns: pointer
+    optionality:
+      onNilSourcePointer: zero
+      onZeroSourceValue: address

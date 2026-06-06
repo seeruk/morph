@@ -1,0 +1,556 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/seeruk/morph/schemas/config.schema.json",
+  "title": "Morph config",
+  "description": "Configures Morph's generated Go mappers, package pairs, type pairs, defaults, discovery, conversions, and reusable presets.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["packages"],
+  "properties": {
+    "defaults": {
+      "$ref": "#/$defs/defaults",
+      "description": "Default values applied before presets, packages, and type-level overrides."
+    },
+    "discovery": {
+      "$ref": "#/$defs/discovery",
+      "description": "Packages Morph scans for reusable mapping functions and methods."
+    },
+    "conversions": {
+      "type": "array",
+      "description": "Explicit named-type conversions Morph may use when source and target types are compatible.",
+      "items": {
+        "$ref": "#/$defs/conversion"
+      }
+    },
+    "packages": {
+      "type": "array",
+      "description": "Package pairs and root type pairs Morph should generate mappers for.",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/package"
+      }
+    },
+    "presets": {
+      "type": "object",
+      "description": "Named type defaults that packages or types can opt into using 'preset'.",
+      "additionalProperties": {
+        "$ref": "#/$defs/preset"
+      }
+    }
+  },
+  "$defs": {
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "packages": {
+          "$ref": "#/$defs/packagesDefaults",
+          "description": "Defaults for every configured package pair."
+        }
+      }
+    },
+    "packagesDefaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "types": {
+          "$ref": "#/$defs/typeDefaults",
+          "description": "Defaults for every configured type pair."
+        },
+        "output": {
+          "$ref": "#/$defs/output",
+          "description": "Defaults for generated output files."
+        }
+      }
+    },
+    "typeDefaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enum": {
+          "$ref": "#/$defs/enumDefaults",
+          "description": "Defaults for enum mappings."
+        },
+        "callables": {
+          "$ref": "#/$defs/callableRefs",
+          "description": "Callable references available to every type mapping."
+        },
+        "mappers": {
+          "$ref": "#/$defs/mappersDefaults",
+          "description": "Defaults for generated mapper function names and signatures."
+        },
+        "optionality": {
+          "$ref": "#/$defs/optionalityDefaults",
+          "description": "Defaults for pointer/value optionality boundaries."
+        },
+        "conversions": {
+          "$ref": "#/$defs/conversionsDefaults",
+          "description": "Default policy for using configured named-type conversions."
+        },
+        "bidirectional": {
+          "type": "boolean",
+          "description": "Whether type mappings generate both forward and inverse mappers by default.",
+          "default": false
+        }
+      }
+    },
+    "discovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "packages": {
+          "type": "array",
+          "description": "Go packages whose exported functions and methods Morph can choose to use for mapping, if compatible.",
+          "items": {
+            "$ref": "#/$defs/goPackagePath"
+          }
+        },
+        "exclusions": {
+          "$ref": "#/$defs/callableRefs",
+          "description": "Discovered callables to ignore."
+        }
+      }
+    },
+    "conversion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "targets"],
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/typeRef",
+          "description": "Type Morph may convert from."
+        },
+        "targets": {
+          "type": "array",
+          "description": "Types Morph may convert the source type to.",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/typeRef"
+          }
+        },
+        "bidirectional": {
+          "type": "boolean",
+          "description": "Whether the same conversion(s) should also be available in reverse.",
+          "default": false
+        }
+      }
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "target", "types"],
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/goPackagePath",
+          "description": "Go package containing the source type(s)."
+        },
+        "target": {
+          "$ref": "#/$defs/goPackagePath",
+          "description": "Go package containing the target type(s)."
+        },
+        "preset": {
+          "$ref": "#/$defs/presetName",
+          "description": "Preset to apply before package-level options."
+        },
+        "bidirectional": {
+          "type": "boolean",
+          "description": "Whether type mappings in this package generate inverse mappers unless overridden.",
+          "default": false
+        },
+        "output": {
+          "$ref": "#/$defs/output",
+          "description": "Settings for generated output for this package pair."
+        },
+        "callables": {
+          "$ref": "#/$defs/callableRefs",
+          "description": "Callable references available to type mappings in this package pair."
+        },
+        "enum": {
+          "$ref": "#/$defs/enumDefaults",
+          "description": "Enum defaults for type mappings in this package pair."
+        },
+        "mappers": {
+          "$ref": "#/$defs/mappersDefaults",
+          "description": "Mapper defaults for type mappings in this package pair."
+        },
+        "optionality": {
+          "$ref": "#/$defs/optionalityDefaults",
+          "description": "Optionality defaults for type mappings in this package pair."
+        },
+        "conversions": {
+          "$ref": "#/$defs/conversionsDefaults",
+          "description": "Conversion policy defaults for type mappings in this package pair."
+        },
+        "types": {
+          "type": "array",
+          "description": "Type pairs to map between the source and target packages.",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/type"
+          }
+        }
+      }
+    },
+    "type": {
+      "type": "object",
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": ["name"]
+        },
+        {
+          "required": ["source", "target"]
+        }
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/typeName",
+          "description": "Shared type name to use when source and target type names are the same."
+        },
+        "source": {
+          "$ref": "#/$defs/typeName",
+          "description": "Source type name within the source package; defaults to name when omitted."
+        },
+        "target": {
+          "$ref": "#/$defs/typeName",
+          "description": "Target type name within the target package; defaults to name when omitted."
+        },
+        "preset": {
+          "$ref": "#/$defs/presetName",
+          "description": "Preset to apply before type-level options."
+        },
+        "bidirectional": {
+          "type": "boolean",
+          "description": "Whether this type mapping should also generate an inverse mapper.",
+          "default": false
+        },
+        "callables": {
+          "$ref": "#/$defs/callableRefs",
+          "description": "Callable references considered first for this type mapping."
+        },
+        "enum": {
+          "$ref": "#/$defs/enum",
+          "description": "Enum matching and failure behavior for this type mapping."
+        },
+        "struct": {
+          "$ref": "#/$defs/struct",
+          "description": "Explicit field mappings and field-level policies for this type mapping."
+        },
+        "mappers": {
+          "$ref": "#/$defs/mappersDefaults",
+          "description": "Generated mapper function names and signatures for this type mapping."
+        },
+        "optionality": {
+          "$ref": "#/$defs/optionalityDefaults",
+          "description": "Pointer/value optionality policy for this type mapping."
+        },
+        "conversions": {
+          "$ref": "#/$defs/conversionsDefaults",
+          "description": "Conversion policy for this type mapping."
+        }
+      }
+    },
+    "preset": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enum": {
+          "$ref": "#/$defs/enumDefaults",
+          "description": "Enum defaults supplied by this preset."
+        },
+        "callables": {
+          "$ref": "#/$defs/callableRefs",
+          "description": "Callable references supplied by this preset."
+        },
+        "mappers": {
+          "$ref": "#/$defs/mappersDefaults",
+          "description": "Mapper defaults supplied by this preset."
+        },
+        "optionality": {
+          "$ref": "#/$defs/optionalityDefaults",
+          "description": "Optionality defaults supplied by this preset."
+        },
+        "conversions": {
+          "$ref": "#/$defs/conversionsDefaults",
+          "description": "Conversion policy supplied by this preset."
+        },
+        "bidirectional": {
+          "type": "boolean",
+          "description": "Whether this preset makes type mappings bidirectional by default.",
+          "default": false
+        }
+      }
+    },
+    "enumDefaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "failureMode": {
+          "$ref": "#/$defs/enumFailureMode",
+          "description": "Default behavior when an enum source value has no target match."
+        }
+      }
+    },
+    "enum": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "failureMode": {
+          "$ref": "#/$defs/enumFailureMode",
+          "description": "Behavior when an enum source value has no target match."
+        },
+        "patterns": {
+          "$ref": "#/$defs/enumPatterns",
+          "description": "Templates used to normalize source and target enum value names before matching."
+        },
+        "values": {
+          "type": "object",
+          "description": "Explicit source enum value to target enum value mappings.",
+          "additionalProperties": {
+            "$ref": "#/$defs/enumValueName"
+          }
+        }
+      }
+    },
+    "enumPatterns": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/enumPattern",
+          "description": "Template for source enum value names."
+        },
+        "target": {
+          "$ref": "#/$defs/enumPattern",
+          "description": "Template for target enum value names."
+        }
+      }
+    },
+    "struct": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fields": {
+          "type": "object",
+          "description": "Explicit source field mappings keyed by source field name.",
+          "additionalProperties": {
+            "$ref": "#/$defs/field"
+          }
+        }
+      }
+    },
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "$ref": "#/$defs/fieldName",
+          "description": "Target field name; defaults to the source field name when omitted."
+        },
+        "callable": {
+          "$ref": "#/$defs/fieldCallable",
+          "description": "Explicit callable to use for this field."
+        },
+        "conversions": {
+          "$ref": "#/$defs/conversionsDefaults",
+          "description": "Conversion policy for this field."
+        },
+        "optionality": {
+          "$ref": "#/$defs/optionalityDefaults",
+          "description": "Pointer/value optionality policy for this field."
+        }
+      }
+    },
+    "fieldCallable": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "forward": {
+          "$ref": "#/$defs/callableRef",
+          "description": "Callable to use for the forward field mapping."
+        },
+        "inverse": {
+          "$ref": "#/$defs/callableRef",
+          "description": "Callable to use for the inverse field mapping."
+        }
+      }
+    },
+    "mappersDefaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "forward": {
+          "$ref": "#/$defs/mapperDefaults",
+          "description": "Defaults for the forward mapper function."
+        },
+        "inverse": {
+          "$ref": "#/$defs/mapperDefaults",
+          "description": "Defaults for the inverse mapper function."
+        }
+      }
+    },
+    "mapperDefaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Generated mapper function name or Go template for the name."
+        },
+        "signature": {
+          "$ref": "#/$defs/mapperSignatureDefaults",
+          "description": "Generated mapper function parameter and return shape."
+        }
+      }
+    },
+    "mapperSignatureDefaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "accepts": {
+          "$ref": "#/$defs/parameterKind",
+          "description": "Whether the generated mapper accepts source values or pointers."
+        },
+        "returns": {
+          "$ref": "#/$defs/parameterKind",
+          "description": "Whether the generated mapper returns target values or pointers."
+        }
+      }
+    },
+    "optionalityDefaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "onNilSourcePointer": {
+          "$ref": "#/$defs/pointerOptionality",
+          "description": "Behavior when a source pointer is nil."
+        },
+        "onZeroSourceValue": {
+          "$ref": "#/$defs/valueOptionality",
+          "description": "Behavior when a source value maps to a target pointer."
+        }
+      }
+    },
+    "conversionsDefaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether configured named-type conversions may be used.",
+          "default": true
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "strategy": {
+          "$ref": "#/$defs/outputStrategy",
+          "description": "How generated files are grouped by package."
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Output directory for the single_package strategy.",
+          "default": "mapping"
+        },
+        "package": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Generated Go package name for the single_package strategy.",
+          "default": "mapping"
+        },
+        "filename": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Generated mapper filename.",
+          "default": "mapping.morph.go"
+        }
+      }
+    },
+    "callableRefs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/callableRef"
+      }
+    },
+    "enumFailureMode": {
+      "type": "string",
+      "enum": ["error", "zero"],
+      "description": "error returns an error for unmapped enum values; zero returns the target type's zero value.",
+      "default": "error"
+    },
+    "parameterKind": {
+      "type": "string",
+      "enum": ["value", "pointer"],
+      "description": "Whether a mapper parameter or return is a value or pointer.",
+      "default": "value"
+    },
+    "pointerOptionality": {
+      "type": "string",
+      "enum": ["zero", "error"],
+      "description": "zero maps nil source pointers to zero values; error makes nil source pointers fail.",
+      "default": "zero"
+    },
+    "valueOptionality": {
+      "type": "string",
+      "enum": ["nil", "address"],
+      "description": "nil maps zero source values to nil target pointers; address maps zero source values to their address.",
+      "default": "nil"
+    },
+    "outputStrategy": {
+      "type": "string",
+      "enum": ["single_package", "source_package", "target_package"],
+      "description": "single_package writes one package; source_package writes beside source packages; target_package writes beside target packages.",
+      "default": "single_package"
+    },
+    "goPackagePath": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Go import path for a package.",
+      "examples": ["github.com/seeruk/morph/example/source"]
+    },
+    "typeName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Go type name within the configured package pair.",
+      "examples": ["User"]
+    },
+    "typeRef": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Go type reference, either a local/predeclared type name or an imported type as import/path.Type.",
+      "examples": ["string", "github.com/seeruk/morph/example/source.UserID"]
+    },
+    "callableRef": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Go callable reference as import/path.Function or import/path.Type.Method.",
+      "examples": ["github.com/seeruk/morph/example/mapping.StringToUserID", "github.com/seeruk/morph/example/source.UserID.String"]
+    },
+    "enumValueName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Go enum constant name."
+    },
+    "enumPattern": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Go template for enum value names using .Type and .Value with Raw, Pascal, Camel, Kebab, Snake, or Screaming.",
+      "examples": ["{{ .Type.Pascal }}_{{ .Value.Screaming }}"]
+    },
+    "fieldName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Go struct field name."
+    },
+    "presetName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Name of a configured preset."
+    }
+  }
+}
