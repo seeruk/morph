@@ -86,6 +86,8 @@ The following sections cover other config sections, and following that are some 
 <details>
 <summary>Defaults Hierarchy</summary>
 
+### Defaults Hierarchy
+
 Morph configuration is layered, allowing you to specify defaults, and subsequently override them at
 more granular levels. Morph aims to be an unopinionated tool with sensible defaults. Top-level
 defaults are specified in the `defaults` section of the configuration.
@@ -108,6 +110,8 @@ it must be specified in the config file, or use top-level defaults.
 
 <details>
 <summary>Conversions</summary>
+
+### Conversions
 
 Morph supports generating type conversions between basic types when it's safe to do so. This
 behaviour can be extended through configuration, allowing unsafe basic conversions, and allowing
@@ -153,6 +157,8 @@ packages:
 <details>
 <summary>Discovery</summary>
 
+### Discovery
+
 Morph supports automatically finding and using potentially compatible mapping functions. This
 functionality is separate from explicitly asking Morph to use callables for mapping, and allows
 Morph to automatically use functions from explicitly listed packages, like so:
@@ -175,17 +181,15 @@ actually intended for use as mapping functions.
 <details>
 <summary>Callables</summary>
 
-<details>
-<summary>What are Callables?</summary>
+### Callables
+
+#### What are Callables?
 
 Callables are functions or methods that can be explicitly referenced in the config file for Morph to
 potentially use for mapping, instead of Morph generated the mapping itself. There are 2 main kinds
 of callables:
 
-</details>
-
-<details>
-<summary>Plain Callables</summary>
+##### Plain Callables
 
 Plain callables are simple functions which take a source type and return a target type. These
 callables can error, and if they do, that errability will propagate up to the parent mapper it's
@@ -211,10 +215,7 @@ type arguments differ on the source and target type (`Foo Optional[Bar]` to `Foo
 this case, Morph wouldn't be able to map the inner type argument, it has no way to control it. For
 these kinds of cases, you can use a combinator callable.
 
-</details>
-
-<details>
-<summary>Combinator Callables</summary>
+##### Combinator Callables
 
 Combinator callables allow you to provide callables to Morph which can be used to handle many
 generic types. They look like this:
@@ -240,10 +241,7 @@ func EitherToTuple[L, R, A, B any](
 The mapping functions should look like plain callables, and each mapping function argument may
 return an error.
 
-</details>
-
-<details>
-<summary>Configuring Callables</summary>
+#### Configuring Callables
 
 The aforementioned discovery is only for auto-discovery of entire packages worth of functions, for
 other callables to be used by Morph, you must specify them explicitly. Discovery is a nice way to
@@ -272,10 +270,10 @@ Specifying callables in the `defaults` section will make the callables available
 
 </details>
 
-</details>
-
 <details>
 <summary>Presets</summary>
+
+### Presets
 
 Morph allows you to write named collections of default configuration which can be applied at the
 package or type level. If you have a common pattern you want to use for certain packages, then it
@@ -329,6 +327,8 @@ packages:
 <details>
 <summary>Configuring Output</summary>
 
+#### Configuring Output
+
 By default, Morph generates code into a single `mapping` package, in a `mapping` directory next to
 the configuration file. You can configure this globally:
 
@@ -369,6 +369,8 @@ from the existing package Morph is writing into.
 <details>
 <summary>Customizing Mapper Function Names</summary>
 
+#### Customizing Mapper Function Names
+
 Morph generates mapper function names from templates. You can configure mapper names in defaults,
 presets, on packages, or on individual types. If you're generating ProtoBuf mappings, for example,
 you might want names which make the direction clearer:
@@ -399,6 +401,8 @@ uppercased, and the signature values are rendered as `Value` or `Pointer`.
 <details>
 <summary>Customizing Mapper Signatures</summary>
 
+#### Customizing Mapper Signatures
+
 Similar to configuring mapper names, you can customize the signature of a mapper, controlling
 whether the function accepts/returns pointers/values:
 
@@ -420,6 +424,8 @@ packages:
 
 <details>
 <summary>Overriding Field / Enum Value Mapping</summary>
+
+#### Overriding Field / Enum Value Mapping
 
 Morph will try to match struct fields by name, including case-insensitive matches. If field names
 don't match clearly, you can map them explicitly:
@@ -475,6 +481,8 @@ Patterns use Go's `text/template` library. Input to the template is `enumTemplat
 
 <details>
 <summary>Bidirectional Mapping</summary>
+
+#### Bidirectional Mapping
 
 Many mappings are useful in both directions. You can enable bidirectional mapping in defaults, in a
 preset, on a package, or on a specific type:
