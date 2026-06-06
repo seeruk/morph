@@ -17,8 +17,8 @@ func MapRecipeFromProto(source foodpb.Recipe) food.Recipe {
 }
 ```
 
-Morph can map structs and enums, including fields containing basic types, pointers, slices, arrays, 
-maps, nested structs, and concrete generic containers, using direct assignment, safe or configured 
+Morph can map structs and enums, including fields containing basic types, pointers, slices, arrays,
+maps, nested structs, and concrete generic containers, using direct assignment, safe or configured
 type conversions, generated nested mappers, and user-provided callables.
 
 ## Why Morph?
@@ -83,7 +83,8 @@ gets generated, and what other resources Morph can draw on.
 The following sections cover other config sections, and following that are some other common
 "recipes" for things you might want to be able to do with Morph.
 
-### Defaults Hierarchy
+<details>
+<summary>Defaults Hierarchy</summary>
 
 Morph configuration is layered, allowing you to specify defaults, and subsequently override them at
 more granular levels. Morph aims to be an unopinionated tool with sensible defaults. Top-level
@@ -103,7 +104,10 @@ It's worth noting, configuration on a package, type, or field level does not tri
 mapping functions that Morph generates automatically. If you need Morph to make a customized mapper,
 it must be specified in the config file, or use top-level defaults.
 
-### Conversions
+</details>
+
+<details>
+<summary>Conversions</summary>
 
 Morph supports generating type conversions between basic types when it's safe to do so. This
 behaviour can be extended through configuration, allowing unsafe basic conversions, and allowing
@@ -144,7 +148,10 @@ packages:
             enabled: false # Disable again for this field.
 ```
 
-### Discovery
+</details>
+
+<details>
+<summary>Discovery</summary>
 
 Morph supports automatically finding and using potentially compatible mapping functions. This
 functionality is separate from explicitly asking Morph to use callables for mapping, and allows
@@ -163,15 +170,22 @@ Exclusions can be provided to prevent Morph from using specific functions discov
 packages, which can be useful if there are many potential functions, and not all of them are
 actually intended for use as mapping functions.
 
-### Callables
+</details>
 
-#### What are Callables?
+<details>
+<summary>Callables</summary>
+
+<details>
+<summary>What are Callables?</summary>
 
 Callables are functions or methods that can be explicitly referenced in the config file for Morph to
 potentially use for mapping, instead of Morph generated the mapping itself. There are 2 main kinds
 of callables:
 
-##### Plain Callables
+</details>
+
+<details>
+<summary>Plain Callables</summary>
 
 Plain callables are simple functions which take a source type and return a target type. These
 callables can error, and if they do, that errability will propagate up to the parent mapper it's
@@ -197,7 +211,10 @@ type arguments differ on the source and target type (`Foo Optional[Bar]` to `Foo
 this case, Morph wouldn't be able to map the inner type argument, it has no way to control it. For
 these kinds of cases, you can use a combinator callable.
 
-##### Combinator Callables
+</details>
+
+<details>
+<summary>Combinator Callables</summary>
 
 Combinator callables allow you to provide callables to Morph which can be used to handle many
 generic types. They look like this:
@@ -223,10 +240,13 @@ func EitherToTuple[L, R, A, B any](
 The mapping functions should look like plain callables, and each mapping function argument may
 return an error.
 
-#### Configuring Callables
+</details>
+
+<details>
+<summary>Configuring Callables</summary>
 
 The aforementioned discovery is only for auto-discovery of entire packages worth of functions, for
-other callables  to be used by Morph, you must specify them explicitly. Discovery is a nice way to
+other callables to be used by Morph, you must specify them explicitly. Discovery is a nice way to
 include packages designed specifically for mapping, but you could end up pulling in way more than
 you want. Also, discovery is not scoped.
 
@@ -250,7 +270,12 @@ Morph for any field's value mapping. It will not trickle down to nested mappings
 
 Specifying callables in the `defaults` section will make the callables available to any mapper.
 
-### Presets
+</details>
+
+</details>
+
+<details>
+<summary>Presets</summary>
 
 Morph allows you to write named collections of default configuration which can be applied at the
 package or type level. If you have a common pattern you want to use for certain packages, then it
@@ -297,7 +322,10 @@ packages:
     preset: protobuf
 ```
 
-### Configuring Output
+</details>
+
+<details>
+<summary>Configuring Output</summary>
 
 By default, Morph generates code into a single `mapping` package, in a `mapping` directory next to
 the configuration file. You can configure this globally:
@@ -334,9 +362,13 @@ There are 3 output strategies:
 For `source_package` and `target_package`, only `filename` is used. The package name and path come
 from the existing package Morph is writing into.
 
-### Other Common Scenarios
+</details>
 
-#### Customizing Mapper Function Names
+<details>
+<summary>Other Common Scenarios</summary>
+
+<details>
+<summary>Customizing Mapper Function Names</summary>
 
 Morph generates mapper function names from templates. You can configure mapper names in defaults,
 presets, on packages, or on individual types. If you're generating ProtoBuf mappings, for example,
@@ -360,13 +392,16 @@ With the above config, Morph would generate names like `MapRecipeFromProto` and
 `MapRecipeToProto`.
 
 Patterns use Go's `text/template` library. Input to the template is `nameTemplateData` found in
-[naming.go](naming.go#L23). The package values are the Go package names with the first letter 
+[naming.go](naming.go#L23). The package values are the Go package names with the first letter
 uppercased, and the signature values are rendered as `Value` or `Pointer`.
 
-#### Customizing Mapper Signatures
+</details>
 
-Similar to configuring mapper names, you can customize the signature of a mapper, controlling 
-whether the function accepts/returns pointers/values: 
+<details>
+<summary>Customizing Mapper Signatures</summary>
+
+Similar to configuring mapper names, you can customize the signature of a mapper, controlling
+whether the function accepts/returns pointers/values:
 
 ```yaml
 packages:
@@ -382,7 +417,10 @@ packages:
           returns: value
 ```
 
-#### Overriding Field / Enum Value Mapping
+</details>
+
+<details>
+<summary>Overriding Field / Enum Value Mapping</summary>
 
 Morph will try to match struct fields by name, including case-insensitive matches. If field names
 don't match clearly, you can map them explicitly:
@@ -434,7 +472,10 @@ packages:
 Patterns use Go's `text/template` library. Input to the template is `enumTemplateData` found in
 [planner_enum.go](planner_enum.go#L259).
 
-#### Bidirectional Mapping
+</details>
+
+<details>
+<summary>Bidirectional Mapping</summary>
 
 Many mappings are useful in both directions. You can enable bidirectional mapping in defaults, in a
 preset, on a package, or on a specific type:
@@ -463,6 +504,10 @@ packages:
   - name: Recipe
     bidirectional: true
 ```
+
+</details>
+
+</details>
 
 ## Known Limitations
 
