@@ -364,8 +364,7 @@ from the existing package Morph is writing into.
 
 </details>
 
-<details>
-<summary>Other Common Scenarios</summary>
+### Other Common Scenarios
 
 <details>
 <summary>Customizing Mapper Function Names</summary>
@@ -504,8 +503,6 @@ packages:
   - name: Recipe
     bidirectional: true
 ```
-
-</details>
 
 </details>
 
