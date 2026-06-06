@@ -50,7 +50,7 @@ very basic configuration file to map between a few types in a couple of packages
 this:
 
 ```yaml
-# yaml-language-server: $schema=../../schemas/config.schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/seeruk/morph/main/schemas/config.schema.json
 packages:
 - source: example.com/foodplanner/foodpb
   target: example.com/foodplanner/food
@@ -82,6 +82,10 @@ The order of preference is:
 5. Package preset
 6. Top-level default config
 7. Morph built-in defaults
+
+It's worth noting, configuration on a package, type, or field level does not trickle down to nested
+mapping functions that Morph generates automatically. If you need Morph to make a customized mapper, 
+it must be specified in the config file, or use top-level defaults.
 
 ### Conversions
 
@@ -143,6 +147,93 @@ Exclusions can be provided to prevent Morph from using specific functions discov
 packages, which can be useful if there are many potential functions, and not all of them are 
 actually intended for use as mapping functions.
 
+### Callables
+
+#### What are Callables?
+
+Callables are functions or methods that can be explicitly referenced in the config file for Morph to
+potentially use for mapping, instead of Morph generated the mapping itself. There are 2 main kinds 
+of callables:
+
+##### Plain Callables
+
+Plain callables are simple functions which take a source type and return a target type. These 
+callables can error, and if they do, that errability will propagate up to the parent mapper it's 
+used in, and so on.
+
+```go
+func FooToBar(foo Foo) Bar
+func FooToBarE(foo Foo) (Bar, error)
+```
+
+Morph does also support generic callables, as long as they're used on matching concrete types. For 
+example. You might have an `Optional[T any]` and a `Nullable[T any]`, and they might be used on a 
+source field like `Foo Optional[string]` to `Foo Nullable[string]` - this is fine, and works pretty
+much the same as above:
+
+```go
+func OptionalToNullable[T any](o Optional[T]) Nullable[T]
+func OptionalToNullable[T any](o Optional[T]) (Nullable[T], error)
+```
+
+There are potential generic cases where Morph cannot use these functions though, for example, if the
+type arguments differ on the source and target type (`Foo Optional[Bar]` to `Foo Nullable[Qux]`). In 
+this case, Morph wouldn't be able to map the inner type argument, it has no way to control it. For 
+these kinds of cases, you can use a combinator callable.
+
+##### Combinator Callables
+
+Combinator callables allow you to provide callables to Morph which can be used to handle many 
+generic types. They look like this:
+
+```go
+func OptionalToNullable[I, O any](o Optional[I], mapFn func(I) O) Nullable[O]
+func OptionalToNullableE[I, O any](o Optional[I], mapFn func(I) (O, error)) (Nullable[O], error)
+```
+
+Morph can pass mapping functions it uses, or generates, or can generate inline mapping functions to
+pass to these callables. If there are multiple type parameters, Morph expects a mapping function 
+argument on the callable for each type parameter on the source/target type; for example, for an
+`Either[L, R any]` to `Tuple[A, B]` conversion, you could have:
+
+```go
+func EitherToTuple[L, R, A, B any](
+    e Either[L, R], 
+    mapLeft func(L) A, 
+    mapRight mapRight func(R) B,
+) Tuple[A, B]
+```
+
+The mapping functions should look like plain callables, and each mapping function argument may 
+return an error.
+
+#### Configuring Callables
+
+The aforementioned discovery is only for auto-discovery of entire packages worth of functions, for 
+other callables  to be used by Morph, you must specify them explicitly. Discovery is a nice way to 
+include packages designed specifically for mapping, but you could end up pulling in way more than 
+you want. Also, discovery is not scoped.
+
+Explicitly configuring callables is the solution to both of those issues. Similar to other 
+configuration options, you can configure callables in defaults, presets, on packages, on types, and 
+on specific fields. Configuration looks something like this:
+
+```yaml
+packages:
+- source: example.com/foodplanner/foodpb
+  target: example.com/foodplanner/food
+  types:
+  - name: Recipe
+    callables:
+    - google.golang.org/protobuf/types/known/timestamppb.Timestamp.AsTime
+    - google.golang.org/protobuf/types/known/timestamppb.New
+```
+
+In the above example, since this is specified at the type level, these functions can be used by 
+Morph for any field's value mapping. It will not trickle down to nested mappings.
+
+Specifying callables in the `defaults` section will make the callables available to any mapper.
+
 ### Presets
 
 Morph allows you to write named collections of default configuration which can be applied at the
@@ -186,7 +277,7 @@ packages:
   preset: protobuf
   types:
   - name: Bar
-    # Or at a the specific type level
+    # Or at the specific type level
     preset: protobuf
 ```
 
