@@ -324,6 +324,8 @@ packages:
 
 </details>
 
+### Other Common Scenarios
+
 <details>
 <summary>Configuring Output</summary>
 
@@ -363,8 +365,6 @@ For `source_package` and `target_package`, only `filename` is used. The package 
 from the existing package Morph is writing into.
 
 </details>
-
-### Other Common Scenarios
 
 <details>
 <summary>Customizing Mapper Function Names</summary>
