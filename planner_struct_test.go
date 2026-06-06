@@ -90,6 +90,214 @@ func TestPlannerPlanBidirectionalPackageContext(t *testing.T) {
 	assert.Equal(t, "github.com/seeruk/morph/lab/planner/from", inverse.Target.ImportPath)
 }
 
+func TestPlannerPlanRootVisibility(t *testing.T) {
+	t.Run("allows unexported root types from the generated package", func(t *testing.T) {
+		out := planWithConfig(t, ".", config.Config{
+			Packages: []config.Package{{
+				Source: visibilitySourcePackage,
+				Target: visibilitySourcePackage,
+				Output: config.Output{Strategy: new(spec.OutputStrategySourcePackage)},
+				Types: []config.Type{{
+					Name: "samePackageUnexportedRoot",
+				}},
+			}},
+		})
+
+		root := requireSingleRoot(t, out)
+		assert.False(t, plan.HasFatalDiagnostics(root.Diagnostics))
+	})
+
+	t.Run("rejects unexported source types from another generated package", func(t *testing.T) {
+		out := planWithConfig(t, ".", config.Config{
+			Packages: []config.Package{{
+				Source: visibilitySourcePackage,
+				Target: visibilityTargetPackage,
+				Output: config.Output{Strategy: new(spec.OutputStrategyTargetPackage)},
+				Types: []config.Type{{
+					Source: "unexportedSourceRoot",
+					Target: "UnexportedSourceRoot",
+				}},
+			}},
+		})
+
+		root := requireSingleRoot(t, out)
+		assertFatalDiagnosticMessages(
+			t,
+			root.Diagnostics,
+			`mapper "MapSourceunexportedSourceRootToTargetUnexportedSourceRoot" source signature references unexported type "unexportedSourceRoot" from package "github.com/seeruk/morph/testdata/visibility/source", but generated package "github.com/seeruk/morph/testdata/visibility/target" cannot name it; unexported types can only be named from their declaring package`,
+		)
+	})
+
+	t.Run("rejects unexported target types from another generated package", func(t *testing.T) {
+		out := planWithConfig(t, ".", config.Config{
+			Packages: []config.Package{{
+				Source: visibilitySourcePackage,
+				Target: visibilityTargetPackage,
+				Output: config.Output{Strategy: new(spec.OutputStrategySourcePackage)},
+				Types: []config.Type{{
+					Name: "unexportedBothRoot",
+				}},
+			}},
+		})
+
+		root := requireSingleRoot(t, out)
+		assertFatalDiagnosticMessages(
+			t,
+			root.Diagnostics,
+			`mapper "MapSourceunexportedBothRootToTargetunexportedBothRoot" target signature references unexported type "unexportedBothRoot" from package "github.com/seeruk/morph/testdata/visibility/target", but generated package "github.com/seeruk/morph/testdata/visibility/source" cannot name it; unexported types can only be named from their declaring package`,
+		)
+	})
+}
+
+func TestPlannerPlanFieldVisibility(t *testing.T) {
+	t.Run("allows unexported source fields from the generated package", func(t *testing.T) {
+		out := planWithConfig(t, ".", config.Config{
+			Packages: []config.Package{{
+				Source: visibilitySourcePackage,
+				Target: visibilityTargetPackage,
+				Output: config.Output{Strategy: new(spec.OutputStrategySourcePackage)},
+				Types: []config.Type{{
+					Name: "LowerSourceFieldContainer",
+					Struct: &config.Struct{Fields: map[string]config.Field{
+						"secret": {Target: "Secret"},
+					}},
+				}},
+			}},
+		})
+
+		root := requireSingleRoot(t, out)
+		field := requirePlanField(t, root.StructPlan, "Secret")
+
+		assert.False(t, plan.HasFatalDiagnostics(root.Diagnostics))
+		assert.Equal(t, "secret", field.SourceField.Name)
+	})
+
+	t.Run("allows unexported target fields from the generated package", func(t *testing.T) {
+		out := planWithConfig(t, ".", config.Config{
+			Packages: []config.Package{{
+				Source: visibilitySourcePackage,
+				Target: visibilityTargetPackage,
+				Output: config.Output{Strategy: new(spec.OutputStrategyTargetPackage)},
+				Types: []config.Type{{
+					Name: "LowerTargetFieldContainer",
+					Struct: &config.Struct{Fields: map[string]config.Field{
+						"Secret": {Target: "secret"},
+					}},
+				}},
+			}},
+		})
+
+		root := requireSingleRoot(t, out)
+		field := requirePlanField(t, root.StructPlan, "secret")
+
+		assert.False(t, plan.HasFatalDiagnostics(root.Diagnostics))
+		assert.Equal(t, "Secret", field.SourceField.Name)
+	})
+
+	t.Run("maps accessible unexported fields automatically", func(t *testing.T) {
+		out := planWithConfig(t, ".", config.Config{
+			Packages: []config.Package{{
+				Source: visibilitySourcePackage,
+				Target: visibilitySourcePackage,
+				Output: config.Output{Strategy: new(spec.OutputStrategySourcePackage)},
+				Types: []config.Type{{
+					Source: "SamePackageSecretSource",
+					Target: "SamePackageSecretTarget",
+				}},
+			}},
+		})
+
+		root := requireSingleRoot(t, out)
+		field := requirePlanField(t, root.StructPlan, "secret")
+
+		assert.False(t, plan.HasFatalDiagnostics(root.Diagnostics))
+		assert.Equal(t, "secret", field.SourceField.Name)
+	})
+
+	t.Run("skips inaccessible unexported fields during automatic matching", func(t *testing.T) {
+		out := planWithConfig(t, ".", config.Config{
+			Packages: []config.Package{{
+				Source: visibilitySourcePackage,
+				Target: visibilityTargetPackage,
+				Output: config.Output{Strategy: new(spec.OutputStrategySourcePackage)},
+				Types: []config.Type{{
+					Name: "LowerTargetFieldContainer",
+				}},
+			}},
+		})
+
+		root := requireSingleRoot(t, out)
+
+		assert.False(t, plan.HasFatalDiagnostics(root.Diagnostics))
+		assert.Empty(t, root.StructPlan.Fields)
+	})
+
+	t.Run("rejects explicit unexported source fields from another generated package", func(t *testing.T) {
+		out := planWithConfig(t, ".", config.Config{
+			Packages: []config.Package{{
+				Source: visibilitySourcePackage,
+				Target: visibilityTargetPackage,
+				Output: config.Output{Strategy: new(spec.OutputStrategyTargetPackage)},
+				Types: []config.Type{{
+					Name: "LowerSourceFieldContainer",
+					Struct: &config.Struct{Fields: map[string]config.Field{
+						"secret": {Target: "Secret"},
+					}},
+				}},
+			}},
+		})
+
+		root := requireSingleRoot(t, out)
+		assertFatalDiagnosticMessages(
+			t,
+			root.Diagnostics,
+			`source field "secret" is not accessible from generated package "github.com/seeruk/morph/testdata/visibility/target"; unexported fields can only be mapped from their declaring package "github.com/seeruk/morph/testdata/visibility/source"`,
+		)
+	})
+
+	t.Run("rejects explicit unexported target fields from another generated package", func(t *testing.T) {
+		out := planWithConfig(t, ".", config.Config{
+			Packages: []config.Package{{
+				Source: visibilitySourcePackage,
+				Target: visibilityTargetPackage,
+				Output: config.Output{Strategy: new(spec.OutputStrategySourcePackage)},
+				Types: []config.Type{{
+					Name: "LowerTargetFieldContainer",
+					Struct: &config.Struct{Fields: map[string]config.Field{
+						"Secret": {Target: "secret"},
+					}},
+				}},
+			}},
+		})
+
+		root := requireSingleRoot(t, out)
+		assertFatalDiagnosticMessages(
+			t,
+			root.Diagnostics,
+			`target field "secret" is not accessible from generated package "github.com/seeruk/morph/testdata/visibility/source"; unexported fields can only be mapped from their declaring package "github.com/seeruk/morph/testdata/visibility/target"`,
+		)
+	})
+
+	t.Run("continues to reject embedded fields", func(t *testing.T) {
+		out := planWithConfig(t, ".", config.Config{
+			Packages: []config.Package{{
+				Source: visibilitySourcePackage,
+				Target: visibilityTargetPackage,
+				Output: config.Output{Strategy: new(spec.OutputStrategySourcePackage)},
+				Types: []config.Type{{
+					Name: "EmbeddedFieldContainer",
+					Struct: &config.Struct{Fields: map[string]config.Field{
+						"ID": {Target: "ID"},
+					}},
+				}},
+			}},
+		})
+
+		root := requireSingleRoot(t, out)
+		assertFatalDiagnosticMessages(t, root.Diagnostics, `source field "ID" is embedded; embedded fields are not supported`)
+	})
+}
+
 func TestPlannerPlanOutputScopedVariants(t *testing.T) {
 	out := planWithConfig(t, "lab/planner", config.Config{
 		Packages: []config.Package{
@@ -822,8 +1030,10 @@ func TestPlannerPlanHigherOrderGenericFunctionWithMultipleTypeArgs(t *testing.T)
 }
 
 const (
-	plannerFromPackage = "github.com/seeruk/morph/testdata/planner/from"
-	plannerToPackage   = "github.com/seeruk/morph/testdata/planner/to"
+	plannerFromPackage      = "github.com/seeruk/morph/testdata/planner/from"
+	plannerToPackage        = "github.com/seeruk/morph/testdata/planner/to"
+	visibilitySourcePackage = "github.com/seeruk/morph/testdata/visibility/source"
+	visibilityTargetPackage = "github.com/seeruk/morph/testdata/visibility/target"
 )
 
 func planPlannerRoot(t *testing.T, typ config.Type, conversions ...config.Conversion) *plan.Type {

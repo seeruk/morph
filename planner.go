@@ -486,7 +486,7 @@ func (p *attemptPlanner) shallowPackagePlan(outputGroups map[plan.OutputLocation
 			return fmt.Errorf("target package not found %q", targetPackage)
 		}
 
-		root, err := p.shallowTypePlan(sourcePkg, targetPkg, typeSpec)
+		root, err := p.shallowTypePlan(location, sourcePkg, targetPkg, typeSpec)
 		if err != nil {
 			return fmt.Errorf("failed to shallow plan type for packages %q -> %q: %w", pkgSpec.Source, pkgSpec.Target, err)
 		}
@@ -499,7 +499,11 @@ func (p *attemptPlanner) shallowPackagePlan(outputGroups map[plan.OutputLocation
 	return nil
 }
 
-func (p *attemptPlanner) shallowTypePlan(sourcePkg, targetPkg types.Package, typeSpec spec.Type) (*plan.Type, error) {
+func (p *attemptPlanner) shallowTypePlan(
+	location plan.OutputLocation,
+	sourcePkg, targetPkg types.Package,
+	typeSpec spec.Type,
+) (*plan.Type, error) {
 	sourceDecl, ok := sourcePkg.Types[typeSpec.Source]
 	if !ok {
 		return nil, fmt.Errorf("source type not found %q in package %q", typeSpec.Source, sourcePkg.ImportPath)
@@ -510,7 +514,7 @@ func (p *attemptPlanner) shallowTypePlan(sourcePkg, targetPkg types.Package, typ
 		return nil, fmt.Errorf("target type not found %q in package %q", typeSpec.Target, targetPkg.ImportPath)
 	}
 
-	root, err := p.shallowRootPlan(sourceDecl, targetDecl, typeSpec)
+	root, err := p.shallowRootPlan(location, sourceDecl, targetDecl, typeSpec)
 	if err != nil {
 		return nil, fmt.Errorf("type %q -> %q: %w", typeSpec.Source, typeSpec.Target, err)
 	}
@@ -519,7 +523,11 @@ func (p *attemptPlanner) shallowTypePlan(sourcePkg, targetPkg types.Package, typ
 }
 
 // shallowRootPlan prepares a shallow plan for a particular type mapping.
-func (p *attemptPlanner) shallowRootPlan(sourceDecl, targetDecl types.TypeDecl, typeSpec spec.Type) (*plan.Type, error) {
+func (p *attemptPlanner) shallowRootPlan(
+	location plan.OutputLocation,
+	sourceDecl, targetDecl types.TypeDecl,
+	typeSpec spec.Type,
+) (*plan.Type, error) {
 	nameInput := NameInput{
 		Source:    sourceDecl.Type,
 		Target:    targetDecl.Type,
@@ -539,6 +547,7 @@ func (p *attemptPlanner) shallowRootPlan(sourceDecl, targetDecl types.TypeDecl, 
 		SourceType:   sourceDecl.Type,
 		TargetType:   targetDecl.Type,
 		FunctionName: functionName,
+		Location:     location,
 		Signature:    typeSpec.Mapper.Signature,
 		EnumSpec:     typeSpec.Enum,
 		Callables:    typeSpec.Callables,
@@ -547,7 +556,7 @@ func (p *attemptPlanner) shallowRootPlan(sourceDecl, targetDecl types.TypeDecl, 
 		Conversions:  typeSpec.Conversions,
 	}
 
-	root.Diagnostics = appendDiagnostic(root.Diagnostics, validateStructFieldMappings(root)...)
+	root.Diagnostics = appendDiagnostic(root.Diagnostics, validateStructFieldMappings(root, location.ImportPath)...)
 	root.Diagnostics = appendDiagnostic(root.Diagnostics, validateGenericRoot(root)...)
 
 	return root, nil
@@ -580,15 +589,15 @@ func invertStructSpec(in *spec.Struct) *spec.Struct {
 	return &out
 }
 
-func validateStructFieldMappings(typ *plan.Type) []plan.Diagnostic {
+func validateStructFieldMappings(typ *plan.Type, outputImportPath string) []plan.Diagnostic {
 	if len(typ.StructSpec.Fields) == 0 {
 		return nil
 	}
 
 	var out []plan.Diagnostic
 
-	sourceFields := plannableFieldsByName(typ.SourceDecl)
-	targetFields := plannableFieldsByName(typ.TargetDecl)
+	sourceFields := plannableFieldsByName(typ.SourceDecl, outputImportPath)
+	targetFields := plannableFieldsByName(typ.TargetDecl, outputImportPath)
 
 	// Collect and sort source field names so the output of this is stable.
 	sourceFieldNames := slices.Collect(maps.Keys(typ.StructSpec.Fields))
@@ -602,19 +611,25 @@ func validateStructFieldMappings(typ *plan.Type) []plan.Diagnostic {
 		targetName := structFieldTarget(sourceName, fieldSpec)
 
 		if _, ok := sourceFields[sourceName]; !ok {
-			out = append(out, plan.Diagnostic{
-				Level:   plan.DiagnosticLevelFatal,
-				Path:    plan.SourceFieldPath(typ.SourceType, typ.TargetType, sourceName),
-				Message: fmt.Sprintf("source field %q does not exist or is not plannable; fields must be exported and non-embedded", sourceName),
-			})
+			out = append(out, configuredFieldDiagnostic(
+				"source",
+				typ.SourceDecl,
+				typ.SourceType,
+				typ.TargetType,
+				sourceName,
+				outputImportPath,
+			))
 		}
 
 		if _, ok := targetFields[targetName]; !ok {
-			out = append(out, plan.Diagnostic{
-				Level:   plan.DiagnosticLevelFatal,
-				Path:    plan.TargetFieldPath(typ.SourceType, typ.TargetType, targetName),
-				Message: fmt.Sprintf("target field %q does not exist or is not plannable; fields must be exported and non-embedded", targetName),
-			})
+			out = append(out, configuredFieldDiagnostic(
+				"target",
+				typ.TargetDecl,
+				typ.SourceType,
+				typ.TargetType,
+				targetName,
+				outputImportPath,
+			))
 		}
 
 		if _, ok := sourcesByTarget[targetName]; !ok {
@@ -638,6 +653,54 @@ func validateStructFieldMappings(typ *plan.Type) []plan.Diagnostic {
 	}
 
 	return out
+}
+
+func configuredFieldDiagnostic(
+	side string,
+	typeDecl types.TypeDecl,
+	sourceType types.Type,
+	targetType types.Type,
+	fieldName string,
+	outputImportPath string,
+) plan.Diagnostic {
+	path := plan.SourceFieldPath(sourceType, targetType, fieldName)
+	if side == "target" {
+		path = plan.TargetFieldPath(sourceType, targetType, fieldName)
+	}
+
+	field, ok := typeDecl.Fields[fieldName]
+	switch {
+	case !ok:
+		return plan.Diagnostic{
+			Level:   plan.DiagnosticLevelFatal,
+			Path:    path,
+			Message: fmt.Sprintf("%s field %q does not exist", side, fieldName),
+		}
+	case field.IsEmbedded:
+		return plan.Diagnostic{
+			Level:   plan.DiagnosticLevelFatal,
+			Path:    path,
+			Message: fmt.Sprintf("%s field %q is embedded; embedded fields are not supported", side, fieldName),
+		}
+	case !fieldAccessibleFrom(typeDecl, field, outputImportPath):
+		return plan.Diagnostic{
+			Level: plan.DiagnosticLevelFatal,
+			Path:  path,
+			Message: fmt.Sprintf(
+				"%s field %q is not accessible from generated package %q; unexported fields can only be mapped from their declaring package %q",
+				side,
+				fieldName,
+				outputImportPath,
+				typeDecl.Package.ImportPath,
+			),
+		}
+	default:
+		return plan.Diagnostic{
+			Level:   plan.DiagnosticLevelFatal,
+			Path:    path,
+			Message: fmt.Sprintf("%s field %q is not plannable", side, fieldName),
+		}
+	}
 }
 
 type rootVariant struct {

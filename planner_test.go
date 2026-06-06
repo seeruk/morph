@@ -53,8 +53,8 @@ func TestPlannerPlanStructFieldsFromConfig(t *testing.T) {
 		root := requireSingleRoot(t, out)
 		assertFatalDiagnosticMessages(
 			t, root.Diagnostics,
-			`source field "MissingSource" does not exist or is not plannable; fields must be exported and non-embedded`,
-			`target field "MissingTarget" does not exist or is not plannable; fields must be exported and non-embedded`,
+			`source field "MissingSource" does not exist`,
+			`target field "MissingTarget" does not exist`,
 		)
 	})
 

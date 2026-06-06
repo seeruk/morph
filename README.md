@@ -7,7 +7,8 @@ A tool for automatically generating mapping code to map similar types.
 * Morph only generates top-level mappers for struct-to-struct or enum-to-enum mappings and does not
   support generating mapping functions for other types (e.g. basic types, slices, maps, so on).
 * Morph does not load test packages, so cannot create mappings for types in test files.
-* Morph only supports exported and non-embedded fields.
+* Morph only supports non-embedded fields. Unexported fields are supported only when the generated
+  mapper is emitted in the field's declaring package.
 * Morph only recognizes the standard, built-in `error` type for discovery, not custom aliases or 
   wrappers.  
 * Morph does not support creating mappers explicitly for generic types. See
@@ -20,7 +21,7 @@ A tool for automatically generating mapping code to map similar types.
 
 ## Future Enhancements
 
-* Same package mappers could support non-exported fields.
+* Package-local helpers could support cross-package mappings involving unexported fields.
 
 ## License
 

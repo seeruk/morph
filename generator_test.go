@@ -155,6 +155,52 @@ type ComparableTarget struct {
 	})
 }
 
+func TestGeneratorGenerate_OutputCompilesWithSamePackageUnexportedFields(t *testing.T) {
+	sourceDecl := generatorStructDecl("module.test/out", "Source", map[string]types.Field{
+		"secret": {Name: "secret", Type: basicTestType("string")},
+	})
+	targetDecl := generatorStructDecl("module.test/out", "Target", map[string]types.Field{
+		"secret": {Name: "secret", Type: basicTestType("string")},
+	})
+	root := generatorRoot("MapSourceToTarget", sourceDecl, targetDecl)
+	root.Location = plan.OutputLocation{
+		LogicalPath: "/repo/out/morph.gen.go",
+		ImportPath:  "module.test/out",
+		PackageName: "out",
+	}
+	root.StructPlan = &plan.Struct{Fields: []plan.Field{{
+		SourceField: sourceDecl.Fields["secret"],
+		TargetField: targetDecl.Fields["secret"],
+		Mapping: plan.Value{
+			Operation: plan.OperationAssign,
+			Source:    basicTestType("string"),
+			Target:    basicTestType("string"),
+		},
+	}}}
+
+	files, err := NewGenerator().Generate(Plan{OutputGroups: []plan.OutputGroup{{
+		Location: root.Location,
+		Roots:    []*plan.Type{root},
+	}}})
+
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	assert.Contains(t, string(files[0].Source), "source.secret")
+	assert.Contains(t, string(files[0].Source), "target.secret")
+	compileGeneratedPackage(t, files[0], map[string]string{
+		"out/types.go": `package out
+
+type Source struct {
+	secret string
+}
+
+type Target struct {
+	secret string
+}
+`,
+	})
+}
+
 func TestGeneratorGenerate_WithFatalDiagnostics(t *testing.T) {
 	_, err := NewGenerator().Generate(Plan{Diagnostics: []plan.Diagnostic{{
 		Level:   plan.DiagnosticLevelFatal,

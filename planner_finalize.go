@@ -32,6 +32,7 @@ type callableErrabilityFailure struct {
 
 type finalPlanValidation struct {
 	ImportSites      []importRequirementSite
+	VisibilitySites  []visibilityRequirementSite
 	CallableFailures []callableErrabilityFailure
 }
 
@@ -129,6 +130,7 @@ func (p *attemptPlanner) validateFinalPlan(outputGroups []plan.OutputGroup) *cal
 	}
 
 	p.validateImportRequirements(validation.ImportSites)
+	p.validateVisibilityRequirements(validation.VisibilitySites)
 
 	for _, failure := range validation.CallableFailures {
 		failure.Value.Diagnostics = appendDiagnostic(failure.Value.Diagnostics, failure.Diagnostic)
@@ -145,13 +147,16 @@ func collectFinalPlanValidation(outputGroups []plan.OutputGroup) finalPlanValida
 	walkOutputGroups(outputGroups, walkCallbacks{
 		TypePre: func(ctx walkContext) {
 			validation.ImportSites = append(validation.ImportSites, typeSignatureImportSites(ctx)...)
+			validation.VisibilitySites = append(validation.VisibilitySites, typeSignatureVisibilitySites(ctx)...)
 		},
 		ValuePre: func(ctx walkContext) {
 			validation.ImportSites = append(validation.ImportSites, valueImportSites(ctx)...)
+			validation.VisibilitySites = append(validation.VisibilitySites, valueVisibilitySites(ctx)...)
 			validation.CallableFailures = append(validation.CallableFailures, callableErrabilityFailures(ctx)...)
 		},
 	})
 	validation.ImportSites = dedupeImportRequirementSites(validation.ImportSites)
+	validation.VisibilitySites = dedupeVisibilityRequirementSites(validation.VisibilitySites)
 	return validation
 }
 

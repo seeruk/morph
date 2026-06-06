@@ -13,8 +13,12 @@ import (
 )
 
 func (p *attemptPlanner) planStruct(typ *plan.Type) {
-	sourceFields := plannableFieldsForType(typ.SourceDecl, typ.SourceType)
-	targetFields := plannableFieldsForType(typ.TargetDecl, typ.TargetType)
+	outputImportPath := ""
+	if p.currentOutputLocation != nil {
+		outputImportPath = p.currentOutputLocation.ImportPath
+	}
+	sourceFields := plannableFieldsForType(typ.SourceDecl, typ.SourceType, outputImportPath)
+	targetFields := plannableFieldsForType(typ.TargetDecl, typ.TargetType, outputImportPath)
 
 	var structPlan plan.Struct
 	for _, targetField := range targetFields {
@@ -1941,16 +1945,16 @@ func adaptationsCanError(adaptations []plan.ValueAdaptation, optionality spec.Op
 		optionality.OnNilSourcePointer == spec.PointerOptionalityError
 }
 
-func plannableFields(typeDecl types.TypeDecl) []types.Field {
-	return plannableFieldsForType(typeDecl, typeDecl.Type)
+func plannableFields(typeDecl types.TypeDecl, outputImportPath string) []types.Field {
+	return plannableFieldsForType(typeDecl, typeDecl.Type, outputImportPath)
 }
 
-func plannableFieldsForType(typeDecl types.TypeDecl, typ types.Type) []types.Field {
+func plannableFieldsForType(typeDecl types.TypeDecl, typ types.Type, outputImportPath string) []types.Field {
 	bindings := concreteTypeParamBindings(typeDecl, typ)
 	out := make([]types.Field, 0, len(typeDecl.Fields))
 	for _, field := range typeDecl.Fields {
-		if !field.IsExported || field.IsEmbedded {
-			// We only support regular, exported fields currently.
+		if field.IsEmbedded || !fieldAccessibleFrom(typeDecl, field, outputImportPath) {
+			// We only support regular fields accessible from the generated package.
 			continue
 		}
 		if len(bindings) > 0 {
@@ -1979,8 +1983,8 @@ func concreteTypeParamBindings(typeDecl types.TypeDecl, typ types.Type) map[stri
 	return bindings
 }
 
-func plannableFieldsByName(typeDecl types.TypeDecl) map[string]types.Field {
-	return fieldsByName(plannableFields(typeDecl))
+func plannableFieldsByName(typeDecl types.TypeDecl, outputImportPath string) map[string]types.Field {
+	return fieldsByName(plannableFields(typeDecl, outputImportPath))
 }
 
 func fieldsByName(fields []types.Field) map[string]types.Field {
