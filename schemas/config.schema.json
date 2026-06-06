@@ -288,6 +288,10 @@
         "failureMode": {
           "$ref": "#/$defs/enumFailureMode",
           "description": "Default behavior when an enum source value has no target match."
+        },
+        "patterns": {
+          "$ref": "#/$defs/enumPatterns",
+          "description": "Default templates used to normalize source and target enum value names before matching."
         }
       }
     },

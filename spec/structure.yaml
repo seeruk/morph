@@ -76,6 +76,9 @@ presets:
     bidirectional: true
     enum:
       failureMode: error
+      patterns:
+        source: "{{ .Type.Pascal }}_{{ .Type.Screaming }}_{{ .Value.Screaming }}"
+        target: "{{ .Type.Pascal }}{{ .Value.Pascal }}"
     mappers:
       forward:
         name: Map{{ .Target.Package }}{{ .Target.Type }}FromProto

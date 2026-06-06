@@ -297,19 +297,17 @@ func resolvedTypeDefaults(defaults TypesDefaults) spec.TypeDefaults {
 
 func resolveEnum(enum *Enum, defaults *EnumDefaults) spec.Enum {
 	out := spec.Enum{}
-	if defaults != nil && defaults.FailureMode != nil {
-		out.FailureMode = *defaults.FailureMode
+	if defaults != nil {
+		if defaults.FailureMode != nil {
+			out.FailureMode = *defaults.FailureMode
+		}
+		out.Patterns = enumPatternsFromDefaults(defaults.Patterns)
 	}
 	if enum != nil {
 		if enum.FailureMode != nil {
 			out.FailureMode = *enum.FailureMode
 		}
-		if enum.Patterns != nil {
-			out.Patterns = spec.EnumPatterns{
-				Source: enum.Patterns.Source,
-				Target: enum.Patterns.Target,
-			}
-		}
+		out.Patterns = enumPatternsFromOverrides(enum.Patterns, out.Patterns)
 		out.Values = maps.Clone(enum.Values)
 	}
 	return out
@@ -320,6 +318,46 @@ func mergeEnumDefaults(overrides *EnumDefaults, fallback *EnumDefaults) *EnumDef
 	fallback = cmp.Or(fallback, new(EnumDefaults))
 	return &EnumDefaults{
 		FailureMode: cmp.Or(overrides.FailureMode, fallback.FailureMode),
+		Patterns:    mergeEnumPatterns(overrides.Patterns, fallback.Patterns),
+	}
+}
+
+func mergeEnumPatterns(overrides *EnumPatterns, fallback *EnumPatterns) *EnumPatterns {
+	if overrides == nil && fallback == nil {
+		return nil
+	}
+
+	var out, zero EnumPatterns
+	if fallback != nil {
+		out = *fallback
+	}
+	if overrides != nil {
+		out.Source = cmp.Or(overrides.Source, out.Source)
+		out.Target = cmp.Or(overrides.Target, out.Target)
+	}
+	if out == zero {
+		return nil
+	}
+	return &out
+}
+
+func enumPatternsFromDefaults(patterns *EnumPatterns) spec.EnumPatterns {
+	if patterns == nil {
+		return spec.EnumPatterns{}
+	}
+	return spec.EnumPatterns{
+		Source: patterns.Source,
+		Target: patterns.Target,
+	}
+}
+
+func enumPatternsFromOverrides(overrides *EnumPatterns, fallback spec.EnumPatterns) spec.EnumPatterns {
+	if overrides == nil {
+		return fallback
+	}
+	return spec.EnumPatterns{
+		Source: cmp.Or(overrides.Source, fallback.Source),
+		Target: cmp.Or(overrides.Target, fallback.Target),
 	}
 }
 

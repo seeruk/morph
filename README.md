@@ -123,7 +123,50 @@ actually intended for use as mapping functions.
 
 ### Presets
 
-TODO
+Morph allows you to write named collections of default configuration which can be applied at the
+package or type level. If you have a common pattern you want to use for certain packages, then it 
+means you can drastically cut down on duplicate config. Presets can be defined as so:
+
+```yaml
+presets:
+  protobuf:
+    bidirectional: true
+    callables:
+    - google.golang.org/protobuf/types/known/timestamppb.Timestamp.AsTime
+    - google.golang.org/protobuf/types/known/timestamppb.New
+    
+    enum:
+      failureMode: error
+      patterns:
+        source: "{{ .Type.Pascal }}_{{ .Type.Screaming }}_{{ .Value.Screaming }}"
+        target: "{{ .Type.Pascal }}{{ .Value.Pascal }}"
+
+    mappers:
+      forward:
+        name: Map{{ .Target.Type }}FromProto
+        signature:
+          accepts: pointer
+          returns: value
+      inverse:
+        name: Map{{ .Target.Type }}ToProto
+        signature:
+          accepts: value
+          returns: pointer
+
+    optionality:
+      onNilSourcePointer: zero
+      onZeroSourceValue: nil
+
+# And then applied:
+packages:
+- source: example.com/foopb
+  target: example.com/foo
+  preset: protobuf
+  types:
+  - name: Bar
+    # Or at a the specific type level
+    preset: protobuf
+```
 
 ### Common recipes
 
@@ -131,10 +174,8 @@ TODO
   * Field / enum value override
   * Bidirectional mapping
   * Custom callables
-  * Discovery
   * Explicitly allowed conversions
   * Output types
-  * Presets
 
 ## Known Limitations
 

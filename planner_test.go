@@ -273,6 +273,32 @@ func TestPlannerPlanEnumsFromConfig(t *testing.T) {
 		assertFatalDiagnosticMessages(t, root.Diagnostics, `no target enum value matched source enum value "DifficultyUltra" normalized as "ULTRA"; configure enum.values or enum.patterns`)
 	})
 
+	t.Run("uses preset enum patterns for protobuf-style names", func(t *testing.T) {
+		out := planWithConfig(t, ".", config.Config{
+			Presets: map[string]config.Preset{
+				"protobuf": {
+					Enum: &config.EnumDefaults{Patterns: &config.EnumPatterns{
+						Source: "{{ .Type.Pascal }}_{{ .Type.Screaming }}_{{ .Value.Screaming }}",
+						Target: "{{ .Type.Pascal }}{{ .Value.Pascal }}",
+					}},
+				},
+			},
+			Packages: []config.Package{{
+				Source: "github.com/seeruk/morph/testdata/planner/proto/from",
+				Target: "github.com/seeruk/morph/testdata/planner/proto/to",
+				Preset: "protobuf",
+				Types:  []config.Type{{Name: "Difficulty"}},
+			}},
+		})
+
+		root := requireSingleRoot(t, out)
+		require.NotNil(t, root.EnumPlan)
+
+		assert.Empty(t, root.Diagnostics)
+		assert.Equal(t, []string{"Difficulty_DIFFICULTY_EASY", "Difficulty_DIFFICULTY_HARD"}, enumSourceNames(root.EnumPlan.Values))
+		assert.Equal(t, []string{"DifficultyEasy", "DifficultyHard"}, enumTargetNames(root.EnumPlan.Values))
+	})
+
 	t.Run("respects zero failure mode", func(t *testing.T) {
 		zero := spec.EnumFailureModeZero
 		out := planWithConfig(t, "lab/planner", config.Config{

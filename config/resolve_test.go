@@ -74,6 +74,102 @@ func TestResolve_DefaultPrecedence(t *testing.T) {
 	})
 }
 
+func TestResolve_EnumPatternDefaults(t *testing.T) {
+	t.Run("uses global enum default patterns", func(t *testing.T) {
+		cfg := minimalConfig()
+		cfg.Defaults.Packages.Types.Enum = &config.EnumDefaults{
+			Patterns: &config.EnumPatterns{
+				Source: "DefaultSource",
+				Target: "DefaultTarget",
+			},
+		}
+
+		typ := singleResolvedType(t, cfg)
+
+		assert.Equal(t, spec.EnumPatterns{Source: "DefaultSource", Target: "DefaultTarget"}, typ.Enum.Patterns)
+	})
+
+	t.Run("uses package preset enum patterns", func(t *testing.T) {
+		cfg := minimalConfig()
+		cfg.Presets = map[string]config.Preset{
+			"api": {Enum: &config.EnumDefaults{Patterns: &config.EnumPatterns{
+				Source: "PackagePresetSource",
+				Target: "PackagePresetTarget",
+			}}},
+		}
+		cfg.Packages[0].Preset = "api"
+
+		typ := singleResolvedType(t, cfg)
+
+		assert.Equal(t, spec.EnumPatterns{Source: "PackagePresetSource", Target: "PackagePresetTarget"}, typ.Enum.Patterns)
+	})
+
+	t.Run("type preset overrides package preset enum patterns", func(t *testing.T) {
+		cfg := minimalConfig()
+		cfg.Presets = map[string]config.Preset{
+			"api": {Enum: &config.EnumDefaults{Patterns: &config.EnumPatterns{
+				Source: "PackagePresetSource",
+				Target: "PackagePresetTarget",
+			}}},
+			"db": {Enum: &config.EnumDefaults{Patterns: &config.EnumPatterns{
+				Source: "TypePresetSource",
+				Target: "TypePresetTarget",
+			}}},
+		}
+		cfg.Packages[0].Preset = "api"
+		cfg.Packages[0].Types[0].Preset = "db"
+
+		typ := singleResolvedType(t, cfg)
+
+		assert.Equal(t, spec.EnumPatterns{Source: "TypePresetSource", Target: "TypePresetTarget"}, typ.Enum.Patterns)
+	})
+
+	t.Run("package enum patterns override global defaults", func(t *testing.T) {
+		cfg := minimalConfig()
+		cfg.Defaults.Packages.Types.Enum = &config.EnumDefaults{
+			Patterns: &config.EnumPatterns{Source: "DefaultSource", Target: "DefaultTarget"},
+		}
+		cfg.Packages[0].Enum = &config.EnumDefaults{
+			Patterns: &config.EnumPatterns{Source: "PackageSource", Target: "PackageTarget"},
+		}
+
+		typ := singleResolvedType(t, cfg)
+
+		assert.Equal(t, spec.EnumPatterns{Source: "PackageSource", Target: "PackageTarget"}, typ.Enum.Patterns)
+	})
+
+	t.Run("type enum patterns override inherited defaults", func(t *testing.T) {
+		cfg := minimalConfig()
+		cfg.Defaults.Packages.Types.Enum = &config.EnumDefaults{
+			Patterns: &config.EnumPatterns{Source: "DefaultSource", Target: "DefaultTarget"},
+		}
+		cfg.Packages[0].Types[0].Enum = &config.Enum{
+			Patterns: &config.EnumPatterns{Source: "TypeSource", Target: "TypeTarget"},
+		}
+
+		typ := singleResolvedType(t, cfg)
+
+		assert.Equal(t, spec.EnumPatterns{Source: "TypeSource", Target: "TypeTarget"}, typ.Enum.Patterns)
+	})
+
+	t.Run("partial enum pattern overrides inherit the unspecified side", func(t *testing.T) {
+		cfg := minimalConfig()
+		cfg.Defaults.Packages.Types.Enum = &config.EnumDefaults{
+			Patterns: &config.EnumPatterns{Source: "DefaultSource", Target: "DefaultTarget"},
+		}
+		cfg.Packages[0].Enum = &config.EnumDefaults{
+			Patterns: &config.EnumPatterns{Source: "PackageSource"},
+		}
+		cfg.Packages[0].Types[0].Enum = &config.Enum{
+			Patterns: &config.EnumPatterns{Target: "TypeTarget"},
+		}
+
+		typ := singleResolvedType(t, cfg)
+
+		assert.Equal(t, spec.EnumPatterns{Source: "PackageSource", Target: "TypeTarget"}, typ.Enum.Patterns)
+	})
+}
+
 func TestResolve_BidirectionalExpansion(t *testing.T) {
 	t.Run("expands one config type into forward and inverse resolved types", func(t *testing.T) {
 		types := resolvedBidirectionalTypes(t)

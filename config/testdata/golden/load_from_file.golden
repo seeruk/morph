@@ -3,7 +3,8 @@
     "packages": {
       "types": {
         "enum": {
-          "failureMode": "error"
+          "failureMode": "error",
+          "patterns": null
         },
         "callables": [
           "module.test/shared/conversions.CheckedIntToSmallInt",
@@ -200,7 +201,8 @@
   "presets": {
     "api": {
       "enum": {
-        "failureMode": "error"
+        "failureMode": "error",
+        "patterns": null
       },
       "callables": null,
       "mappers": {

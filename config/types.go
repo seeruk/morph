@@ -36,6 +36,7 @@ type TypesDefaults struct {
 // EnumDefaults represents available options for configuring enum mapping defaults.
 type EnumDefaults struct {
 	FailureMode *spec.EnumFailureMode `json:"failureMode"`
+	Patterns    *EnumPatterns         `json:"patterns"`
 }
 
 // MappersDefaults configures partial mapper defaults that can be layered with other defaults.
