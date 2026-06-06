@@ -2,6 +2,40 @@
 
 A tool for automatically generating mapping code to map similar types.
 
+Morph is a CLI tool, but can also be used as a library, to be integrated into other applications as
+part of more complex code-generation pipelines.
+
+## Why Morph?
+
+* What problem does it solve?
+* Why did I start making it?
+* Example of ProtoBuf? 
+* Not too long...
+
+## Quick Start
+
+* How to install it
+* How to configure it
+* How to run it
+* See more in `examples/`?
+
+
+## Configuration Overview
+
+* High level concepts
+* Link to fully documented example
+
+### Common recipes
+
+* Specifically how to configure certain things
+  * Field / enum value override
+  * Bidirectional mapping
+  * Custom callables
+  * Discovery
+  * Explicitly allowed conversions
+  * Output types
+  * Presets
+
 ## Known Limitations
 
 * Morph only generates top-level mappers for struct-to-struct or enum-to-enum mappings and does not
