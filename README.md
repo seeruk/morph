@@ -45,8 +45,85 @@ within a Go module.
 
 ## Configuration Overview
 
-* High level concepts
-* Link to fully documented example
+### Defaults Hierarchy
+
+Morph configuration is layered, allowing you to specify defaults, and subsequently override them at
+more granular levels. Morph aims to be an unopinionated tool with sensible defaults. Top-level 
+defaults are specified in the `defaults` section of the configuration.
+
+The order of preference is:
+
+1. Field-level config
+2. Type-level config
+3. Type preset
+4. Package-level config
+5. Package preset
+6. Top-level default config
+7. Morph built-in defaults
+
+### Conversions
+
+Morph supports generating type conversions between basic types when it's safe to do so. This 
+behaviour can be extended through configuration, allowing unsafe basic conversions, and allowing 
+custom types to be converted if their underlying type supports it.
+
+Conversions are configured at the top-level in configuration:
+
+```yaml
+conversions:
+- source: int
+  targets:
+  - int64
+  - uint64
+  bidirectional: true
+- source: StringBasedID
+  targets:
+  - string
+```
+
+As conversions are global configuration, you might find there are scenarios where you want to 
+disable them for certain packages, types, or fields. This can be done at any of these levels like 
+so:
+
+```yaml
+packages:
+- source: example.com/source
+  target: example.com/target
+  conversions:
+    enabled: false # Disable for this package pair.
+  types:
+  - name: Example
+    conversions:
+      enabled: true # Re-enable for this type pair.
+    struct:
+      fields:
+        LegacyID:
+          conversions:
+            enabled: false # Disable again for this field.
+```
+
+### Discovery
+
+Morph supports automatically finding and using potentially compatible mapping functions. This 
+functionality is separate from explicitly asking Morph to use callables for mapping, and allows 
+Morph to automatically use functions from explicitly listed packages, like so:
+
+```yaml
+discovery:
+  packages:
+  - github.com/example/mappers/datetime
+  - github.com/example/mappers/numeric
+  exclusions:
+  - github.com/example/mappers/numeric.IntToInt64
+```
+
+Exclusions can be provided to prevent Morph from using specific functions discovered in these 
+packages, which can be useful if there are many potential functions, and not all of them are 
+actually intended for use as mapping functions.
+
+### Presets
+
+TODO
 
 ### Common recipes
 
