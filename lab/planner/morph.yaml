@@ -30,6 +30,10 @@ packages:
   bidirectional: true
   types:
   - name: Recipe
+    mappers:
+      forward:
+        signature:
+          accepts: pointer
     struct:
       fields:
         RecipeId:

@@ -8,7 +8,10 @@ import (
 	"github.com/seeruk/morph/runtime/value"
 )
 
-func MapFromRecipeToToRecipe(source from.Recipe) to.Recipe {
+func MapFromRecipeToToRecipe(source *from.Recipe) to.Recipe {
+	if source == nil {
+		return to.Recipe{}
+	}
 	var target to.Recipe
 	target.ID = to.RecipeID(source.RecipeId)
 	target.Name = source.Name
