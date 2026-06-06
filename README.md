@@ -45,6 +45,28 @@ within a Go module.
 
 ## Configuration Overview
 
+Morph requires a configuration file to function. It does not support taking parameters as flags. A
+very basic configuration file to map between a few types in a couple of packages could look like 
+this:
+
+```yaml
+# yaml-language-server: $schema=../../schemas/config.schema.json
+packages:
+- source: example.com/foodplanner/foodpb
+  target: example.com/foodplanner/food
+  types:
+  - name: Recipe
+  - name: Ingredient
+  - source: Difficulty
+    target: RecipeDifficulty
+```
+
+Configuration allows you to control quite a lot about how mapping works, what is generated, where it
+gets generated, and what other resources Morph can draw on. 
+
+The following sections cover other config sections, and following that are some other common 
+"recipes" for things you might want to be able to do with Morph.
+
 ### Defaults Hierarchy
 
 Morph configuration is layered, allowing you to specify defaults, and subsequently override them at
