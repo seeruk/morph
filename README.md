@@ -1,6 +1,6 @@
 # Morph
 
-A tool for automatically generating mapping code to map similar types.
+A Go tool for automatically generating mapping code for similar types.
 
 Morph is a CLI tool, but can also be used as a library, to be integrated into other applications as
 part of more complex code-generation pipelines.
