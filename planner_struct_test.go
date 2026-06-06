@@ -11,900 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAssessFunctionCompatibility(t *testing.T) {
-	sourceType := namedTestType("module.test/from", "User")
-	targetType := namedTestType("module.test/to", "User")
-
-	t.Run("should match exact parameter and result types", func(t *testing.T) {
-		got := assessFunctionCompatibility(sourceType, targetType, testFunctionDecl("MapUser", sourceType, targetType))
-
-		require.True(t, got.Compatible())
-		assert.Equal(t, callableInputExact, got.Input)
-		assert.Equal(t, callableResultExact, got.Result)
-	})
-
-	t.Run("should match generic parameter and result types", func(t *testing.T) {
-		typeParam := typeParamTestType("T")
-		stringType := basicTestType("string")
-		sourceConcrete := namedTestType("module.test/from", "Optional", stringType)
-		targetConcrete := namedTestType("module.test/to", "Optional", stringType)
-		sourceGeneric := namedTestType("module.test/from", "Optional", typeParam)
-		targetGeneric := namedTestType("module.test/to", "Optional", typeParam)
-
-		got := assessFunctionCompatibility(
-			sourceConcrete,
-			targetConcrete,
-			testFunctionDecl("MapOptional", sourceGeneric, targetGeneric),
-		)
-
-		require.True(t, got.Compatible())
-		assert.Equal(t, callableInputExact, got.Input)
-		assert.Equal(t, callableResultGeneric, got.Result)
-		assert.Equal(t, stringType, got.TypeBindings["T"])
-	})
-
-	t.Run("should reject concrete generic mismatches", func(t *testing.T) {
-		stringType := basicTestType("string")
-		intType := basicTestType("int")
-		sourceString := namedTestType("module.test/from", "Optional", stringType)
-		targetString := namedTestType("module.test/to", "Optional", stringType)
-		sourceInt := namedTestType("module.test/from", "Optional", intType)
-		targetInt := namedTestType("module.test/to", "Optional", intType)
-
-		got := assessFunctionCompatibility(
-			sourceString,
-			targetString,
-			testFunctionDecl("MapOptionalInt", sourceInt, targetInt),
-		)
-
-		assert.False(t, got.Compatible())
-	})
-
-	t.Run("should match auto-address parameter types", func(t *testing.T) {
-		got := assessFunctionCompatibility(
-			sourceType,
-			targetType,
-			testFunctionDecl("MapUserPtr", pointerTestType(sourceType), targetType),
-		)
-
-		require.True(t, got.Compatible())
-		assert.Equal(t, callableInputAutoAddress, got.Input)
-		assert.Equal(t, callableResultExact, got.Result)
-	})
-
-	t.Run("should match auto-deref parameter types", func(t *testing.T) {
-		got := assessFunctionCompatibility(
-			pointerTestType(sourceType),
-			targetType,
-			testFunctionDecl("MapUser", sourceType, targetType),
-		)
-
-		require.True(t, got.Compatible())
-		assert.Equal(t, callableInputAutoDeref, got.Input)
-		assert.Equal(t, callableResultExact, got.Result)
-	})
-
-	t.Run("should match auto-address result types", func(t *testing.T) {
-		got := assessFunctionCompatibility(
-			sourceType,
-			pointerTestType(targetType),
-			testFunctionDecl("MapUser", sourceType, targetType),
-		)
-
-		require.True(t, got.Compatible())
-		assert.Equal(t, callableInputExact, got.Input)
-		assert.Equal(t, callableResultAutoAddress, got.Result)
-	})
-
-	t.Run("should match auto-deref result types", func(t *testing.T) {
-		got := assessFunctionCompatibility(
-			sourceType,
-			targetType,
-			testFunctionDecl("MapUserPtr", sourceType, pointerTestType(targetType)),
-		)
-
-		require.True(t, got.Compatible())
-		assert.Equal(t, callableInputExact, got.Input)
-		assert.Equal(t, callableResultAutoDeref, got.Result)
-	})
-}
-
-func TestAssessHigherOrderFunctionCompatibility(t *testing.T) {
-	inputParam := typeParamTestType("I")
-	outputParam := typeParamTestType("O")
-	stringType := basicTestType("string")
-	intType := basicTestType("int")
-	sourceType := namedTestType("module.test/from", "Optional", stringType)
-	targetType := namedTestType("module.test/to", "Optional", intType)
-	sourceGeneric := namedTestType("module.test/from", "Optional", inputParam)
-	targetGeneric := namedTestType("module.test/to", "Optional", outputParam)
-
-	got := assessHigherOrderFunctionCompatibility(sourceType, targetType, types.FunctionDecl{
-		Name: "MapOptional",
-		Params: []types.Parameter{
-			{Type: sourceGeneric},
-			{Type: signatureTestType([]types.Type{inputParam}, outputParam)},
-		},
-		Results: []types.Parameter{{Type: targetGeneric}},
-	})
-
-	require.True(t, got.Compatible())
-
-	t.Run("matches the container signature", func(t *testing.T) {
-		assert.Equal(t, callableInputExact, got.Input)
-		assert.Equal(t, callableResultGeneric, got.Result)
-	})
-
-	t.Run("binds input and output type parameters", func(t *testing.T) {
-		assert.Equal(t, stringType, got.TypeBindings["I"])
-		assert.Equal(t, intType, got.TypeBindings["O"])
-	})
-
-	t.Run("describes the mapper argument", func(t *testing.T) {
-		require.Len(t, got.MapperArgs, 1)
-		assert.Equal(t, stringType, got.MapperArgs[0].Source)
-		assert.Equal(t, intType, got.MapperArgs[0].Target)
-		assert.False(t, got.MapperArgs[0].ReturnsError)
-	})
-
-	t.Run("matches auto-address result types", func(t *testing.T) {
-		got := assessHigherOrderFunctionCompatibility(sourceType, pointerTestType(targetType), types.FunctionDecl{
-			Name: "MapOptional",
-			Params: []types.Parameter{
-				{Type: sourceGeneric},
-				{Type: signatureTestType([]types.Type{inputParam}, outputParam)},
-			},
-			Results: []types.Parameter{{Type: targetGeneric}},
-		})
-
-		require.True(t, got.Compatible())
-		assert.Equal(t, callableResultGenericAutoAddress, got.Result)
-		assert.Equal(t, intType, got.TypeBindings["O"])
-	})
-
-	t.Run("matches auto-deref result types", func(t *testing.T) {
-		got := assessHigherOrderFunctionCompatibility(sourceType, targetType, types.FunctionDecl{
-			Name: "MapOptional",
-			Params: []types.Parameter{
-				{Type: sourceGeneric},
-				{Type: signatureTestType([]types.Type{inputParam}, outputParam)},
-			},
-			Results: []types.Parameter{{Type: pointerTestType(targetGeneric)}},
-		})
-
-		require.True(t, got.Compatible())
-		assert.Equal(t, callableResultGenericAutoDeref, got.Result)
-		assert.Equal(t, intType, got.TypeBindings["O"])
-	})
-}
-
-func TestAssessHigherOrderFunctionCompatibilityWithErrors(t *testing.T) {
-	inputParam := typeParamTestType("I")
-	outputParam := typeParamTestType("O")
-	stringType := basicTestType("string")
-	intType := basicTestType("int")
-	sourceType := namedTestType("module.test/from", "FallibleOptional", stringType)
-	targetType := namedTestType("module.test/to", "FallibleOptional", intType)
-	sourceGeneric := namedTestType("module.test/from", "FallibleOptional", inputParam)
-	targetGeneric := namedTestType("module.test/to", "FallibleOptional", outputParam)
-
-	got := assessHigherOrderFunctionCompatibility(sourceType, targetType, types.FunctionDecl{
-		Name: "MapFallibleOptional",
-		Params: []types.Parameter{
-			{Type: sourceGeneric},
-			{Type: signatureTestType([]types.Type{inputParam}, outputParam, errorTestType())},
-		},
-		Results: []types.Parameter{
-			{Type: targetGeneric},
-			{Type: errorTestType()},
-		},
-	})
-
-	require.True(t, got.Compatible())
-
-	t.Run("marks the container callable as erroring", func(t *testing.T) {
-		assert.True(t, got.ReturnsError)
-	})
-
-	t.Run("binds input and output type parameters", func(t *testing.T) {
-		assert.Equal(t, stringType, got.TypeBindings["I"])
-		assert.Equal(t, intType, got.TypeBindings["O"])
-	})
-
-	t.Run("describes the erroring mapper argument", func(t *testing.T) {
-		require.Len(t, got.MapperArgs, 1)
-		assert.Equal(t, stringType, got.MapperArgs[0].Source)
-		assert.Equal(t, intType, got.MapperArgs[0].Target)
-		assert.True(t, got.MapperArgs[0].ReturnsError)
-	})
-}
-
-func TestAssessHigherOrderFunctionCompatibilityWithMultipleMapperArgs(t *testing.T) {
-	leftInputParam := typeParamTestType("LI")
-	rightInputParam := typeParamTestType("RI")
-	leftOutputParam := typeParamTestType("LO")
-	rightOutputParam := typeParamTestType("RO")
-	leftSourceType := namedTestType("module.test/from", "Left")
-	rightSourceType := namedTestType("module.test/from", "Right")
-	leftTargetType := namedTestType("module.test/to", "Left")
-	rightTargetType := namedTestType("module.test/to", "Right")
-	sourceType := namedTestType("module.test/from", "Either", leftSourceType, rightSourceType)
-	targetType := namedTestType("module.test/to", "Either", leftTargetType, rightTargetType)
-	sourceGeneric := namedTestType("module.test/from", "Either", leftInputParam, rightInputParam)
-	targetGeneric := namedTestType("module.test/to", "Either", leftOutputParam, rightOutputParam)
-
-	got := assessHigherOrderFunctionCompatibility(sourceType, targetType, types.FunctionDecl{
-		Name: "MapEither",
-		Params: []types.Parameter{
-			{Type: sourceGeneric},
-			{Type: signatureTestType([]types.Type{leftInputParam}, leftOutputParam)},
-			{Type: signatureTestType([]types.Type{rightInputParam}, rightOutputParam)},
-		},
-		Results: []types.Parameter{{Type: targetGeneric}},
-	})
-
-	require.True(t, got.Compatible())
-
-	t.Run("matches the container signature", func(t *testing.T) {
-		assert.Equal(t, callableInputExact, got.Input)
-		assert.Equal(t, callableResultGeneric, got.Result)
-	})
-
-	t.Run("binds all input and output type parameters", func(t *testing.T) {
-		assert.Equal(t, leftSourceType, got.TypeBindings["LI"])
-		assert.Equal(t, rightSourceType, got.TypeBindings["RI"])
-		assert.Equal(t, leftTargetType, got.TypeBindings["LO"])
-		assert.Equal(t, rightTargetType, got.TypeBindings["RO"])
-	})
-
-	require.Len(t, got.MapperArgs, 2)
-	t.Run("describes the left mapper argument", func(t *testing.T) {
-		assert.Equal(t, leftSourceType, got.MapperArgs[0].Source)
-		assert.Equal(t, leftTargetType, got.MapperArgs[0].Target)
-		assert.False(t, got.MapperArgs[0].ReturnsError)
-	})
-
-	t.Run("describes the right mapper argument", func(t *testing.T) {
-		assert.Equal(t, rightSourceType, got.MapperArgs[1].Source)
-		assert.Equal(t, rightTargetType, got.MapperArgs[1].Target)
-		assert.False(t, got.MapperArgs[1].ReturnsError)
-	})
-}
-
-func TestBestCallableCandidate(t *testing.T) {
-	typeParam := typeParamTestType("T")
-	stringType := basicTestType("string")
-	sourceType := namedTestType("module.test/from", "Optional", stringType)
-	targetType := namedTestType("module.test/to", "Optional", stringType)
-	sourceGeneric := namedTestType("module.test/from", "Optional", typeParam)
-	targetGeneric := namedTestType("module.test/to", "Optional", typeParam)
-
-	t.Run("should prefer exact result over generic result", func(t *testing.T) {
-		genericFn := testFunctionDecl("GenericResult", sourceGeneric, targetGeneric)
-		exactFn := testFunctionDecl("ExactResult", sourceGeneric, targetType)
-
-		best, _, ok := bestCallableCandidate(functionCandidates(sourceType, targetType, genericFn, exactFn))
-		require.True(t, ok)
-
-		assert.Equal(t, "ExactResult", best.Name)
-	})
-
-	t.Run("should prefer functions that do not error", func(t *testing.T) {
-		errorFn := testFunctionDecl("MapWithError", sourceGeneric, targetType, errorTestType())
-		noErrorFn := testFunctionDecl("MapWithoutError", sourceGeneric, targetType)
-
-		best, _, ok := bestCallableCandidate(functionCandidates(sourceType, targetType, errorFn, noErrorFn))
-		require.True(t, ok)
-
-		assert.Equal(t, "MapWithoutError", best.Name)
-	})
-
-	t.Run("should tie-break consistently", func(t *testing.T) {
-		alphaFn := testFunctionDecl("Alpha", sourceGeneric, targetType)
-		betaFn := testFunctionDecl("Beta", sourceGeneric, targetType)
-
-		for range 10 {
-			best, _, ok := bestCallableCandidate(functionCandidates(sourceType, targetType, alphaFn, betaFn))
-			require.True(t, ok)
-
-			assert.Equal(t, "Beta", best.Name)
-		}
-	})
-}
-
-func TestFunctionCompatibilityMatchesMethodCompatibility(t *testing.T) {
-	typeParam := typeParamTestType("T")
-	stringType := basicTestType("string")
-	sourceType := namedTestType("module.test/from", "User")
-	targetType := namedTestType("module.test/to", "User")
-	sourceGeneric := namedTestType("module.test/from", "Optional", typeParam)
-	targetGeneric := namedTestType("module.test/to", "Optional", typeParam)
-	sourceConcrete := namedTestType("module.test/from", "Optional", stringType)
-	targetConcrete := namedTestType("module.test/to", "Optional", stringType)
-
-	tests := []struct {
-		name   string
-		source types.Type
-		target types.Type
-		input  types.Type
-		result types.Type
-	}{
-		{
-			name:   "exact",
-			source: sourceType,
-			target: targetType,
-			input:  sourceType,
-			result: targetType,
-		},
-		{
-			name:   "auto-address",
-			source: sourceType,
-			target: targetType,
-			input:  pointerTestType(sourceType),
-			result: targetType,
-		},
-		{
-			name:   "auto-deref",
-			source: pointerTestType(sourceType),
-			target: targetType,
-			input:  sourceType,
-			result: targetType,
-		},
-		{
-			name:   "generic",
-			source: sourceConcrete,
-			target: targetConcrete,
-			input:  sourceGeneric,
-			result: targetGeneric,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fnCompatibility := assessFunctionCompatibility(tt.source, tt.target, testFunctionDecl("Map", tt.input, tt.result))
-			methodCompatibility := assessMethodCompatibility(tt.source, tt.target, testMethodDecl("Map", tt.input, tt.result))
-
-			fnRank, fnOK := callableCompatibilityRank(fnCompatibility)
-			methodRank, methodOK := callableCompatibilityRank(methodCompatibility)
-
-			require.True(t, fnCompatibility.Compatible())
-			require.True(t, methodCompatibility.Compatible())
-			assert.Equal(t, fnCompatibility, methodCompatibility)
-			assert.Equal(t, fnOK, methodOK)
-			assert.Equal(t, fnRank, methodRank)
-		})
-	}
-}
-
-func TestPlannerPlanValuePrefersUserFunctionCandidates(t *testing.T) {
-	sourceType := namedTestType("module.test/from", "User")
-	targetType := namedTestType("module.test/to", "User")
-	userFn := testFunctionDecl("UserMap", sourceType, targetType, errorTestType())
-	userRef := spec.CallableRefFromFunctionDecl(userFn)
-	registry := newFunctionRegistry()
-	require.True(t, registry.Register(testFunctionDecl("DiscoveredMap", sourceType, targetType), plan.CallableSourceDiscovered))
-
-	planner := &attemptPlanner{
-		registry: registry,
-		callables: map[spec.CallableRef]registeredCallable{
-			userRef: {Function: &userFn},
-		},
-	}
-
-	got := planner.planValue(
-		sourceType,
-		targetType,
-		"User",
-		defaultOptionality(),
-		defaultConversionsPolicy(),
-		[]spec.TieredCallables{{
-			Tier:      spec.CallableTierType,
-			Callables: []spec.CallableRef{userRef},
-		}},
-	)
-	require.NotNil(t, got.Callable)
-
-	assert.Equal(t, plan.OperationFunction, got.Operation)
-	assert.Equal(t, "UserMap", got.Callable.Name)
-	assert.True(t, got.CanError)
-}
-
-func TestPlannerPlanValueCallableTiers(t *testing.T) {
-	sourceType := basicTestType("string")
-	targetType := basicTestType("int")
-
-	t.Run("uses specificity before ranking", func(t *testing.T) {
-		typeFn := testFunctionDecl("TypeStringToInt", sourceType, targetType, errorTestType())
-		packageFn := testFunctionDecl("PackageStringToInt", sourceType, targetType)
-		planner := plannerWithCallables(typeFn, packageFn)
-
-		got := planner.planValue(
-			sourceType,
-			targetType,
-			"Value",
-			defaultOptionality(),
-			defaultConversionsPolicy(),
-			[]spec.TieredCallables{
-				callableTier(spec.CallableTierType, typeFn),
-				callableTier(spec.CallableTierPackage, packageFn),
-			},
-		)
-
-		require.NotNil(t, got.Callable)
-		assert.Equal(t, "TypeStringToInt", got.Callable.Name)
-	})
-
-	t.Run("ranks candidates within one tier", func(t *testing.T) {
-		errorFn := testFunctionDecl("ErrorStringToInt", sourceType, targetType, errorTestType())
-		noErrorFn := testFunctionDecl("NoErrorStringToInt", sourceType, targetType)
-		planner := plannerWithCallables(errorFn, noErrorFn)
-
-		got := planner.planValue(
-			sourceType,
-			targetType,
-			"Value",
-			defaultOptionality(),
-			defaultConversionsPolicy(),
-			[]spec.TieredCallables{callableTier(spec.CallableTierType, errorFn, noErrorFn)},
-		)
-
-		require.NotNil(t, got.Callable)
-		assert.Equal(t, "NoErrorStringToInt", got.Callable.Name)
-	})
-
-	t.Run("falls back from incompatible scoped callables", func(t *testing.T) {
-		badFn := testFunctionDecl("StringToBool", sourceType, basicTestType("bool"))
-		goodFn := testFunctionDecl("DiscoveredStringToInt", sourceType, targetType)
-		registry := newFunctionRegistry()
-		require.True(t, registry.Register(goodFn, plan.CallableSourceDiscovered))
-		planner := plannerWithCallables(badFn)
-		planner.registry = registry
-
-		got := planner.planValue(
-			sourceType,
-			targetType,
-			"Value",
-			defaultOptionality(),
-			defaultConversionsPolicy(),
-			[]spec.TieredCallables{callableTier(spec.CallableTierType, badFn)},
-		)
-
-		require.NotNil(t, got.Callable)
-		assert.Equal(t, "DiscoveredStringToInt", got.Callable.Name)
-	})
-}
-
-func TestPlannerPlanStructFieldCallable(t *testing.T) {
-	sourceDecl := testStructDecl("module.test/from", "Thing", map[string]types.Field{
-		"Value": testField("Value", basicTestType("string")),
-	})
-	targetDecl := testStructDecl("module.test/to", "Thing", map[string]types.Field{
-		"Value": testField("Value", basicTestType("int")),
-	})
-
-	t.Run("uses the explicit field callable", func(t *testing.T) {
-		fn := testFunctionDecl("StringToInt", basicTestType("string"), basicTestType("int"))
-		ref := spec.CallableRefFromFunctionDecl(fn)
-		planner := plannerWithCallables(fn)
-		typ := testStructPlanType(sourceDecl, targetDecl, spec.Struct{
-			Fields: map[string]spec.Field{
-				"Value": {Target: "Value", Callable: &ref},
-			},
-		})
-
-		planner.planStruct(&typ)
-
-		field := requirePlanField(t, typ.StructPlan, "Value")
-		require.NotNil(t, field.Mapping.Callable)
-		assert.Equal(t, "StringToInt", field.Mapping.Callable.Name)
-	})
-
-	t.Run("fails strictly when the field callable is incompatible", func(t *testing.T) {
-		fn := testFunctionDecl("StringToBool", basicTestType("string"), basicTestType("bool"))
-		ref := spec.CallableRefFromFunctionDecl(fn)
-		planner := plannerWithCallables(fn)
-		typ := testStructPlanType(sourceDecl, targetDecl, spec.Struct{
-			Fields: map[string]spec.Field{
-				"Value": {Target: "Value", Callable: &ref},
-			},
-		})
-
-		planner.planStruct(&typ)
-
-		field := requirePlanField(t, typ.StructPlan, "Value")
-		assert.Equal(t, plan.OperationUnsupported, field.Mapping.Operation)
-		require.Len(t, field.Mapping.Diagnostics, 1)
-		assert.Equal(t, plan.DiagnosticLevelFatal, field.Mapping.Diagnostics[0].Level)
-		assert.Equal(t, plan.FieldPath(typ.SourceType, typ.TargetType, field.SourceField, field.TargetField), field.Mapping.Diagnostics[0].Path)
-		assert.Contains(t, field.Mapping.Diagnostics[0].Message, `configured field callable "module.test/mapping.StringToBool" is not compatible`)
-		assert.Contains(t, field.Mapping.Diagnostics[0].Message, "expected callable to accept string and return int")
-	})
-}
-
-func TestPlannerPlanValueOptionality(t *testing.T) {
-	stringType := basicTestType("string")
-	intType := basicTestType("int")
-	errorOptionality := spec.Optionality{
-		OnNilSourcePointer: spec.PointerOptionalityError,
-		OnZeroSourceValue:  spec.ValueOptionalityAddress,
-	}
-	conversionsPolicy := defaultConversionsPolicy()
-
-	t.Run("assigns exact pointer values without adaptations", func(t *testing.T) {
-		planner := &attemptPlanner{registry: newFunctionRegistry()}
-
-		got := planner.planValue(pointerTestType(stringType), pointerTestType(stringType), "Name", errorOptionality, conversionsPolicy, nil)
-
-		assert.Equal(t, plan.OperationAssign, got.Operation)
-		assert.Empty(t, got.SourceAdaptations)
-		assert.Empty(t, got.TargetAdaptations)
-		assert.False(t, got.CanError)
-	})
-
-	t.Run("plans exact containers structurally rather than assigning", func(t *testing.T) {
-		planner := &attemptPlanner{registry: newFunctionRegistry()}
-
-		slice := planner.planValue(sliceTestType(stringType), sliceTestType(stringType), "Values", defaultOptionality(), conversionsPolicy, nil)
-		assert.Equal(t, plan.OperationSlice, slice.Operation)
-		require.NotNil(t, slice.Elem)
-		assert.Equal(t, plan.OperationAssign, slice.Elem.Operation)
-
-		array := planner.planValue(arrayTestType(2, stringType), arrayTestType(2, stringType), "Values", defaultOptionality(), conversionsPolicy, nil)
-		assert.Equal(t, plan.OperationArray, array.Operation)
-		require.NotNil(t, array.Elem)
-		assert.Equal(t, plan.OperationAssign, array.Elem.Operation)
-
-		mapping := planner.planValue(mapTestType(stringType, stringType), mapTestType(stringType, stringType), "Values", defaultOptionality(), conversionsPolicy, nil)
-		assert.Equal(t, plan.OperationMap, mapping.Operation)
-		require.NotNil(t, mapping.Key)
-		assert.Equal(t, plan.OperationAssign, mapping.Key.Operation)
-		require.NotNil(t, mapping.Value)
-		assert.Equal(t, plan.OperationAssign, mapping.Value.Operation)
-	})
-
-	t.Run("marks pointer to value mappings as erroring when nil source pointers error", func(t *testing.T) {
-		planner := &attemptPlanner{registry: newFunctionRegistry()}
-
-		got := planner.planValue(pointerTestType(stringType), stringType, "Name", errorOptionality, conversionsPolicy, nil)
-
-		assert.Equal(t, plan.OperationAssign, got.Operation)
-		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, got.SourceAdaptations)
-		assert.Empty(t, got.TargetAdaptations)
-		assert.Equal(t, errorOptionality, got.Optionality)
-		assert.True(t, got.CanError)
-	})
-
-	t.Run("keeps pointer to value mappings non-erroring when nil source pointers become zero", func(t *testing.T) {
-		planner := &attemptPlanner{registry: newFunctionRegistry()}
-		optionality := defaultOptionality()
-
-		got := planner.planValue(pointerTestType(stringType), stringType, "Name", optionality, conversionsPolicy, nil)
-
-		assert.Equal(t, plan.OperationAssign, got.Operation)
-		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, got.SourceAdaptations)
-		assert.Empty(t, got.TargetAdaptations)
-		assert.False(t, got.CanError)
-	})
-
-	t.Run("records target adaptation for value to pointer assignments", func(t *testing.T) {
-		planner := &attemptPlanner{registry: newFunctionRegistry()}
-
-		got := planner.planValue(stringType, pointerTestType(stringType), "Name", defaultOptionality(), conversionsPolicy, nil)
-
-		assert.Equal(t, plan.OperationAssign, got.Operation)
-		assert.Empty(t, got.SourceAdaptations)
-		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationAddress}, got.TargetAdaptations)
-		assert.False(t, got.CanError)
-	})
-
-	t.Run("records auto-deref callable input adaptation", func(t *testing.T) {
-		registry := newFunctionRegistry()
-		require.True(t, registry.Register(testFunctionDecl("StringToInt", stringType, intType), plan.CallableSourceDiscovered))
-		planner := &attemptPlanner{registry: registry}
-
-		got := planner.planValue(pointerTestType(stringType), intType, "Name", errorOptionality, conversionsPolicy, nil)
-
-		require.NotNil(t, got.Callable)
-		assert.Equal(t, plan.OperationFunction, got.Operation)
-		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, got.SourceAdaptations)
-		assert.Empty(t, got.TargetAdaptations)
-		assert.Equal(t, errorOptionality, got.Optionality)
-		assert.True(t, got.CanError)
-	})
-
-	t.Run("records auto-address callable input adaptation", func(t *testing.T) {
-		registry := newFunctionRegistry()
-		require.True(t, registry.Register(testFunctionDecl("StringPtrToInt", pointerTestType(stringType), intType), plan.CallableSourceDiscovered))
-		planner := &attemptPlanner{registry: registry}
-		optionality := spec.Optionality{
-			OnNilSourcePointer: spec.PointerOptionalityZero,
-			OnZeroSourceValue:  spec.ValueOptionalityNil,
-		}
-
-		got := planner.planValue(stringType, intType, "Name", optionality, conversionsPolicy, nil)
-
-		require.NotNil(t, got.Callable)
-		assert.Equal(t, plan.OperationFunction, got.Operation)
-		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationAddress}, got.SourceAdaptations)
-		assert.Empty(t, got.TargetAdaptations)
-		assert.Equal(t, optionality, got.Optionality)
-		assert.False(t, got.CanError)
-	})
-
-	t.Run("records auto-deref callable result adaptation", func(t *testing.T) {
-		registry := newFunctionRegistry()
-		require.True(t, registry.Register(testFunctionDecl("StringToIntPtr", stringType, pointerTestType(intType)), plan.CallableSourceDiscovered))
-		planner := &attemptPlanner{registry: registry}
-
-		got := planner.planValue(stringType, intType, "Name", errorOptionality, conversionsPolicy, nil)
-
-		require.NotNil(t, got.Callable)
-		assert.Equal(t, plan.OperationFunction, got.Operation)
-		assert.Empty(t, got.SourceAdaptations)
-		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, got.TargetAdaptations)
-		assert.Equal(t, errorOptionality, got.Optionality)
-		assert.True(t, got.CanError)
-	})
-
-	t.Run("records auto-address callable result adaptation", func(t *testing.T) {
-		registry := newFunctionRegistry()
-		require.True(t, registry.Register(testFunctionDecl("StringToInt", stringType, intType), plan.CallableSourceDiscovered))
-		planner := &attemptPlanner{registry: registry}
-		optionality := spec.Optionality{
-			OnNilSourcePointer: spec.PointerOptionalityZero,
-			OnZeroSourceValue:  spec.ValueOptionalityNil,
-		}
-
-		got := planner.planValue(stringType, pointerTestType(intType), "Name", optionality, conversionsPolicy, nil)
-
-		require.NotNil(t, got.Callable)
-		assert.Equal(t, plan.OperationFunction, got.Operation)
-		assert.Empty(t, got.SourceAdaptations)
-		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationAddress}, got.TargetAdaptations)
-		assert.Equal(t, optionality, got.Optionality)
-		assert.False(t, got.CanError)
-	})
-
-	t.Run("preserves ordered composed adaptations", func(t *testing.T) {
-		registry := newFunctionRegistry()
-		require.True(t, registry.Register(testFunctionDecl("StringToIntPtr", stringType, pointerTestType(intType)), plan.CallableSourceDiscovered))
-		planner := &attemptPlanner{registry: registry}
-
-		got := planner.planValue(
-			pointerTestType(pointerTestType(stringType)),
-			pointerTestType(intType),
-			"Name",
-			errorOptionality,
-			conversionsPolicy,
-			nil,
-		)
-
-		require.NotNil(t, got.Callable)
-		assert.Equal(t, plan.OperationFunction, got.Operation)
-		assert.Equal(t, []plan.ValueAdaptation{
-			plan.ValueAdaptationDeref,
-			plan.ValueAdaptationDeref,
-		}, got.SourceAdaptations)
-		assert.Equal(t, []plan.ValueAdaptation{
-			plan.ValueAdaptationDeref,
-			plan.ValueAdaptationAddress,
-		}, got.TargetAdaptations)
-		assert.True(t, got.CanError)
-	})
-
-	t.Run("keeps container pointer adaptations on the container node", func(t *testing.T) {
-		registry := newFunctionRegistry()
-		require.True(t, registry.Register(testFunctionDecl("StringToInt", stringType, intType), plan.CallableSourceDiscovered))
-		planner := &attemptPlanner{registry: registry}
-
-		tests := []struct {
-			name      string
-			source    types.Type
-			target    types.Type
-			operation plan.Operation
-		}{
-			{
-				name:      "slice",
-				source:    pointerTestType(sliceTestType(stringType)),
-				target:    pointerTestType(sliceTestType(intType)),
-				operation: plan.OperationSlice,
-			},
-			{
-				name:      "array",
-				source:    pointerTestType(arrayTestType(2, stringType)),
-				target:    pointerTestType(arrayTestType(2, intType)),
-				operation: plan.OperationArray,
-			},
-			{
-				name:      "map",
-				source:    pointerTestType(mapTestType(stringType, stringType)),
-				target:    pointerTestType(mapTestType(stringType, intType)),
-				operation: plan.OperationMap,
-			},
-		}
-
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				got := planner.planValue(tt.source, tt.target, "Value", defaultOptionality(), conversionsPolicy, nil)
-
-				assert.Equal(t, tt.operation, got.Operation)
-				assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, got.SourceAdaptations)
-				assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationAddress}, got.TargetAdaptations)
-			})
-		}
-	})
-
-	t.Run("keeps pointer element adaptations on child nodes", func(t *testing.T) {
-		registry := newFunctionRegistry()
-		require.True(t, registry.Register(testFunctionDecl("StringToInt", stringType, intType), plan.CallableSourceDiscovered))
-		planner := &attemptPlanner{registry: registry}
-
-		slice := planner.planValue(sliceTestType(pointerTestType(stringType)), sliceTestType(pointerTestType(intType)), "Values", defaultOptionality(), conversionsPolicy, nil)
-		assert.Equal(t, plan.OperationSlice, slice.Operation)
-		assert.Empty(t, slice.SourceAdaptations)
-		assert.Empty(t, slice.TargetAdaptations)
-		require.NotNil(t, slice.Elem)
-		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, slice.Elem.SourceAdaptations)
-		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationAddress}, slice.Elem.TargetAdaptations)
-
-		array := planner.planValue(arrayTestType(2, pointerTestType(stringType)), arrayTestType(2, pointerTestType(intType)), "Values", defaultOptionality(), conversionsPolicy, nil)
-		assert.Equal(t, plan.OperationArray, array.Operation)
-		assert.Empty(t, array.SourceAdaptations)
-		assert.Empty(t, array.TargetAdaptations)
-		require.NotNil(t, array.Elem)
-		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, array.Elem.SourceAdaptations)
-		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationAddress}, array.Elem.TargetAdaptations)
-
-		mapping := planner.planValue(mapTestType(pointerTestType(stringType), pointerTestType(stringType)), mapTestType(pointerTestType(intType), pointerTestType(intType)), "Values", defaultOptionality(), conversionsPolicy, nil)
-		assert.Equal(t, plan.OperationMap, mapping.Operation)
-		assert.Empty(t, mapping.SourceAdaptations)
-		assert.Empty(t, mapping.TargetAdaptations)
-		require.NotNil(t, mapping.Key)
-		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, mapping.Key.SourceAdaptations)
-		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationAddress}, mapping.Key.TargetAdaptations)
-		require.NotNil(t, mapping.Value)
-		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, mapping.Value.SourceAdaptations)
-		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationAddress}, mapping.Value.TargetAdaptations)
-	})
-
-	t.Run("keeps exact pointer callable element adaptations empty", func(t *testing.T) {
-		registry := newFunctionRegistry()
-		require.True(t, registry.Register(testFunctionDecl("StringPtrToIntPtr", pointerTestType(stringType), pointerTestType(intType)), plan.CallableSourceDiscovered))
-		planner := &attemptPlanner{registry: registry}
-
-		got := planner.planValue(sliceTestType(pointerTestType(stringType)), sliceTestType(pointerTestType(intType)), "Values", defaultOptionality(), conversionsPolicy, nil)
-
-		assert.Equal(t, plan.OperationSlice, got.Operation)
-		require.NotNil(t, got.Elem)
-		assert.Equal(t, plan.OperationFunction, got.Elem.Operation)
-		assert.Empty(t, got.Elem.SourceAdaptations)
-		assert.Empty(t, got.Elem.TargetAdaptations)
-	})
-}
-
-func TestPlannerPlanStruct(t *testing.T) {
-	t.Run("uses explicit field mappings as source to target", func(t *testing.T) {
-		sourceDecl := testStructDecl("module.test/from", "Recipe", map[string]types.Field{
-			"RecipeId":    testField("RecipeId", basicTestType("string")),
-			"DisplayName": testField("DisplayName", basicTestType("string")),
-		})
-		targetDecl := testStructDecl("module.test/to", "Recipe", map[string]types.Field{
-			"ID":   testField("ID", basicTestType("string")),
-			"Name": testField("Name", basicTestType("string")),
-		})
-		typ := testStructPlanType(sourceDecl, targetDecl, spec.Struct{
-			Fields: map[string]spec.Field{
-				"RecipeId":    {Target: "ID"},
-				"DisplayName": {Target: "Name"},
-			},
-		})
-		planner := &attemptPlanner{registry: newFunctionRegistry()}
-
-		planner.planStruct(&typ)
-
-		require.Len(t, typ.StructPlan.Fields, 2)
-		assert.Equal(t, "RecipeId", typ.StructPlan.Fields[0].SourceField.Name)
-		assert.Equal(t, "ID", typ.StructPlan.Fields[0].TargetField.Name)
-		assert.Equal(t, "DisplayName", typ.StructPlan.Fields[1].SourceField.Name)
-		assert.Equal(t, "Name", typ.StructPlan.Fields[1].TargetField.Name)
-	})
-
-	t.Run("does not reuse explicitly remapped source fields by fallback matching", func(t *testing.T) {
-		sourceDecl := testStructDecl("module.test/from", "Recipe", map[string]types.Field{
-			"RecipeId": testField("RecipeId", basicTestType("string")),
-		})
-		targetDecl := testStructDecl("module.test/to", "Recipe", map[string]types.Field{
-			"ID":       testField("ID", basicTestType("string")),
-			"RecipeId": testField("RecipeId", basicTestType("string")),
-		})
-		typ := testStructPlanType(sourceDecl, targetDecl, spec.Struct{
-			Fields: map[string]spec.Field{
-				"RecipeId": {Target: "ID"},
-			},
-		})
-		planner := &attemptPlanner{registry: newFunctionRegistry()}
-
-		planner.planStruct(&typ)
-
-		require.Len(t, typ.StructPlan.Fields, 1)
-		assert.Equal(t, "RecipeId", typ.StructPlan.Fields[0].SourceField.Name)
-		assert.Equal(t, "ID", typ.StructPlan.Fields[0].TargetField.Name)
-		require.Len(t, typ.Diagnostics, 1)
-		assert.Contains(t, typ.Diagnostics[0].Message, `target field "RecipeId"`)
-	})
-
-	t.Run("bubbles unsupported field diagnostics to the root plan and planner", func(t *testing.T) {
-		sourceDecl := testStructDecl("module.test/from", "Stats", map[string]types.Field{
-			"Count": testField("Count", basicTestType("string")),
-		})
-		targetDecl := testStructDecl("module.test/to", "Stats", map[string]types.Field{
-			"Count": testField("Count", basicTestType("bool")),
-		})
-		typ := testStructPlanType(sourceDecl, targetDecl, spec.Struct{})
-		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
-		planner.registry = newFunctionRegistry()
-
-		planner.planType(&typ, plan.TypeMapperKey(typ.Source, typ.Target, typ.Signature))
-
-		require.Len(t, typ.StructPlan.Fields, 1)
-		assert.Equal(t, plan.OperationUnsupported, typ.StructPlan.Fields[0].Mapping.Operation)
-		require.Len(t, typ.Diagnostics, 1)
-		require.Len(t, planner.diagnostics, 1)
-		assert.Equal(t, typ.Diagnostics[0], planner.diagnostics[0])
-		assert.Equal(t, plan.DiagnosticLevelFatal, planner.diagnostics[0].Level)
-	})
-
-	t.Run("orders planned fields by target field name", func(t *testing.T) {
-		sourceDecl := testStructDecl("module.test/from", "Thing", map[string]types.Field{
-			"Beta":  testField("Beta", basicTestType("string")),
-			"Alpha": testField("Alpha", basicTestType("string")),
-		})
-		targetDecl := testStructDecl("module.test/to", "Thing", map[string]types.Field{
-			"Beta":  testField("Beta", basicTestType("string")),
-			"Alpha": testField("Alpha", basicTestType("string")),
-		})
-		typ := testStructPlanType(sourceDecl, targetDecl, spec.Struct{})
-		planner := &attemptPlanner{registry: newFunctionRegistry()}
-
-		planner.planStruct(&typ)
-
-		require.Len(t, typ.StructPlan.Fields, 2)
-		assert.Equal(t, "Alpha", typ.StructPlan.Fields[0].TargetField.Name)
-		assert.Equal(t, "Beta", typ.StructPlan.Fields[1].TargetField.Name)
-	})
-
-	t.Run("applies field optionality overrides", func(t *testing.T) {
-		sourceDecl := testStructDecl("module.test/from", "Profile", map[string]types.Field{
-			"Nickname": testField("Nickname", pointerTestType(basicTestType("string"))),
-		})
-		targetDecl := testStructDecl("module.test/to", "Profile", map[string]types.Field{
-			"Nickname": testField("Nickname", basicTestType("string")),
-		})
-		typ := testStructPlanType(sourceDecl, targetDecl, spec.Struct{
-			Fields: map[string]spec.Field{
-				"Nickname": {
-					Optionality: spec.Optionality{
-						OnNilSourcePointer: spec.PointerOptionalityError,
-						OnZeroSourceValue:  spec.ValueOptionalityAddress,
-					},
-				},
-			},
-		})
-		planner := &attemptPlanner{registry: newFunctionRegistry()}
-
-		planner.planStruct(&typ)
-
-		field := requirePlanField(t, typ.StructPlan, "Nickname")
-		assert.Equal(t, plan.OperationAssign, field.Mapping.Operation)
-		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, field.Mapping.SourceAdaptations)
-		assert.Empty(t, field.Mapping.TargetAdaptations)
-		assert.Equal(t, spec.PointerOptionalityError, field.Mapping.Optionality.OnNilSourcePointer)
-		assert.Equal(t, spec.ValueOptionalityAddress, field.Mapping.Optionality.OnZeroSourceValue)
-		assert.True(t, field.Mapping.CanError)
-		assert.True(t, typ.CanError)
-	})
-}
-
 func TestPlannerPlanCompositeDiagnostics(t *testing.T) {
 	t.Run("keeps slice mapping supported when the element mapper only warns", func(t *testing.T) {
 		root := planPlannerRoot(t, config.Type{Name: "WarningSliceContainer"})
@@ -933,118 +39,6 @@ func TestPlannerPlanCompositeDiagnostics(t *testing.T) {
 	})
 }
 
-func TestValidateStructFieldMappings(t *testing.T) {
-	t.Run("reports missing source fields", func(t *testing.T) {
-		sourceDecl := testStructDecl("module.test/from", "Recipe", map[string]types.Field{
-			"DisplayName": testField("DisplayName", basicTestType("string")),
-		})
-		targetDecl := testStructDecl("module.test/to", "Recipe", map[string]types.Field{
-			"Name": testField("Name", basicTestType("string")),
-		})
-		typ := testStructPlanType(sourceDecl, targetDecl, spec.Struct{
-			Fields: map[string]spec.Field{
-				"MissingName": {Target: "Name"},
-			},
-		})
-
-		got := validateStructFieldMappings(&typ)
-		require.Len(t, got, 1)
-
-		assert.Equal(t, plan.DiagnosticLevelFatal, got[0].Level)
-		assert.Equal(t, plan.SourceFieldPath(typ.SourceType, typ.TargetType, "MissingName"), got[0].Path)
-		assert.Equal(t, `source field "MissingName" does not exist or is not plannable; fields must be exported and non-embedded`, got[0].Message)
-	})
-
-	t.Run("reports missing target fields", func(t *testing.T) {
-		sourceDecl := testStructDecl("module.test/from", "Recipe", map[string]types.Field{
-			"DisplayName": testField("DisplayName", basicTestType("string")),
-		})
-		targetDecl := testStructDecl("module.test/to", "Recipe", map[string]types.Field{
-			"Name": testField("Name", basicTestType("string")),
-		})
-		typ := testStructPlanType(sourceDecl, targetDecl, spec.Struct{
-			Fields: map[string]spec.Field{
-				"DisplayName": {Target: "MissingName"},
-			},
-		})
-
-		got := validateStructFieldMappings(&typ)
-		require.Len(t, got, 1)
-
-		assert.Equal(t, plan.DiagnosticLevelFatal, got[0].Level)
-		assert.Equal(t, plan.TargetFieldPath(typ.SourceType, typ.TargetType, "MissingName"), got[0].Path)
-		assert.Equal(t, `target field "MissingName" does not exist or is not plannable; fields must be exported and non-embedded`, got[0].Message)
-	})
-
-	t.Run("reports duplicate target fields", func(t *testing.T) {
-		sourceDecl := testStructDecl("module.test/from", "Recipe", map[string]types.Field{
-			"DisplayName":   testField("DisplayName", basicTestType("string")),
-			"SecondaryName": testField("SecondaryName", basicTestType("string")),
-		})
-		targetDecl := testStructDecl("module.test/to", "Recipe", map[string]types.Field{
-			"Name": testField("Name", basicTestType("string")),
-		})
-		typ := testStructPlanType(sourceDecl, targetDecl, spec.Struct{
-			Fields: map[string]spec.Field{
-				"DisplayName":   {Target: "Name"},
-				"SecondaryName": {Target: "Name"},
-			},
-		})
-
-		got := validateStructFieldMappings(&typ)
-		require.Len(t, got, 1)
-
-		assert.Equal(t, plan.DiagnosticLevelFatal, got[0].Level)
-		assert.Equal(t, plan.TargetFieldPath(typ.SourceType, typ.TargetType, "Name"), got[0].Path)
-		assert.Equal(t, `target field "Name" is mapped from multiple source fields ["DisplayName" "SecondaryName"]`, got[0].Message)
-	})
-}
-
-func TestValidateGenericRoot(t *testing.T) {
-	t.Run("reports source generic to target generic roots", func(t *testing.T) {
-		sourceDecl := testStructDecl("module.test/from", "Box", nil)
-		sourceDecl.Type.TypeParams = []types.TypeParam{{Name: "T", Constraint: basicTestType("any")}}
-		targetDecl := testStructDecl("module.test/to", "Box", nil)
-		targetDecl.Type.TypeParams = []types.TypeParam{{Name: "T", Constraint: basicTestType("any")}}
-		typ := testStructPlanType(sourceDecl, targetDecl, spec.Struct{})
-
-		got := validateGenericRoot(&typ)
-		require.Len(t, got, 1)
-
-		assert.Equal(t, plan.DiagnosticLevelFatal, got[0].Level)
-		assert.Equal(t, plan.TypesPath(typ.SourceType, typ.TargetType), got[0].Path)
-		assert.Equal(t, "generic root mappings are not supported; map concrete instantiations through containing types or provide a higher-order callable", got[0].Message)
-	})
-
-	t.Run("reports source generic to target non-generic roots", func(t *testing.T) {
-		sourceDecl := testStructDecl("module.test/from", "Box", nil)
-		sourceDecl.Type.TypeParams = []types.TypeParam{{Name: "T", Constraint: basicTestType("any")}}
-		targetDecl := testStructDecl("module.test/to", "Box", nil)
-		typ := testStructPlanType(sourceDecl, targetDecl, spec.Struct{})
-
-		got := validateGenericRoot(&typ)
-		require.Len(t, got, 1)
-
-		assert.Equal(t, plan.DiagnosticLevelFatal, got[0].Level)
-		assert.Equal(t, plan.TypesPath(typ.SourceType, typ.TargetType), got[0].Path)
-		assert.Equal(t, "generic root mappings are not supported; map concrete instantiations through containing types or provide a higher-order callable", got[0].Message)
-	})
-
-	t.Run("reports source non-generic to target generic roots", func(t *testing.T) {
-		sourceDecl := testStructDecl("module.test/from", "Box", nil)
-		targetDecl := testStructDecl("module.test/to", "Box", nil)
-		targetDecl.Type.TypeParams = []types.TypeParam{{Name: "T", Constraint: basicTestType("any")}}
-		typ := testStructPlanType(sourceDecl, targetDecl, spec.Struct{})
-
-		got := validateGenericRoot(&typ)
-		require.Len(t, got, 1)
-
-		assert.Equal(t, plan.DiagnosticLevelFatal, got[0].Level)
-		assert.Equal(t, plan.TypesPath(typ.SourceType, typ.TargetType), got[0].Path)
-		assert.Equal(t, "generic root mappings are not supported; map concrete instantiations through containing types or provide a higher-order callable", got[0].Message)
-	})
-}
-
 func TestInvertStructSpec(t *testing.T) {
 	t.Run("returns nil for nil struct specs", func(t *testing.T) {
 		assert.Nil(t, invertStructSpec(nil))
@@ -1066,401 +60,8 @@ func TestInvertStructSpec(t *testing.T) {
 	})
 }
 
-func TestPlannerPlanRoot(t *testing.T) {
-	sourceType := namedTestType("module.test/from", "User")
-	targetType := namedTestType("module.test/to", "User")
-	sourceRef := plan.TypeRefFromType(sourceType)
-	targetRef := plan.TypeRefFromType(targetType)
-	sourceDecl := testStructDecl("module.test/from", "User", nil)
-	targetDecl := testStructDecl("module.test/to", "User", nil)
-	errorOptionality := spec.Optionality{
-		OnNilSourcePointer: spec.PointerOptionalityError,
-		OnZeroSourceValue:  spec.ValueOptionalityNil,
-	}
-
-	t.Run("does not panic for struct roots without enum plans", func(t *testing.T) {
-		root := &plan.Type{
-			Source:       sourceRef,
-			Target:       targetRef,
-			SourceDecl:   sourceDecl,
-			TargetDecl:   targetDecl,
-			SourceType:   sourceType,
-			TargetType:   targetType,
-			FunctionName: "MapUser",
-			Signature:    defaultMapperSignature,
-			StructPlan:   &plan.Struct{},
-		}
-		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
-		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
-		require.NoError(t, planner.addRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
-
-		require.NotPanics(t, func() {
-			value, ok := planner.planRoot(sourceType, targetType, defaultOptionality())
-
-			require.True(t, ok)
-			assert.Equal(t, plan.OperationStruct, value.Operation)
-			assert.Same(t, root, value.Plan)
-		})
-	})
-
-	t.Run("records auto-address generated mapper input adaptation", func(t *testing.T) {
-		root := testRootPlanWithSignature(
-			sourceRef,
-			targetRef,
-			sourceDecl,
-			targetDecl,
-			sourceType,
-			targetType,
-			"MapUserPointerInput",
-			spec.MapperSignature{
-				Accepts: spec.ParameterKindPointer,
-				Returns: spec.ParameterKindValue,
-			},
-		)
-		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
-		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
-		require.NoError(t, planner.addRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
-
-		got, ok := planner.planRoot(sourceType, targetType, defaultOptionality())
-
-		require.True(t, ok)
-		assert.Equal(t, plan.OperationStruct, got.Operation)
-		assert.Same(t, root, got.Plan)
-		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationAddress}, got.SourceAdaptations)
-		assert.Empty(t, got.TargetAdaptations)
-		assert.Equal(t, defaultOptionality(), got.Optionality)
-		assert.False(t, got.CanError)
-	})
-
-	t.Run("keeps generated mapper diagnostics on the referenced plan", func(t *testing.T) {
-		root := testRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "MapUser")
-		root.Diagnostics = []plan.Diagnostic{{
-			Level:   plan.DiagnosticLevelFatal,
-			Path:    plan.TypesPath(sourceType, targetType),
-			Message: "referenced mapper diagnostic",
-		}}
-		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
-		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
-		require.NoError(t, planner.addRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
-
-		got, ok := planner.planRoot(sourceType, targetType, defaultOptionality())
-
-		require.True(t, ok)
-		assert.Empty(t, got.Diagnostics)
-		require.Same(t, root, got.Plan)
-		assert.Equal(t, root.Diagnostics, got.Plan.Diagnostics)
-	})
-
-	t.Run("records auto-deref generated mapper input adaptation", func(t *testing.T) {
-		root := testRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "MapUser")
-		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
-		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
-		require.NoError(t, planner.addRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
-
-		got, ok := planner.planRoot(pointerTestType(sourceType), targetType, errorOptionality)
-
-		require.True(t, ok)
-		assert.Equal(t, plan.OperationStruct, got.Operation)
-		assert.Same(t, root, got.Plan)
-		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, got.SourceAdaptations)
-		assert.Empty(t, got.TargetAdaptations)
-		assert.Equal(t, errorOptionality, got.Optionality)
-		assert.True(t, got.CanError)
-	})
-
-	t.Run("records auto-deref generated mapper result adaptation", func(t *testing.T) {
-		root := testRootPlanWithSignature(
-			sourceRef,
-			targetRef,
-			sourceDecl,
-			targetDecl,
-			sourceType,
-			targetType,
-			"MapUserPointerResult",
-			spec.MapperSignature{
-				Accepts: spec.ParameterKindValue,
-				Returns: spec.ParameterKindPointer,
-			},
-		)
-		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
-		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
-		require.NoError(t, planner.addRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
-
-		got, ok := planner.planRoot(sourceType, targetType, errorOptionality)
-
-		require.True(t, ok)
-		assert.Equal(t, plan.OperationStruct, got.Operation)
-		assert.Same(t, root, got.Plan)
-		assert.Empty(t, got.SourceAdaptations)
-		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, got.TargetAdaptations)
-		assert.Equal(t, errorOptionality, got.Optionality)
-		assert.True(t, got.CanError)
-	})
-
-	t.Run("records auto-address generated mapper result adaptation", func(t *testing.T) {
-		root := testRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "MapUser")
-		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
-		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
-		require.NoError(t, planner.addRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
-
-		got, ok := planner.planRoot(sourceType, pointerTestType(targetType), defaultOptionality())
-
-		require.True(t, ok)
-		assert.Equal(t, plan.OperationStruct, got.Operation)
-		assert.Same(t, root, got.Plan)
-		assert.Empty(t, got.SourceAdaptations)
-		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationAddress}, got.TargetAdaptations)
-		assert.Equal(t, defaultOptionality(), got.Optionality)
-		assert.False(t, got.CanError)
-	})
-
-	t.Run("prefers exact pointer signatures for pointer values", func(t *testing.T) {
-		valueRoot := testRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "MapUserValue")
-		pointerRoot := testRootPlanWithSignature(
-			sourceRef,
-			targetRef,
-			sourceDecl,
-			targetDecl,
-			sourceType,
-			targetType,
-			"MapUserPointer",
-			spec.MapperSignature{
-				Accepts: spec.ParameterKindPointer,
-				Returns: spec.ParameterKindPointer,
-			},
-		)
-		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
-		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
-		location := testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go")
-		require.NoError(t, planner.addRoot(outputGroups, location, valueRoot))
-		require.NoError(t, planner.addRoot(outputGroups, location, pointerRoot))
-
-		got := planner.root(pointerTestType(sourceType), pointerTestType(targetType))
-
-		assert.Same(t, pointerRoot, got)
-	})
-
-	t.Run("prefers non-erroring generated mapper variants", func(t *testing.T) {
-		errorRoot := testRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "AMapUserError")
-		errorRoot.CanError = true
-		okRoot := testRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "ZMapUserOK")
-		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
-		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
-		location := testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go")
-		require.NoError(t, planner.addRoot(outputGroups, location, errorRoot))
-		require.NoError(t, planner.addRoot(outputGroups, location, okRoot))
-
-		got := planner.root(sourceType, targetType)
-
-		assert.Same(t, okRoot, got)
-	})
-
-	t.Run("uses call-site optionality for generated mapper adaptation errors", func(t *testing.T) {
-		root := testRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "MapUser")
-		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
-		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
-		require.NoError(t, planner.addRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
-
-		zeroValue, zeroOK := planner.planRoot(pointerTestType(sourceType), targetType, defaultOptionality())
-		errorValue, errorOK := planner.planRoot(pointerTestType(sourceType), targetType, errorOptionality)
-
-		require.True(t, zeroOK)
-		require.True(t, errorOK)
-		assert.Equal(t, defaultOptionality(), zeroValue.Optionality)
-		assert.Equal(t, errorOptionality, errorValue.Optionality)
-		assert.False(t, zeroValue.CanError)
-		assert.True(t, errorValue.CanError)
-	})
-
-	t.Run("uses field optionality for generated mapper adaptation errors", func(t *testing.T) {
-		root := testRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "MapUser")
-		containerSourceDecl := testStructDecl("module.test/from", "Container", map[string]types.Field{
-			"User": testField("User", pointerTestType(sourceType)),
-		})
-		containerTargetDecl := testStructDecl("module.test/to", "Container", map[string]types.Field{
-			"User": testField("User", targetType),
-		})
-		container := testStructPlanType(containerSourceDecl, containerTargetDecl, spec.Struct{
-			Fields: map[string]spec.Field{
-				"User": {Optionality: errorOptionality},
-			},
-		})
-		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
-		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
-		require.NoError(t, planner.addRoot(outputGroups, testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go"), root))
-
-		planner.planStruct(&container)
-
-		field := requirePlanField(t, container.StructPlan, "User")
-		assert.Equal(t, plan.OperationStruct, field.Mapping.Operation)
-		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, field.Mapping.SourceAdaptations)
-		assert.Empty(t, field.Mapping.TargetAdaptations)
-		assert.Equal(t, errorOptionality, field.Mapping.Optionality)
-		assert.True(t, field.Mapping.CanError)
-	})
-
-	t.Run("chooses root signatures deterministically", func(t *testing.T) {
-		valueRoot := &plan.Type{
-			Source:       sourceRef,
-			Target:       targetRef,
-			SourceDecl:   sourceDecl,
-			TargetDecl:   targetDecl,
-			SourceType:   sourceType,
-			TargetType:   targetType,
-			FunctionName: "MapUserValue",
-			Signature:    defaultMapperSignature,
-			StructPlan:   &plan.Struct{},
-		}
-		pointerRoot := &plan.Type{
-			Source:       sourceRef,
-			Target:       targetRef,
-			SourceDecl:   sourceDecl,
-			TargetDecl:   targetDecl,
-			SourceType:   sourceType,
-			TargetType:   targetType,
-			FunctionName: "MapUserPointer",
-			Signature: spec.MapperSignature{
-				Accepts: spec.ParameterKindPointer,
-				Returns: spec.ParameterKindValue,
-			},
-			StructPlan: &plan.Struct{},
-		}
-		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
-		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
-		location := testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go")
-		require.NoError(t, planner.addRoot(outputGroups, location, pointerRoot))
-		require.NoError(t, planner.addRoot(outputGroups, location, valueRoot))
-
-		got := planner.root(sourceType, targetType)
-
-		assert.Same(t, valueRoot, got)
-	})
-
-	t.Run("prefers roots in the current output package", func(t *testing.T) {
-		currentLocation := testOutputLocation("module.test/current", "/repo/current/morph.gen.go")
-		otherLocation := testOutputLocation("module.test/other", "/repo/other/morph.gen.go")
-		currentRoot := testRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "ZZZMapUser")
-		otherRoot := testRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "AAAMapUser")
-		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
-		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
-		require.NoError(t, planner.addRoot(outputGroups, otherLocation, otherRoot))
-		require.NoError(t, planner.addRoot(outputGroups, currentLocation, currentRoot))
-		planner.currentOutputLocation = &currentLocation
-
-		got := planner.root(sourceType, targetType)
-
-		assert.Same(t, currentRoot, got)
-	})
-
-	t.Run("skips roots that would create an import cycle", func(t *testing.T) {
-		currentLocation := testOutputLocation("module.test/current", "/repo/current/morph.gen.go")
-		unsafeLocation := testOutputLocation("module.test/unsafe", "/repo/unsafe/morph.gen.go")
-		safeLocation := testOutputLocation("module.test/safe", "/repo/safe/morph.gen.go")
-		unsafeRoot := testRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "AAAMapUser")
-		safeRoot := testRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "ZZZMapUser")
-		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
-		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
-		require.NoError(t, planner.addRoot(outputGroups, unsafeLocation, unsafeRoot))
-		require.NoError(t, planner.addRoot(outputGroups, safeLocation, safeRoot))
-		planner.importGraph = importGraph{}
-		planner.importGraph.AddEdge(unsafeLocation.ImportPath, currentLocation.ImportPath)
-		planner.currentOutputLocation = &currentLocation
-
-		got := planner.root(sourceType, targetType)
-
-		assert.Same(t, safeRoot, got)
-	})
-
-	t.Run("records selected root imports", func(t *testing.T) {
-		currentLocation := testOutputLocation("module.test/current", "/repo/current/morph.gen.go")
-		rootLocation := testOutputLocation("module.test/root", "/repo/root/morph.gen.go")
-		root := testRootPlan(sourceRef, targetRef, sourceDecl, targetDecl, sourceType, targetType, "MapUser")
-		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
-		outputGroups := make(map[plan.OutputLocation]plan.OutputGroup)
-		require.NoError(t, planner.addRoot(outputGroups, rootLocation, root))
-		planner.importGraph = importGraph{}
-		planner.currentOutputLocation = &currentLocation
-
-		_, ok := planner.planRoot(sourceType, targetType, defaultOptionality())
-
-		require.True(t, ok)
-		assert.Contains(t, planner.importGraph[currentLocation.ImportPath], rootLocation.ImportPath)
-	})
-}
-
-func TestPlannerCallableImportFiltering(t *testing.T) {
-	sourceType := basicTestType("string")
-	targetType := basicTestType("int")
-	currentLocation := testOutputLocation("module.test/current", "/repo/current/morph.gen.go")
-
-	t.Run("skips discovered function callables that would create an import cycle", func(t *testing.T) {
-		unsafeFn := testFunctionDeclInPackage(
-			"module.test/unsafe",
-			"unsafe",
-			"StringToIntA",
-			sourceType,
-			targetType,
-		)
-		safeFn := testFunctionDeclInPackage(
-			"module.test/safe",
-			"safe",
-			"StringToIntZ",
-			sourceType,
-			targetType,
-		)
-		registry := newFunctionRegistry()
-		require.True(t, registry.Register(unsafeFn, plan.CallableSourceDiscovered))
-		require.True(t, registry.Register(safeFn, plan.CallableSourceDiscovered))
-		planner := &attemptPlanner{registry: registry}
-		planner.importGraph = importGraph{}
-		planner.importGraph.AddEdge("module.test/unsafe", currentLocation.ImportPath)
-		planner.currentOutputLocation = &currentLocation
-
-		got := planner.planValue(
-			sourceType,
-			targetType,
-			"Value",
-			defaultOptionality(),
-			defaultConversionsPolicy(),
-			nil,
-		)
-
-		require.Equal(t, plan.OperationFunction, got.Operation)
-		require.NotNil(t, got.Callable)
-		assert.Equal(t, "module.test/safe", got.Callable.Package.ImportPath)
-	})
-
-	t.Run("reports configured function callables that would create an import cycle", func(t *testing.T) {
-		unsafeFn := testFunctionDeclInPackage(
-			"module.test/unsafe",
-			"unsafe",
-			"StringToInt",
-			sourceType,
-			targetType,
-		)
-		planner := plannerWithCallables(unsafeFn)
-		planner.importGraph = importGraph{}
-		planner.importGraph.AddEdge("module.test/unsafe", currentLocation.ImportPath)
-		planner.currentOutputLocation = &currentLocation
-
-		got := planner.planValue(
-			sourceType,
-			targetType,
-			"Value",
-			defaultOptionality(),
-			defaultConversionsPolicy(),
-			[]spec.TieredCallables{callableTier(spec.CallableTierType, unsafeFn)},
-		)
-
-		require.Equal(t, plan.OperationUnsupported, got.Operation)
-		assert.True(t, plan.HasFatalDiagnostics(got.Diagnostics))
-		assert.Contains(t, diagnosticsMessages(got.Diagnostics), `function callable "StringToInt" requires generated package "module.test/current" to import "module.test/unsafe", but generated import "module.test/current" -> "module.test/unsafe" would create an import cycle; existing path: module.test/unsafe -> module.test/current`)
-	})
-}
-
 func TestPlannerPlanBidirectionalPackageContext(t *testing.T) {
-	engine := New("lab/planner")
-	out, err := engine.Plan(resolveTestConfig(t, config.Config{
+	out := planWithConfig(t, "lab/planner", config.Config{
 		Packages: []config.Package{{
 			Source:        "github.com/seeruk/morph/lab/planner/from",
 			Target:        "github.com/seeruk/morph/lab/planner/to",
@@ -1475,9 +76,8 @@ func TestPlannerPlanBidirectionalPackageContext(t *testing.T) {
 				},
 			}},
 		}},
-	}), "morph.yaml")
+	})
 
-	require.NoError(t, err)
 	require.Len(t, out.OutputGroups, 1)
 	require.Len(t, out.OutputGroups[0].Roots, 2)
 
@@ -1491,8 +91,7 @@ func TestPlannerPlanBidirectionalPackageContext(t *testing.T) {
 }
 
 func TestPlannerPlanOutputScopedVariants(t *testing.T) {
-	engine := New("lab/planner")
-	out, err := engine.Plan(resolveTestConfig(t, config.Config{
+	out := planWithConfig(t, "lab/planner", config.Config{
 		Packages: []config.Package{
 			{
 				Source: "github.com/seeruk/morph/lab/planner/from",
@@ -1516,9 +115,8 @@ func TestPlannerPlanOutputScopedVariants(t *testing.T) {
 				}},
 			},
 		},
-	}), "morph.yaml")
+	})
 
-	require.NoError(t, err)
 	require.Len(t, out.OutputGroups, 2)
 
 	var functionNames []string
@@ -1530,8 +128,7 @@ func TestPlannerPlanOutputScopedVariants(t *testing.T) {
 }
 
 func TestPlannerPlanRecursiveNestedStructs(t *testing.T) {
-	engine := New(".")
-	out, err := engine.Plan(resolveTestConfig(t, config.Config{
+	out := planWithConfig(t, ".", config.Config{
 		Packages: []config.Package{{
 			Source: "github.com/seeruk/morph/testdata/planner/from",
 			Target: "github.com/seeruk/morph/testdata/planner/to",
@@ -1539,35 +136,25 @@ func TestPlannerPlanRecursiveNestedStructs(t *testing.T) {
 				Name: "Container",
 			}},
 		}},
-	}), "morph.yaml")
+	})
 
-	require.NoError(t, err)
 	require.Len(t, out.OutputGroups, 1)
 	require.Len(t, out.OutputGroups[0].Roots, 1)
 	require.Len(t, out.OutputGroups[0].Nested, 1)
 
-	root := out.OutputGroups[0].Roots[0]
+	root := requireSingleRoot(t, out)
 	assert.Equal(t, out.OutputGroups[0].Location, root.Location)
 	require.NotNil(t, root.StructPlan)
 	require.Len(t, root.StructPlan.Fields, 2)
 
-	first := root.StructPlan.Fields[0].Mapping.Plan
-	second := root.StructPlan.Fields[1].Mapping.Plan
-	require.NotNil(t, first)
-	require.NotNil(t, second)
+	first := requireFieldPlan(t, root.StructPlan, "First")
+	second := requireFieldPlan(t, root.StructPlan, "Second")
 	assert.Same(t, first, second)
 	assert.Same(t, first, out.OutputGroups[0].Nested[0])
 	assert.Equal(t, out.OutputGroups[0].Location, first.Location)
 	require.NotNil(t, first.StructPlan)
 
-	var next plan.Field
-	for _, field := range first.StructPlan.Fields {
-		if field.TargetField.Name == "Next" {
-			next = field
-			break
-		}
-	}
-	require.NotEmpty(t, next.TargetField.Name)
+	next := requirePlanField(t, first.StructPlan, "Next")
 	assert.Equal(t, plan.OperationStruct, next.Mapping.Operation)
 	assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, next.Mapping.SourceAdaptations)
 	assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationAddress}, next.Mapping.TargetAdaptations)
@@ -1575,8 +162,7 @@ func TestPlannerPlanRecursiveNestedStructs(t *testing.T) {
 }
 
 func TestPlannerPlanPackageOwnedNestedStructsInSameOutputPackage(t *testing.T) {
-	engine := New(".")
-	out, err := engine.Plan(resolveTestConfig(t, config.Config{
+	out := planWithConfig(t, ".", config.Config{
 		Packages: []config.Package{
 			{
 				Source: plannerFromPackage,
@@ -1601,9 +187,8 @@ func TestPlannerPlanPackageOwnedNestedStructsInSameOutputPackage(t *testing.T) {
 				}},
 			},
 		},
-	}), "morph.yaml")
+	})
 
-	require.NoError(t, err)
 	require.Len(t, out.OutputGroups, 2)
 	assert.Contains(t, out.OutputGroups[0].Location.LogicalPath, "a.morph.go")
 	assert.Contains(t, out.OutputGroups[1].Location.LogicalPath, "b.morph.go")
@@ -1614,11 +199,9 @@ func TestPlannerPlanPackageOwnedNestedStructsInSameOutputPackage(t *testing.T) {
 
 	firstRoot := out.OutputGroups[0].Roots[0]
 	secondRoot := out.OutputGroups[1].Roots[0]
-	firstNested := requirePlanField(t, firstRoot.StructPlan, "First").Mapping.Plan
-	secondNested := requirePlanField(t, secondRoot.StructPlan, "First").Mapping.Plan
+	firstNested := requireFieldPlan(t, firstRoot.StructPlan, "First")
+	secondNested := requireFieldPlan(t, secondRoot.StructPlan, "First")
 
-	require.NotNil(t, firstNested)
-	require.NotNil(t, secondNested)
 	assert.Same(t, firstNested, secondNested)
 	assert.Same(t, out.OutputGroups[0].Nested[0], firstNested)
 	assert.Equal(t, out.OutputGroups[0].Location, firstNested.Location)
@@ -1627,8 +210,7 @@ func TestPlannerPlanPackageOwnedNestedStructsInSameOutputPackage(t *testing.T) {
 }
 
 func TestPlannerPlanPackageOwnedNestedStructsSeparateOutputPackages(t *testing.T) {
-	engine := New(".")
-	out, err := engine.Plan(resolveTestConfig(t, config.Config{
+	out := planWithConfig(t, ".", config.Config{
 		Packages: []config.Package{
 			{
 				Source: plannerFromPackage,
@@ -1669,9 +251,8 @@ func TestPlannerPlanPackageOwnedNestedStructsSeparateOutputPackages(t *testing.T
 				},
 			},
 		},
-	}), "morph.yaml")
+	})
 
-	require.NoError(t, err)
 	require.Len(t, out.OutputGroups, 2)
 
 	groupA := requireOutputGroupByPackageName(t, out.OutputGroups, "mappinga")
@@ -1683,11 +264,9 @@ func TestPlannerPlanPackageOwnedNestedStructsSeparateOutputPackages(t *testing.T
 	nodeB := requireRootByTargetName(t, groupB.Roots, "Node")
 	boxContainerA := requireRootByTargetName(t, groupA.Roots, "NodeBoxContainer")
 	boxContainerB := requireRootByTargetName(t, groupB.Roots, "NodeBoxContainer")
-	nestedA := requirePlanField(t, boxContainerA.StructPlan, "Box").Mapping.Plan
-	nestedB := requirePlanField(t, boxContainerB.StructPlan, "Box").Mapping.Plan
+	nestedA := requireFieldPlan(t, boxContainerA.StructPlan, "Box")
+	nestedB := requireFieldPlan(t, boxContainerB.StructPlan, "Box")
 
-	require.NotNil(t, nestedA)
-	require.NotNil(t, nestedB)
 	assert.NotSame(t, nestedA, nestedB)
 	assert.Same(t, groupA.Nested[0], nestedA)
 	assert.Same(t, groupB.Nested[0], nestedB)
@@ -1700,51 +279,8 @@ func TestPlannerPlanPackageOwnedNestedStructsSeparateOutputPackages(t *testing.T
 	assert.Same(t, nodeB, valueB.Mapping.Plan)
 }
 
-func TestPlannerFinalizesRecursiveGeneratedMapperErrability(t *testing.T) {
-	engine := New(".")
-	out, err := engine.Plan(resolveTestConfig(t, config.Config{
-		Defaults: config.Defaults{
-			Packages: config.PackagesDefaults{
-				Types: config.TypesDefaults{
-					Optionality: pointerErrorOptionalityDefaults(),
-				},
-			},
-		},
-		Packages: []config.Package{{
-			Source: "github.com/seeruk/morph/testdata/planner/from",
-			Target: "github.com/seeruk/morph/testdata/planner/to",
-			Types: []config.Type{{
-				Name: "Container",
-			}},
-		}},
-	}), "morph.yaml")
-
-	require.NoError(t, err)
-	require.Len(t, out.OutputGroups, 1)
-	require.Len(t, out.OutputGroups[0].Roots, 1)
-
-	root := out.OutputGroups[0].Roots[0]
-	require.NotNil(t, root.StructPlan)
-	first := requirePlanField(t, root.StructPlan, "First").Mapping.Plan
-	require.NotNil(t, first)
-	require.NotNil(t, first.StructPlan)
-
-	children := requirePlanField(t, first.StructPlan, "Children")
-	require.NotNil(t, children.Mapping.Elem)
-	required := requirePlanField(t, first.StructPlan, "Required")
-
-	assert.True(t, root.CanError)
-	assert.True(t, first.CanError)
-	assert.True(t, children.Mapping.CanError)
-	assert.True(t, children.Mapping.Elem.CanError)
-	assert.Empty(t, children.Mapping.Elem.SourceAdaptations)
-	assert.Empty(t, children.Mapping.Elem.TargetAdaptations)
-	assert.True(t, required.Mapping.CanError)
-}
-
 func TestPlannerPlanGenericNestedStructs(t *testing.T) {
-	engine := New(".")
-	out, err := engine.Plan(resolveTestConfig(t, config.Config{
+	out := planWithConfig(t, ".", config.Config{
 		Packages: []config.Package{{
 			Source: "github.com/seeruk/morph/testdata/planner/from",
 			Target: "github.com/seeruk/morph/testdata/planner/to",
@@ -1752,38 +288,35 @@ func TestPlannerPlanGenericNestedStructs(t *testing.T) {
 				Name: "GenericContainer",
 			}},
 		}},
-	}), "morph.yaml")
+	})
 
-	require.NoError(t, err)
 	require.Len(t, out.OutputGroups, 1)
 	require.Len(t, out.OutputGroups[0].Roots, 1)
 
 	root := out.OutputGroups[0].Roots[0]
 	require.NotNil(t, root.StructPlan)
 
-	intBox := requirePlanField(t, root.StructPlan, "IntBox")
-	stringBox := requirePlanField(t, root.StructPlan, "StringBox")
-	require.NotNil(t, intBox.Mapping.Plan)
-	require.NotNil(t, stringBox.Mapping.Plan)
+	intBox := requireFieldPlan(t, root.StructPlan, "IntBox")
+	stringBox := requireFieldPlan(t, root.StructPlan, "StringBox")
 	require.Len(t, out.OutputGroups[0].Nested, 2)
 
-	assert.NotSame(t, stringBox.Mapping.Plan, intBox.Mapping.Plan)
-	assert.Contains(t, out.OutputGroups[0].Nested, intBox.Mapping.Plan)
-	assert.Contains(t, out.OutputGroups[0].Nested, stringBox.Mapping.Plan)
-	assert.Equal(t, out.OutputGroups[0].Location, intBox.Mapping.Plan.Location)
-	assert.Equal(t, out.OutputGroups[0].Location, stringBox.Mapping.Plan.Location)
-	assert.NotEqual(t, stringBox.Mapping.Plan.FunctionName, intBox.Mapping.Plan.FunctionName)
-	assert.NotEqual(t, stringBox.Mapping.Plan.Source.Key, intBox.Mapping.Plan.Source.Key)
-	assert.NotEqual(t, stringBox.Mapping.Plan.Target.Key, intBox.Mapping.Plan.Target.Key)
+	assert.NotSame(t, stringBox, intBox)
+	assert.Contains(t, out.OutputGroups[0].Nested, intBox)
+	assert.Contains(t, out.OutputGroups[0].Nested, stringBox)
+	assert.Equal(t, out.OutputGroups[0].Location, intBox.Location)
+	assert.Equal(t, out.OutputGroups[0].Location, stringBox.Location)
+	assert.NotEqual(t, stringBox.FunctionName, intBox.FunctionName)
+	assert.NotEqual(t, stringBox.Source.Key, intBox.Source.Key)
+	assert.NotEqual(t, stringBox.Target.Key, intBox.Target.Key)
 
-	intValue := requirePlanField(t, intBox.Mapping.Plan.StructPlan, "Value")
+	intValue := requirePlanField(t, intBox.StructPlan, "Value")
 	assert.Equal(t, plan.OperationConvert, intValue.Mapping.Operation)
 	assert.Equal(t, types.TypeKindBasic, intValue.Mapping.Source.Kind)
 	assert.Equal(t, "int", intValue.Mapping.Source.Name)
 	assert.Equal(t, types.TypeKindBasic, intValue.Mapping.Target.Kind)
 	assert.Equal(t, "int64", intValue.Mapping.Target.Name)
 
-	stringValue := requirePlanField(t, stringBox.Mapping.Plan.StructPlan, "Value")
+	stringValue := requirePlanField(t, stringBox.StructPlan, "Value")
 	assert.Equal(t, plan.OperationAssign, stringValue.Mapping.Operation)
 	assert.Equal(t, types.TypeKindBasic, stringValue.Mapping.Source.Kind)
 	assert.Equal(t, "string", stringValue.Mapping.Source.Name)
@@ -1798,10 +331,6 @@ func TestPlannerPlanConversions(t *testing.T) {
 			{Name: "string"},
 		},
 	}
-	int64ToInt := spec.Conversion{
-		Source: spec.TypeRef{Name: "int64"},
-		Target: spec.TypeRef{Name: "int"},
-	}
 
 	t.Run("keeps basic conversions automatic", func(t *testing.T) {
 		root := planPlannerRoot(t, config.Type{Name: "ConversionContainer"})
@@ -1812,61 +341,27 @@ func TestPlannerPlanConversions(t *testing.T) {
 	})
 
 	t.Run("keeps unregistered lossy numeric conversions unsupported", func(t *testing.T) {
-		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
-		planner.registry = newFunctionRegistry()
+		out := planWithConfig(t, ".", config.Config{
+			Packages: []config.Package{{
+				Source:        plannerFromPackage,
+				Target:        plannerToPackage,
+				Bidirectional: new(true),
+				Types: []config.Type{{
+					Name: "ConversionContainer",
+				}},
+			}},
+		})
+		require.Len(t, out.OutputGroups, 1)
+		require.Len(t, out.OutputGroups[0].Roots, 2)
 
-		got := planner.planValue(
-			basicTestType("int64"),
-			basicTestType("int"),
-			"Count",
-			defaultOptionality(),
-			defaultConversionsPolicy(),
-			nil,
-		)
+		inverse := requireRootBySourcePackage(t, out.OutputGroups[0].Roots, plannerToPackage)
+		count := requirePlanField(t, inverse.StructPlan, "Count")
 
-		assert.Equal(t, plan.OperationUnsupported, got.Operation)
-		require.Len(t, got.Diagnostics, 1)
-		assert.Equal(t, plan.DiagnosticLevelFatal, got.Diagnostics[0].Level)
-	})
-
-	t.Run("uses registered lossy numeric conversions", func(t *testing.T) {
-		planner := newTestAttemptPlanner(Spec{Conversions: []spec.Conversion{int64ToInt}}, ".", "morph.yaml")
-		planner.registry = newFunctionRegistry()
-
-		got := planner.planValue(
-			basicTestType("int64"),
-			basicTestType("int"),
-			"Count",
-			defaultOptionality(),
-			defaultConversionsPolicy(),
-			nil,
-		)
-
-		assert.Equal(t, plan.OperationConvert, got.Operation)
-	})
-
-	t.Run("keeps registered impossible conversions unsupported", func(t *testing.T) {
-		planner := newTestAttemptPlanner(Spec{Conversions: []spec.Conversion{{
-			Source: spec.TypeRef{Name: "bool"},
-			Target: spec.TypeRef{Name: "int"},
-		}}}, ".", "morph.yaml")
-		planner.registry = newFunctionRegistry()
-
-		got := planner.planValue(
-			basicTestType("bool"),
-			basicTestType("int"),
-			"Enabled",
-			defaultOptionality(),
-			defaultConversionsPolicy(),
-			nil,
-		)
-
-		assert.Equal(t, plan.OperationUnsupported, got.Operation)
+		assert.Equal(t, plan.OperationUnsupported, count.Mapping.Operation)
 	})
 
 	t.Run("uses bidirectional registered lossy numeric conversions", func(t *testing.T) {
-		engine := New(".")
-		out, err := engine.Plan(resolveTestConfig(t, config.Config{
+		out := planWithConfig(t, ".", config.Config{
 			Conversions: []config.Conversion{{
 				Source:        spec.TypeRef{Name: "int"},
 				Targets:       []spec.TypeRef{{Name: "int64"}},
@@ -1880,8 +375,7 @@ func TestPlannerPlanConversions(t *testing.T) {
 					Name: "ConversionContainer",
 				}},
 			}},
-		}), "morph.yaml")
-		require.NoError(t, err)
+		})
 		require.Len(t, out.OutputGroups, 1)
 		require.Len(t, out.OutputGroups[0].Roots, 2)
 
@@ -1985,16 +479,14 @@ func TestPlannerPlanConversions(t *testing.T) {
 }
 
 func TestPlannerPlanGenericRoots(t *testing.T) {
-	engine := New(".")
-	out, err := engine.Plan(resolveTestConfig(t, config.Config{
+	out := planWithConfig(t, ".", config.Config{
 		Packages: []config.Package{{
 			Source: "github.com/seeruk/morph/testdata/planner/from",
 			Target: "github.com/seeruk/morph/testdata/planner/to",
 			Types:  []config.Type{{Name: "NumberContainer"}},
 		}},
-	}), "morph.yaml")
+	})
 
-	require.NoError(t, err)
 	require.Len(t, out.OutputGroups, 1)
 	require.Len(t, out.OutputGroups[0].Roots, 1)
 
@@ -2006,8 +498,7 @@ func TestPlannerPlanGenericRoots(t *testing.T) {
 }
 
 func TestPlannerPlanNestedStructsWithScopedCallables(t *testing.T) {
-	engine := New(".")
-	out, err := engine.Plan(resolveTestConfig(t, config.Config{
+	out := planWithConfig(t, ".", config.Config{
 		Packages: []config.Package{{
 			Source: "github.com/seeruk/morph/testdata/planner/from",
 			Target: "github.com/seeruk/morph/testdata/planner/to",
@@ -2028,16 +519,13 @@ func TestPlannerPlanNestedStructsWithScopedCallables(t *testing.T) {
 				},
 			},
 		}},
-	}), "morph.yaml")
+	})
 
-	require.NoError(t, err)
 	rootA := requireRootByTargetName(t, out.OutputGroups[0].Roots, "ScopedStringBoxA")
 	rootB := requireRootByTargetName(t, out.OutputGroups[0].Roots, "ScopedStringBoxB")
 
-	boxA := requirePlanField(t, rootA.StructPlan, "Box").Mapping.Plan
-	boxB := requirePlanField(t, rootB.StructPlan, "Box").Mapping.Plan
-	require.NotNil(t, boxA)
-	require.NotNil(t, boxB)
+	boxA := requireFieldPlan(t, rootA.StructPlan, "Box")
+	boxB := requireFieldPlan(t, rootB.StructPlan, "Box")
 
 	assert.NotSame(t, boxA, boxB)
 	assert.NotEqual(t, boxA.FunctionName, boxB.FunctionName)
@@ -2051,8 +539,7 @@ func TestPlannerPlanNestedStructsWithScopedCallables(t *testing.T) {
 }
 
 func TestPlannerPlanDefaultCallable(t *testing.T) {
-	engine := New(".")
-	out, err := engine.Plan(resolveTestConfig(t, config.Config{
+	out := planWithConfig(t, ".", config.Config{
 		Defaults: config.Defaults{
 			Packages: config.PackagesDefaults{
 				Types: config.TypesDefaults{
@@ -2068,9 +555,8 @@ func TestPlannerPlanDefaultCallable(t *testing.T) {
 			Target: "github.com/seeruk/morph/testdata/planner/to",
 			Types:  []config.Type{{Name: "ExplicitCallableContainer"}},
 		}},
-	}), "morph.yaml")
+	})
 
-	require.NoError(t, err)
 	root := out.OutputGroups[0].Roots[0]
 	field := requirePlanField(t, root.StructPlan, "Value")
 
@@ -2080,16 +566,14 @@ func TestPlannerPlanDefaultCallable(t *testing.T) {
 
 func TestPlannerPlanMethodCallable(t *testing.T) {
 	t.Run("ignores unreferenced methods", func(t *testing.T) {
-		engine := New(".")
-		out, err := engine.Plan(resolveTestConfig(t, config.Config{
+		out := planWithConfig(t, ".", config.Config{
 			Packages: []config.Package{{
 				Source: "github.com/seeruk/morph/testdata/planner/from",
 				Target: "github.com/seeruk/morph/testdata/planner/to",
 				Types:  []config.Type{{Name: "MethodCallableContainer"}},
 			}},
-		}), "morph.yaml")
+		})
 
-		require.NoError(t, err)
 		root := out.OutputGroups[0].Roots[0]
 		field := requirePlanField(t, root.StructPlan, "ID")
 
@@ -2097,8 +581,7 @@ func TestPlannerPlanMethodCallable(t *testing.T) {
 	})
 
 	t.Run("uses explicitly referenced methods", func(t *testing.T) {
-		engine := New(".")
-		out, err := engine.Plan(resolveTestConfig(t, config.Config{
+		out := planWithConfig(t, ".", config.Config{
 			Defaults: config.Defaults{
 				Packages: config.PackagesDefaults{
 					Types: config.TypesDefaults{
@@ -2115,9 +598,8 @@ func TestPlannerPlanMethodCallable(t *testing.T) {
 				Target: "github.com/seeruk/morph/testdata/planner/to",
 				Types:  []config.Type{{Name: "MethodCallableContainer"}},
 			}},
-		}), "morph.yaml")
+		})
 
-		require.NoError(t, err)
 		root := out.OutputGroups[0].Roots[0]
 		field := requirePlanField(t, root.StructPlan, "ID")
 
@@ -2128,8 +610,7 @@ func TestPlannerPlanMethodCallable(t *testing.T) {
 }
 
 func TestPlannerPlanHigherOrderGenericFunction(t *testing.T) {
-	engine := New(".")
-	out, err := engine.Plan(resolveTestConfig(t, config.Config{
+	out := planWithConfig(t, ".", config.Config{
 		Discovery: config.Discovery{
 			Packages: []string{
 				"github.com/seeruk/morph/testdata/planner/from",
@@ -2142,9 +623,8 @@ func TestPlannerPlanHigherOrderGenericFunction(t *testing.T) {
 				Name: "OptionalContainer",
 			}},
 		}},
-	}), "morph.yaml")
+	})
 
-	require.NoError(t, err)
 	require.Len(t, out.OutputGroups, 1)
 	require.Len(t, out.OutputGroups[0].Roots, 1)
 
@@ -2178,8 +658,7 @@ func TestPlannerPlanHigherOrderGenericFunction(t *testing.T) {
 }
 
 func TestPlannerPlanHigherOrderGenericFunctionWithUnplannableArg(t *testing.T) {
-	engine := New(".")
-	out, err := engine.Plan(resolveTestConfig(t, config.Config{
+	out := planWithConfig(t, ".", config.Config{
 		Discovery: config.Discovery{
 			Packages: []string{
 				"github.com/seeruk/morph/testdata/planner/from",
@@ -2192,9 +671,8 @@ func TestPlannerPlanHigherOrderGenericFunctionWithUnplannableArg(t *testing.T) {
 				Name: "OptionalBadContainer",
 			}},
 		}},
-	}), "morph.yaml")
+	})
 
-	require.NoError(t, err)
 	require.Len(t, out.OutputGroups, 1)
 	root := out.OutputGroups[0].Roots[0]
 	require.NotNil(t, root.StructPlan)
@@ -2207,8 +685,7 @@ func TestPlannerPlanHigherOrderGenericFunctionWithUnplannableArg(t *testing.T) {
 }
 
 func TestPlannerPlanHigherOrderExplicitCallable(t *testing.T) {
-	engine := New(".")
-	out, err := engine.Plan(resolveTestConfig(t, config.Config{
+	out := planWithConfig(t, ".", config.Config{
 		Defaults: config.Defaults{
 			Packages: config.PackagesDefaults{
 				Types: config.TypesDefaults{
@@ -2224,9 +701,8 @@ func TestPlannerPlanHigherOrderExplicitCallable(t *testing.T) {
 			Target: "github.com/seeruk/morph/testdata/planner/to",
 			Types:  []config.Type{{Name: "OptionalContainer"}},
 		}},
-	}), "morph.yaml")
+	})
 
-	require.NoError(t, err)
 	root := out.OutputGroups[0].Roots[0]
 	maybe := requirePlanField(t, root.StructPlan, "Maybe")
 
@@ -2237,8 +713,7 @@ func TestPlannerPlanHigherOrderExplicitCallable(t *testing.T) {
 }
 
 func TestPlannerPlanHigherOrderGenericFunctionWithErrors(t *testing.T) {
-	engine := New(".")
-	out, err := engine.Plan(resolveTestConfig(t, config.Config{
+	out := planWithConfig(t, ".", config.Config{
 		Discovery: config.Discovery{
 			Packages: []string{
 				"github.com/seeruk/morph/testdata/planner/from",
@@ -2251,9 +726,8 @@ func TestPlannerPlanHigherOrderGenericFunctionWithErrors(t *testing.T) {
 				Name: "FallibleOptionalContainer",
 			}},
 		}},
-	}), "morph.yaml")
+	})
 
-	require.NoError(t, err)
 	require.Len(t, out.OutputGroups, 1)
 	require.Len(t, out.OutputGroups[0].Roots, 1)
 
@@ -2286,58 +760,8 @@ func TestPlannerPlanHigherOrderGenericFunctionWithErrors(t *testing.T) {
 	})
 }
 
-func TestPlannerRetriesHigherOrderFunctionWhenRecursiveArgCanError(t *testing.T) {
-	engine := New(".")
-	out, err := engine.Plan(resolveTestConfig(t, config.Config{
-		Defaults: config.Defaults{
-			Packages: config.PackagesDefaults{
-				Types: config.TypesDefaults{
-					Optionality: pointerErrorOptionalityDefaults(),
-				},
-			},
-		},
-		Discovery: config.Discovery{
-			Packages: []string{
-				"github.com/seeruk/morph/testdata/planner/from",
-			},
-		},
-		Packages: []config.Package{{
-			Source: "github.com/seeruk/morph/testdata/planner/from",
-			Target: "github.com/seeruk/morph/testdata/planner/to",
-			Types: []config.Type{{
-				Name: "OptionalRecursiveNode",
-			}},
-		}},
-	}), "morph.yaml")
-
-	require.NoError(t, err)
-	require.False(t, out.HasFatalDiagnostics())
-	require.Len(t, out.OutputGroups, 1)
-	require.Len(t, out.OutputGroups[0].Roots, 1)
-
-	root := out.OutputGroups[0].Roots[0]
-	require.NotNil(t, root.StructPlan)
-	maybe := requirePlanField(t, root.StructPlan, "Maybe")
-	require.NotNil(t, maybe.Mapping.Callable)
-	require.Len(t, maybe.Mapping.CallableArgs, 1)
-	arg := maybe.Mapping.CallableArgs[0]
-
-	assert.True(t, root.CanError)
-	assert.Equal(t, "MapOptionalWithError", maybe.Mapping.Callable.Name)
-	assert.True(t, maybe.Mapping.Callable.ReturnsError)
-	assert.True(t, maybe.Mapping.CanError)
-	assert.True(t, arg.ReturnsError)
-	assert.True(t, arg.Mapping.CanError)
-	assert.Equal(t, plan.OperationSlice, arg.Mapping.Operation)
-	require.NotNil(t, arg.Mapping.Elem)
-	assert.True(t, arg.Mapping.Elem.CanError)
-	assert.Empty(t, arg.Mapping.Elem.SourceAdaptations)
-	assert.Empty(t, arg.Mapping.Elem.TargetAdaptations)
-}
-
 func TestPlannerPlanHigherOrderGenericFunctionWithMultipleTypeArgs(t *testing.T) {
-	engine := New(".")
-	out, err := engine.Plan(resolveTestConfig(t, config.Config{
+	out := planWithConfig(t, ".", config.Config{
 		Discovery: config.Discovery{
 			Packages: []string{
 				"github.com/seeruk/morph/testdata/planner/from",
@@ -2350,9 +774,8 @@ func TestPlannerPlanHigherOrderGenericFunctionWithMultipleTypeArgs(t *testing.T)
 				Name: "EitherContainer",
 			}},
 		}},
-	}), "morph.yaml")
+	})
 
-	require.NoError(t, err)
 	require.Len(t, out.OutputGroups, 1)
 	require.Len(t, out.OutputGroups[0].Roots, 1)
 
@@ -2398,40 +821,6 @@ func TestPlannerPlanHigherOrderGenericFunctionWithMultipleTypeArgs(t *testing.T)
 	})
 }
 
-func functionCandidates(sourceType, targetType types.Type, fns ...types.FunctionDecl) map[plan.CallableRef]callableCompatibility {
-	out := make(map[plan.CallableRef]callableCompatibility, len(fns))
-	for _, fn := range fns {
-		callable, ok := plan.CallableRefFromFunctionDecl(fn, plan.CallableSourceDiscovered)
-		if !ok {
-			continue
-		}
-		out[callable] = assessFunctionCompatibility(sourceType, targetType, fn)
-	}
-	return out
-}
-
-func plannerWithCallables(fns ...types.FunctionDecl) *attemptPlanner {
-	callables := make(map[spec.CallableRef]registeredCallable, len(fns))
-	for _, fn := range fns {
-		callables[spec.CallableRefFromFunctionDecl(fn)] = registeredCallable{Function: &fn}
-	}
-	return &attemptPlanner{
-		registry:  newFunctionRegistry(),
-		callables: callables,
-	}
-}
-
-func callableTier(tier spec.CallableTier, fns ...types.FunctionDecl) spec.TieredCallables {
-	callables := make([]spec.CallableRef, 0, len(fns))
-	for _, fn := range fns {
-		callables = append(callables, spec.CallableRefFromFunctionDecl(fn))
-	}
-	return spec.TieredCallables{
-		Tier:      tier,
-		Callables: callables,
-	}
-}
-
 const (
 	plannerFromPackage = "github.com/seeruk/morph/testdata/planner/from"
 	plannerToPackage   = "github.com/seeruk/morph/testdata/planner/to"
@@ -2440,28 +829,18 @@ const (
 func planPlannerRoot(t *testing.T, typ config.Type, conversions ...config.Conversion) *plan.Type {
 	t.Helper()
 
-	engine := New(".")
-	out, err := engine.Plan(resolveTestConfig(t, config.Config{
+	out := planWithConfig(t, ".", config.Config{
 		Conversions: conversions,
 		Packages: []config.Package{{
 			Source: plannerFromPackage,
 			Target: plannerToPackage,
 			Types:  []config.Type{typ},
 		}},
-	}), "morph.yaml")
-	require.NoError(t, err)
+	})
 	require.Len(t, out.OutputGroups, 1)
 	require.Len(t, out.OutputGroups[0].Roots, 1)
 
 	return out.OutputGroups[0].Roots[0]
-}
-
-func resolveTestConfig(t *testing.T, cfg config.Config) Spec {
-	t.Helper()
-
-	resolved, err := ResolveConfig(cfg)
-	require.NoError(t, err)
-	return resolved
 }
 
 func requireRootByTargetName(t *testing.T, roots []*plan.Type, targetName string) *plan.Type {
@@ -2517,107 +896,35 @@ func requirePlanField(t *testing.T, structPlan *plan.Struct, targetName string) 
 	return plan.Field{}
 }
 
+func requireFieldPlan(t *testing.T, structPlan *plan.Struct, targetName string) *plan.Type {
+	t.Helper()
+
+	field := requirePlanField(t, structPlan, targetName)
+	require.NotNil(t, field.Mapping.Plan)
+	return field.Mapping.Plan
+}
+
+func requireValueElem(t *testing.T, value plan.Value) *plan.Value {
+	t.Helper()
+
+	require.NotNil(t, value.Elem)
+	return value.Elem
+}
+
+func requireCallableArg(t *testing.T, value plan.Value, index int) plan.CallableArg {
+	t.Helper()
+
+	require.NotNil(t, value.Callable)
+	require.Greater(t, len(value.CallableArgs), index)
+	return value.CallableArgs[index]
+}
+
 func pointerErrorOptionalityDefaults() *config.OptionalityDefaults {
 	pointerError := spec.PointerOptionalityError
 	valueNil := spec.ValueOptionalityNil
 	return &config.OptionalityDefaults{
 		OnNilSourcePointer: &pointerError,
 		OnZeroSourceValue:  &valueNil,
-	}
-}
-
-func diagnosticsMessages(diagnostics []plan.Diagnostic) []string {
-	out := make([]string, 0, len(diagnostics))
-	for _, diagnostic := range diagnostics {
-		out = append(out, diagnostic.Message)
-	}
-	return out
-}
-
-func diagnosticsPaths(diagnostics []plan.Diagnostic) []string {
-	out := make([]string, 0, len(diagnostics))
-	for _, diagnostic := range diagnostics {
-		out = append(out, diagnostic.Path)
-	}
-	return out
-}
-
-func testStructPlanType(sourceDecl, targetDecl types.TypeDecl, structSpec spec.Struct) plan.Type {
-	return plan.Type{
-		Source:      plan.TypeRefFromTypeDecl(sourceDecl),
-		Target:      plan.TypeRefFromTypeDecl(targetDecl),
-		SourceDecl:  sourceDecl,
-		TargetDecl:  targetDecl,
-		SourceType:  sourceDecl.Type,
-		TargetType:  targetDecl.Type,
-		Signature:   defaultMapperSignature,
-		StructSpec:  structSpec,
-		Optionality: defaultOptionality(),
-		Conversions: defaultConversionsPolicy(),
-	}
-}
-
-func testRootPlan(
-	sourceRef, targetRef plan.TypeRef,
-	sourceDecl, targetDecl types.TypeDecl,
-	sourceType, targetType types.Type,
-	functionName string,
-) *plan.Type {
-	return testRootPlanWithSignature(
-		sourceRef,
-		targetRef,
-		sourceDecl,
-		targetDecl,
-		sourceType,
-		targetType,
-		functionName,
-		defaultMapperSignature,
-	)
-}
-
-func testRootPlanWithSignature(
-	sourceRef, targetRef plan.TypeRef,
-	sourceDecl, targetDecl types.TypeDecl,
-	sourceType, targetType types.Type,
-	functionName string,
-	signature spec.MapperSignature,
-) *plan.Type {
-	return &plan.Type{
-		Source:       sourceRef,
-		Target:       targetRef,
-		SourceDecl:   sourceDecl,
-		TargetDecl:   targetDecl,
-		SourceType:   sourceType,
-		TargetType:   targetType,
-		FunctionName: functionName,
-		Signature:    signature,
-		StructPlan:   &plan.Struct{},
-		Optionality:  defaultOptionality(),
-		Conversions:  defaultConversionsPolicy(),
-	}
-}
-
-func testStructDecl(importPath, name string, fields map[string]types.Field) types.TypeDecl {
-	structType := types.Type{
-		Kind:   types.TypeKindStruct,
-		String: "struct{}",
-		Fields: fields,
-	}
-
-	return types.TypeDecl{
-		Name: name,
-		Package: types.PackageRef{
-			Name:       "test",
-			ImportPath: importPath,
-		},
-		Type: types.Type{
-			Kind:    types.TypeKindNamed,
-			Name:    name,
-			Package: types.PackageRef{Name: "test", ImportPath: importPath},
-			Elem:    &structType,
-		},
-		Underlying: structType,
-		Fields:     fields,
 	}
 }
 

@@ -7,103 +7,9 @@ import (
 
 	"github.com/seeruk/morph/internal/slicesx"
 	"github.com/seeruk/morph/plan"
-	"github.com/seeruk/morph/spec"
 	"github.com/seeruk/morph/types"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
-
-func TestPlanner_planEnumValues(t *testing.T) {
-	t.Run("does not mark normalized names as seen source constants", func(t *testing.T) {
-		sourceDecl := testEnumTypeDecl(
-			"Status",
-			testConstantDecl("Status", "OK", "ok"),
-			testConstantDecl("Status", "StatusOK", "ok"),
-		)
-		targetDecl := testEnumTypeDecl(
-			"Status",
-			testConstantDecl("Status", "OK", "ok"),
-		)
-		typ := plan.Type{
-			SourceDecl: sourceDecl,
-			TargetDecl: targetDecl,
-			SourceType: sourceDecl.Type,
-			TargetType: targetDecl.Type,
-		}
-		planner := &attemptPlanner{}
-
-		values, diagnostics := planner.planEnumValues(&typ)
-
-		require.Empty(t, diagnostics)
-		require.Len(t, values, 2)
-
-		sourceNames := make([]string, 0, len(values))
-		for _, value := range values {
-			sourceNames = append(sourceNames, value.Source.Name)
-			assert.Equal(t, "OK", value.Target.Name)
-		}
-
-		assert.Equal(t, []string{"OK", "StatusOK"}, sourceNames)
-	})
-
-	t.Run("reports invalid explicit enum value mappings as fatal", func(t *testing.T) {
-		sourceDecl := testEnumTypeDecl(
-			"Status",
-			testConstantDecl("Status", "StatusOK", "ok"),
-		)
-		targetDecl := testEnumTypeDecl(
-			"Status",
-			testConstantDecl("Status", "StatusOK", "ok"),
-		)
-		typ := plan.Type{
-			SourceDecl: sourceDecl,
-			TargetDecl: targetDecl,
-			SourceType: sourceDecl.Type,
-			TargetType: targetDecl.Type,
-			EnumSpec: spec.Enum{
-				Values: map[string]string{
-					"StatusMissing": "StatusOK",
-					"StatusOK":      "StatusMissing",
-				},
-			},
-		}
-		planner := &attemptPlanner{}
-
-		_, diagnostics := planner.planEnumValues(&typ)
-
-		require.Len(t, diagnostics, 2)
-		assert.True(t, plan.HasFatalDiagnostics(diagnostics))
-		assert.Contains(t, diagnosticsPaths(diagnostics), plan.SourceEnumValuePath(typ.SourceType, typ.TargetType, "StatusMissing"))
-		assert.Contains(t, diagnosticsPaths(diagnostics), plan.TargetEnumValuePath(typ.SourceType, typ.TargetType, "StatusMissing"))
-		assert.Contains(t, diagnosticsMessages(diagnostics), `source enum value "StatusMissing" does not exist or is not exported`)
-		assert.Contains(t, diagnosticsMessages(diagnostics), `target enum value "StatusMissing" configured for source enum value "StatusOK" does not exist or is not exported`)
-	})
-
-	t.Run("reports missing inferred target matches as actionable fatal diagnostics", func(t *testing.T) {
-		sourceDecl := testEnumTypeDecl(
-			"Status",
-			testConstantDecl("Status", "StatusOK", "ok"),
-		)
-		targetDecl := testEnumTypeDecl(
-			"Status",
-			testConstantDecl("Status", "StatusReady", "ready"),
-		)
-		typ := plan.Type{
-			SourceDecl: sourceDecl,
-			TargetDecl: targetDecl,
-			SourceType: sourceDecl.Type,
-			TargetType: targetDecl.Type,
-		}
-		planner := &attemptPlanner{}
-
-		_, diagnostics := planner.planEnumValues(&typ)
-
-		require.Len(t, diagnostics, 1)
-		assert.Equal(t, plan.DiagnosticLevelFatal, diagnostics[0].Level)
-		assert.Equal(t, plan.SourceEnumValuePath(typ.SourceType, typ.TargetType, "StatusOK"), diagnostics[0].Path)
-		assert.Equal(t, `no target enum value matched source enum value "StatusOK" normalized as "OK"; configure enum.values or enum.patterns`, diagnostics[0].Message)
-	})
-}
 
 func Test_normalizeEnumConstants(t *testing.T) {
 	tt := []struct {
@@ -221,21 +127,6 @@ func Test_normalizeEnumConstants(t *testing.T) {
 				assert.Empty(t, diags)
 			}
 		})
-	}
-}
-
-func testEnumTypeDecl(name string, constants ...types.ConstantDecl) types.TypeDecl {
-	typ := basicTestType(name)
-	constantsByName := make(map[string]types.ConstantDecl, len(constants))
-	for _, constant := range constants {
-		constantsByName[constant.Name] = constant
-	}
-
-	return types.TypeDecl{
-		Name:       name,
-		Type:       typ,
-		Underlying: typ,
-		Constants:  constantsByName,
 	}
 }
 

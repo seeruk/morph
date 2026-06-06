@@ -12,8 +12,8 @@ func TestEngineGenerate_WithFatalDiagnostics(t *testing.T) {
 	specification := resolveTestConfig(t, configWithUnsupportedMapping())
 
 	files, plan, err := engine.Generate(specification, "morph.yaml")
-
 	require.NoError(t, err)
+
 	assert.Nil(t, files)
 	assert.True(t, plan.HasFatalDiagnostics())
 }

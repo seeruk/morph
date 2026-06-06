@@ -1,5 +1,11 @@
 package to
 
+type Status uint
+
+const (
+	OK Status = iota
+)
+
 type Container struct {
 	First  Node
 	Second Node
@@ -52,6 +58,12 @@ type ConversionContainer struct {
 	Secret string
 	Alias  string
 	Values []string
+}
+
+type CollectionContainer struct {
+	Values []string
+	Codes  [2]string
+	Lookup map[string]string
 }
 
 type ConversionsPolicyContainer struct {

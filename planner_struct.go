@@ -421,14 +421,6 @@ func (p *attemptPlanner) planRoot(source, target types.Type, optionality spec.Op
 	), true
 }
 
-func (p *attemptPlanner) root(source, target types.Type) *plan.Type {
-	variant, _, ok := p.rootVariant(source, target)
-	if !ok {
-		return nil
-	}
-	return variant.Root
-}
-
 func (p *attemptPlanner) rootVariant(source, target types.Type) (*rootVariant, callableCompatibility, bool) {
 	sourceLookup, targetLookup := generatedMapperLookupPair(source, target)
 	sourceRef := plan.TypeRefFromType(sourceLookup)

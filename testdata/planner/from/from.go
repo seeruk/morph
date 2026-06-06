@@ -2,6 +2,13 @@ package from
 
 import "github.com/seeruk/morph/testdata/planner/to"
 
+type Status uint
+
+const (
+	OK Status = iota
+	StatusOK
+)
+
 type Container struct {
 	First  Node
 	Second Node
@@ -54,6 +61,12 @@ type ConversionContainer struct {
 	Secret SecretID
 	Alias  AliasUserID
 	Values []UserID
+}
+
+type CollectionContainer struct {
+	Values []UserID
+	Codes  [2]UserID
+	Lookup map[UserID]UserID
 }
 
 type ConversionsPolicyContainer struct {

@@ -71,7 +71,6 @@ func (g *fileGenerator) Generate() (OutputFile, error) {
 
 	w := newSourceWriter()
 	w.Line(internal.MorphFileHeader)
-	w.Blank()
 	w.Line("package %s", g.group.Location.PackageName)
 	w.Blank()
 	g.renderImports(w)

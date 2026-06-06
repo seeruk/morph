@@ -9,6 +9,53 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestPlannerPrepareImportGraph(t *testing.T) {
+	t.Run("allows mapping and source outputs for the same package pair", func(t *testing.T) {
+		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
+		mappingLocation := testOutputLocation("module.test/mapping", "/repo/mapping/morph.gen.go")
+		sourceLocation := testOutputLocation("module.test/source", "/repo/source/morph.gen.go")
+		root := testPlanTypeWithPackages("module.test/source", "User", "module.test/target", "User", "MapUser")
+
+		outputGroups := map[plan.OutputLocation]plan.OutputGroup{
+			mappingLocation: {Location: mappingLocation, Roots: []*plan.Type{root}},
+			sourceLocation:  {Location: sourceLocation, Roots: []*plan.Type{root}},
+		}
+
+		err := planner.prepareImportGraph(outputGroups)
+
+		require.NoError(t, err)
+	})
+
+	t.Run("rejects source and target outputs for the same package pair", func(t *testing.T) {
+		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
+		sourceLocation := testOutputLocation("module.test/source", "/repo/source/morph.gen.go")
+		targetLocation := testOutputLocation("module.test/target", "/repo/target/morph.gen.go")
+		root := testPlanTypeWithPackages("module.test/source", "User", "module.test/target", "User", "MapUser")
+
+		outputGroups := map[plan.OutputLocation]plan.OutputGroup{
+			sourceLocation: {Location: sourceLocation, Roots: []*plan.Type{root}},
+			targetLocation: {Location: targetLocation, Roots: []*plan.Type{root}},
+		}
+
+		err := planner.prepareImportGraph(outputGroups)
+
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "would create an import cycle")
+		assert.ErrorContains(t, err, "existing path: module.test/source -> module.test/target")
+	})
+
+	t.Run("rejects output that reverses an existing import", func(t *testing.T) {
+		graph := importGraph{}
+		graph.AddEdge("module.test/source", "module.test/target")
+
+		err := graph.AddGeneratedImport("module.test/target", "module.test/source")
+
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "would create an import cycle")
+		assert.ErrorContains(t, err, "existing path: module.test/source -> module.test/target")
+	})
+}
+
 func TestGeneratedImportRequirements(t *testing.T) {
 	t.Run("dedupes repeated requirements and ignores same-package imports", func(t *testing.T) {
 		external := namedTestType("module.test/external", "Thing")
@@ -42,22 +89,18 @@ func TestGeneratedImportRequirements(t *testing.T) {
 
 	t.Run("reports import cycles against the owning generated type", func(t *testing.T) {
 		location := testOutputLocation("module.test/out", "/repo/out/morph.gen.go")
-		source := namedTestType("module.test/external", "Thing")
-		target := basicTestType("string")
-		root := &plan.Type{
-			SourceType:   source,
-			TargetType:   target,
-			FunctionName: "MapThing",
-			Location:     location,
-		}
-		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
-		planner.importGraph = importGraph{}
-		planner.importGraph.AddEdge("module.test/external", "module.test/out")
+		root := testGeneratedType(
+			location,
+			namedTestType("module.test/external", "Thing"),
+			basicTestType("string"),
+			"MapThing",
+		)
+		planner := newPlannerWithImportCycle("module.test/external", "module.test/out")
 
-		planner.validateFinalPlan([]plan.OutputGroup{{
+		validateFinalOutputGroup(planner, plan.OutputGroup{
 			Location: location,
 			Roots:    []*plan.Type{root},
-		}})
+		})
 
 		require.Len(t, planner.diagnostics, 1)
 		require.Len(t, root.Diagnostics, 1)
@@ -69,22 +112,18 @@ func TestGeneratedImportRequirements(t *testing.T) {
 
 	t.Run("validates nested mapper signature imports", func(t *testing.T) {
 		location := testOutputLocation("module.test/out", "/repo/out/morph.gen.go")
-		source := namedTestType("module.test/external", "Nested")
-		target := basicTestType("string")
-		nested := &plan.Type{
-			SourceType:   source,
-			TargetType:   target,
-			FunctionName: "MapNested",
-			Location:     location,
-		}
-		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
-		planner.importGraph = importGraph{}
-		planner.importGraph.AddEdge("module.test/external", "module.test/out")
+		nested := testGeneratedType(
+			location,
+			namedTestType("module.test/external", "Nested"),
+			basicTestType("string"),
+			"MapNested",
+		)
+		planner := newPlannerWithImportCycle("module.test/external", "module.test/out")
 
-		planner.validateFinalPlan([]plan.OutputGroup{{
+		validateFinalOutputGroup(planner, plan.OutputGroup{
 			Location: location,
 			Nested:   []*plan.Type{nested},
-		}})
+		})
 
 		require.Len(t, planner.diagnostics, 1)
 		require.Len(t, nested.Diagnostics, 1)
@@ -93,22 +132,18 @@ func TestGeneratedImportRequirements(t *testing.T) {
 
 	t.Run("validates nested mapper target signature imports", func(t *testing.T) {
 		location := testOutputLocation("module.test/out", "/repo/out/morph.gen.go")
-		source := basicTestType("string")
-		target := namedTestType("module.test/external", "Nested")
-		nested := &plan.Type{
-			SourceType:   source,
-			TargetType:   target,
-			FunctionName: "MapNested",
-			Location:     location,
-		}
-		planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
-		planner.importGraph = importGraph{}
-		planner.importGraph.AddEdge("module.test/external", "module.test/out")
+		nested := testGeneratedType(
+			location,
+			basicTestType("string"),
+			namedTestType("module.test/external", "Nested"),
+			"MapNested",
+		)
+		planner := newPlannerWithImportCycle("module.test/external", "module.test/out")
 
-		planner.validateFinalPlan([]plan.OutputGroup{{
+		validateFinalOutputGroup(planner, plan.OutputGroup{
 			Location: location,
 			Nested:   []*plan.Type{nested},
-		}})
+		})
 
 		require.Len(t, planner.diagnostics, 1)
 		require.Len(t, nested.Diagnostics, 1)
@@ -151,32 +186,38 @@ func TestGeneratedImportValidationForValues(t *testing.T) {
 			Mapping:     value,
 		}}},
 	}
-	planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
-	planner.importGraph = importGraph{}
-	planner.importGraph.AddEdge("module.test/argsource", "module.test/out")
+	planner := newPlannerWithImportCycle("module.test/argsource", "module.test/out")
 	planner.importGraph.AddEdge("module.test/argtarget", "module.test/out")
 
-	planner.validateFinalPlan([]plan.OutputGroup{{
+	validateFinalOutputGroup(planner, plan.OutputGroup{
 		Location: location,
 		Roots:    []*plan.Type{root},
-	}})
+	})
 
 	require.Len(t, planner.diagnostics, 3)
-	messages := diagnosticsMessages(planner.diagnostics)
-	assert.Contains(t, messages, `function callable "MapOptional" requires generated package "module.test/out" to import "module.test/argsource", but generated import "module.test/out" -> "module.test/argsource" would create an import cycle; existing path: module.test/argsource -> module.test/out`)
-	assert.Contains(t, messages, `callable argument 1 source type requires generated package "module.test/out" to import "module.test/argsource", but generated import "module.test/out" -> "module.test/argsource" would create an import cycle; existing path: module.test/argsource -> module.test/out`)
-	assert.Contains(t, messages, `callable argument 1 target type requires generated package "module.test/out" to import "module.test/argtarget", but generated import "module.test/out" -> "module.test/argtarget" would create an import cycle; existing path: module.test/argtarget -> module.test/out`)
+	assertFatalDiagnosticMessages(t, planner.diagnostics,
+		`function callable "MapOptional" requires generated package "module.test/out" to import "module.test/argsource", but generated import "module.test/out" -> "module.test/argsource" would create an import cycle; existing path: module.test/argsource -> module.test/out`,
+		`callable argument 1 source type requires generated package "module.test/out" to import "module.test/argsource", but generated import "module.test/out" -> "module.test/argsource" would create an import cycle; existing path: module.test/argsource -> module.test/out`,
+		`callable argument 1 target type requires generated package "module.test/out" to import "module.test/argtarget", but generated import "module.test/out" -> "module.test/argtarget" would create an import cycle; existing path: module.test/argtarget -> module.test/out`,
+	)
 }
 
-func testFunctionDeclInPackage(
-	importPath string,
-	packageName string,
-	name string,
-	param types.Type,
-	result types.Type,
-	extraResults ...types.Type,
-) types.FunctionDecl {
-	fn := testFunctionDecl(name, param, result, extraResults...)
-	fn.Package = types.PackageRef{Name: packageName, ImportPath: importPath}
-	return fn
+func newPlannerWithImportCycle(from, to string) *attemptPlanner {
+	planner := newTestAttemptPlanner(Spec{}, ".", "morph.yaml")
+	planner.importGraph = importGraph{}
+	planner.importGraph.AddEdge(from, to)
+	return planner
+}
+
+func testGeneratedType(location plan.OutputLocation, source, target types.Type, functionName string) *plan.Type {
+	return &plan.Type{
+		SourceType:   source,
+		TargetType:   target,
+		FunctionName: functionName,
+		Location:     location,
+	}
+}
+
+func validateFinalOutputGroup(planner *attemptPlanner, group plan.OutputGroup) {
+	planner.validateFinalPlan([]plan.OutputGroup{group})
 }

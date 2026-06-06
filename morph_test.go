@@ -88,13 +88,6 @@ func signatureTestType(params []types.Type, results ...types.Type) types.Type {
 	return out
 }
 
-func errorTestType() types.Type {
-	return types.Type{
-		Kind: types.TypeKindNamed,
-		Name: "error",
-	}
-}
-
 func testConstantDecl(typeName, name, value string) types.ConstantDecl {
 	return types.ConstantDecl{
 		Package:    types.PackageRef{Name: "mapping", ImportPath: "module.test/mapping"},
@@ -115,19 +108,6 @@ func testFunctionDecl(name string, param, result types.Type, extraResults ...typ
 		Name:       name,
 		IsExported: true,
 		Params:     []types.Parameter{{Type: param}},
-		Results:    results,
-	}
-}
-
-func testMethodDecl(name string, receiver, result types.Type, extraResults ...types.Type) types.Method {
-	results := []types.Parameter{{Type: result}}
-	for _, extra := range extraResults {
-		results = append(results, types.Parameter{Type: extra})
-	}
-	return types.Method{
-		Name:       name,
-		IsExported: true,
-		Receiver:   &types.Parameter{Type: receiver},
 		Results:    results,
 	}
 }
