@@ -281,14 +281,19 @@ packages:
     preset: protobuf
 ```
 
-### Common recipes
+### Configuring Output
 
-* Specifically how to configure certain things
-  * Field / enum value override
-  * Bidirectional mapping
-  * Custom callables
-  * Explicitly allowed conversions
-  * Output types
+TODO
+
+### Other Common Scenarios
+
+#### Overriding Field / Enum Value Mapping
+
+TODO
+
+#### Bidirectional Mapping
+
+TODO
 
 ## Known Limitations
 
