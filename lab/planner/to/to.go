@@ -1,5 +1,13 @@
 package to
 
+type RecipeID string
+
+type Recipe struct {
+	ID       RecipeID
+	Name     string
+	Servings int
+}
+
 type Tuple[A, B any] struct {
 	A A
 	B B

@@ -17,6 +17,11 @@ conversions:
 - source: int
   targets:
   - int64
+  - int32
+  bidirectional: true
+- source: string
+  targets:
+  - github.com/seeruk/morph/lab/planner/to.RecipeID
   bidirectional: true
 
 packages:
@@ -24,6 +29,11 @@ packages:
   target: github.com/seeruk/morph/lab/planner/to
   bidirectional: true
   types:
+  - name: Recipe
+    struct:
+      fields:
+        RecipeId:
+          target: ID
   - name: Single
   - source: Difficulty
     target: RecipeDifficulty

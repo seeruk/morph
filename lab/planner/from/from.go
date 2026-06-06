@@ -16,6 +16,12 @@ const (
 	difficultyMax
 )
 
+type Recipe struct {
+	RecipeId string
+	Name     string
+	Servings int32
+}
+
 type Either[L, R any] struct {
 	Left  L
 	Right R

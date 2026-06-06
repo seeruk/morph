@@ -5,6 +5,22 @@ A tool for automatically generating mapping code to map similar types.
 Morph is a CLI tool, but can also be used as a library, to be integrated into other applications as
 part of more complex code-generation pipelines.
 
+Morph generates functions like this:
+
+```go
+func MapRecipeFromProto(source foodpb.Recipe) food.Recipe {
+	var target food.Recipe
+	target.ID = food.RecipeID(source.RecipeId)
+	target.Name = source.Name
+	target.Servings = int(source.Servings)
+	return target
+}
+```
+
+Morph can map structs and enums, including fields containing basic types, pointers, slices, arrays, 
+maps, nested structs, and concrete generic containers, using direct assignment, safe or configured 
+type conversions, generated nested mappers, and user-provided callables.
+
 ## Why Morph?
 
 Using certain libraries and tools can mean you to end up with what are essentially duplicated types.

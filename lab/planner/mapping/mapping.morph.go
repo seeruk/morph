@@ -8,6 +8,22 @@ import (
 	"github.com/seeruk/morph/runtime/value"
 )
 
+func MapFromRecipeToToRecipe(source from.Recipe) to.Recipe {
+	var target to.Recipe
+	target.ID = to.RecipeID(source.RecipeId)
+	target.Name = source.Name
+	target.Servings = int(source.Servings)
+	return target
+}
+
+func MapToRecipeFromFromRecipe(source to.Recipe) from.Recipe {
+	var target from.Recipe
+	target.Name = source.Name
+	target.RecipeId = string(source.ID)
+	target.Servings = int32(source.Servings)
+	return target
+}
+
 func MapFromSingleToToSingle(source from.Single) to.Single {
 	var target to.Single
 	mapValue := func(source string) to.Stringy {
