@@ -522,7 +522,7 @@ packages:
 * Morph only generates top-level mappers for struct-to-struct or enum-to-enum mappings and does not
   support generating mapping functions for other types (e.g. basic types, slices, maps, so on).
 * Morph does not load test packages, so cannot create mappings for types in test files.
-* Morph only supports exported, non-embedded fields.
+* Morph does not support embedded fields.
 * Morph only recognizes the standard, built-in `error` type for discovery, not custom aliases or
   wrappers.
 * Morph does not support creating mappers explicitly for generic types. See
