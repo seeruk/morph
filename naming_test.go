@@ -20,12 +20,6 @@ func TestMapperName(t *testing.T) {
 			Name:    "Person",
 			Package: types.PackageRef{Name: "target"},
 		},
-		TypeParams: []types.TypeParam{
-			{
-				Name:       "T",
-				Constraint: types.Type{Name: "Entity", Package: types.PackageRef{Name: "domain"}},
-			},
-		},
 		Signature: spec.MapperSignature{
 			Accepts: spec.ParameterKindPointer,
 			Returns: spec.ParameterKindValue,
@@ -51,11 +45,6 @@ func TestMapperName(t *testing.T) {
 			name:  "renders signature names as function name parts",
 			templ: "Map{{ .Source.Type }}{{ .Signature.Accepts }}To{{ .Target.Type }}{{ .Signature.Returns }}",
 			want:  "MapUserPointerToPersonValue",
-		},
-		{
-			name:  "renders type parameter names and constraints",
-			templ: "Map{{ .Source.Type }}{{ range .TypeParams }}{{ .Name }}{{ .Constraint.Package }}{{ .Constraint.Type }}{{ end }}To{{ .Target.Type }}",
-			want:  "MapUserTDomainEntityToPerson",
 		},
 	}
 

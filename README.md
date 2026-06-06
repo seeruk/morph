@@ -7,12 +7,12 @@ part of more complex code-generation pipelines.
 
 ## Why Morph?
 
-Using certain libraries and tools can mean you to end up with what are essentially duplicated types. 
-For example, the ProtoBuf compiler doesn't generate idiomatic Go code, so you may want to represent 
-the same types with idiomatic Go code (e.g. using `time.Time`, with correct initialism in field 
-names, so on), or maybe you have a database library which uses code-gen. 
+Using certain libraries and tools can mean you to end up with what are essentially duplicated types.
+For example, the ProtoBuf compiler doesn't generate idiomatic Go code, so you may want to represent
+the same types with idiomatic Go code (e.g. using `time.Time`, with correct initialism in field
+names, so on), or maybe you have a database library which uses code-gen.
 
-Morph exists to attempt to alleviate the burden of writing boring, error-prone, time-consuming 
+Morph exists to attempt to alleviate the burden of writing boring, error-prone, time-consuming
 manual mapping code for these types.
 
 ## Quick Start
@@ -23,7 +23,7 @@ Install Morph using the Go toolchain:
 $ go install github.com/seeruk/morph/cmd/morph@latest
 ```
 
-Morph requires a configuration file to get started. You can find more about that in the 
+Morph requires a configuration file to get started. You can find more about that in the
 [Configuration Overview](#configuration-overview) section below.
 
 Once you have a valid configuration file, you can run Morph.
@@ -40,13 +40,13 @@ If you want to point Morph at a specific configuration file:
 $ morph -config path/to/config.yml
 ```
 
-Morph plans and generates code based on where the config file is. The configuration file must be 
+Morph plans and generates code based on where the config file is. The configuration file must be
 within a Go module.
 
 ## Configuration Overview
 
 Morph requires a configuration file to function. It does not support taking parameters as flags. A
-very basic configuration file to map between a few types in a couple of packages could look like 
+very basic configuration file to map between a few types in a couple of packages could look like
 this:
 
 ```yaml
@@ -62,15 +62,15 @@ packages:
 ```
 
 Configuration allows you to control quite a lot about how mapping works, what is generated, where it
-gets generated, and what other resources Morph can draw on. 
+gets generated, and what other resources Morph can draw on.
 
-The following sections cover other config sections, and following that are some other common 
+The following sections cover other config sections, and following that are some other common
 "recipes" for things you might want to be able to do with Morph.
 
 ### Defaults Hierarchy
 
 Morph configuration is layered, allowing you to specify defaults, and subsequently override them at
-more granular levels. Morph aims to be an unopinionated tool with sensible defaults. Top-level 
+more granular levels. Morph aims to be an unopinionated tool with sensible defaults. Top-level
 defaults are specified in the `defaults` section of the configuration.
 
 The order of preference is:
@@ -84,13 +84,13 @@ The order of preference is:
 7. Morph built-in defaults
 
 It's worth noting, configuration on a package, type, or field level does not trickle down to nested
-mapping functions that Morph generates automatically. If you need Morph to make a customized mapper, 
+mapping functions that Morph generates automatically. If you need Morph to make a customized mapper,
 it must be specified in the config file, or use top-level defaults.
 
 ### Conversions
 
-Morph supports generating type conversions between basic types when it's safe to do so. This 
-behaviour can be extended through configuration, allowing unsafe basic conversions, and allowing 
+Morph supports generating type conversions between basic types when it's safe to do so. This
+behaviour can be extended through configuration, allowing unsafe basic conversions, and allowing
 custom types to be converted if their underlying type supports it.
 
 Conversions are configured at the top-level in configuration:
@@ -107,8 +107,8 @@ conversions:
   - string
 ```
 
-As conversions are global configuration, you might find there are scenarios where you want to 
-disable them for certain packages, types, or fields. This can be done at any of these levels like 
+As conversions are global configuration, you might find there are scenarios where you want to
+disable them for certain packages, types, or fields. This can be done at any of these levels like
 so:
 
 ```yaml
@@ -130,8 +130,8 @@ packages:
 
 ### Discovery
 
-Morph supports automatically finding and using potentially compatible mapping functions. This 
-functionality is separate from explicitly asking Morph to use callables for mapping, and allows 
+Morph supports automatically finding and using potentially compatible mapping functions. This
+functionality is separate from explicitly asking Morph to use callables for mapping, and allows
 Morph to automatically use functions from explicitly listed packages, like so:
 
 ```yaml
@@ -143,8 +143,8 @@ discovery:
   - github.com/example/mappers/numeric.IntToInt64
 ```
 
-Exclusions can be provided to prevent Morph from using specific functions discovered in these 
-packages, which can be useful if there are many potential functions, and not all of them are 
+Exclusions can be provided to prevent Morph from using specific functions discovered in these
+packages, which can be useful if there are many potential functions, and not all of them are
 actually intended for use as mapping functions.
 
 ### Callables
@@ -152,13 +152,13 @@ actually intended for use as mapping functions.
 #### What are Callables?
 
 Callables are functions or methods that can be explicitly referenced in the config file for Morph to
-potentially use for mapping, instead of Morph generated the mapping itself. There are 2 main kinds 
+potentially use for mapping, instead of Morph generated the mapping itself. There are 2 main kinds
 of callables:
 
 ##### Plain Callables
 
-Plain callables are simple functions which take a source type and return a target type. These 
-callables can error, and if they do, that errability will propagate up to the parent mapper it's 
+Plain callables are simple functions which take a source type and return a target type. These
+callables can error, and if they do, that errability will propagate up to the parent mapper it's
 used in, and so on.
 
 ```go
@@ -166,8 +166,8 @@ func FooToBar(foo Foo) Bar
 func FooToBarE(foo Foo) (Bar, error)
 ```
 
-Morph does also support generic callables, as long as they're used on matching concrete types. For 
-example. You might have an `Optional[T any]` and a `Nullable[T any]`, and they might be used on a 
+Morph does also support generic callables, as long as they're used on matching concrete types. For
+example. You might have an `Optional[T any]` and a `Nullable[T any]`, and they might be used on a
 source field like `Foo Optional[string]` to `Foo Nullable[string]` - this is fine, and works pretty
 much the same as above:
 
@@ -177,13 +177,13 @@ func OptionalToNullable[T any](o Optional[T]) (Nullable[T], error)
 ```
 
 There are potential generic cases where Morph cannot use these functions though, for example, if the
-type arguments differ on the source and target type (`Foo Optional[Bar]` to `Foo Nullable[Qux]`). In 
-this case, Morph wouldn't be able to map the inner type argument, it has no way to control it. For 
+type arguments differ on the source and target type (`Foo Optional[Bar]` to `Foo Nullable[Qux]`). In
+this case, Morph wouldn't be able to map the inner type argument, it has no way to control it. For
 these kinds of cases, you can use a combinator callable.
 
 ##### Combinator Callables
 
-Combinator callables allow you to provide callables to Morph which can be used to handle many 
+Combinator callables allow you to provide callables to Morph which can be used to handle many
 generic types. They look like this:
 
 ```go
@@ -192,30 +192,30 @@ func OptionalToNullableE[I, O any](o Optional[I], mapFn func(I) (O, error)) (Nul
 ```
 
 Morph can pass mapping functions it uses, or generates, or can generate inline mapping functions to
-pass to these callables. If there are multiple type parameters, Morph expects a mapping function 
+pass to these callables. If there are multiple type parameters, Morph expects a mapping function
 argument on the callable for each type parameter on the source/target type; for example, for an
 `Either[L, R any]` to `Tuple[A, B]` conversion, you could have:
 
 ```go
 func EitherToTuple[L, R, A, B any](
-    e Either[L, R], 
-    mapLeft func(L) A, 
+    e Either[L, R],
+    mapLeft func(L) A,
     mapRight mapRight func(R) B,
 ) Tuple[A, B]
 ```
 
-The mapping functions should look like plain callables, and each mapping function argument may 
+The mapping functions should look like plain callables, and each mapping function argument may
 return an error.
 
 #### Configuring Callables
 
-The aforementioned discovery is only for auto-discovery of entire packages worth of functions, for 
-other callables  to be used by Morph, you must specify them explicitly. Discovery is a nice way to 
-include packages designed specifically for mapping, but you could end up pulling in way more than 
+The aforementioned discovery is only for auto-discovery of entire packages worth of functions, for
+other callables  to be used by Morph, you must specify them explicitly. Discovery is a nice way to
+include packages designed specifically for mapping, but you could end up pulling in way more than
 you want. Also, discovery is not scoped.
 
-Explicitly configuring callables is the solution to both of those issues. Similar to other 
-configuration options, you can configure callables in defaults, presets, on packages, on types, and 
+Explicitly configuring callables is the solution to both of those issues. Similar to other
+configuration options, you can configure callables in defaults, presets, on packages, on types, and
 on specific fields. Configuration looks something like this:
 
 ```yaml
@@ -229,7 +229,7 @@ packages:
     - google.golang.org/protobuf/types/known/timestamppb.New
 ```
 
-In the above example, since this is specified at the type level, these functions can be used by 
+In the above example, since this is specified at the type level, these functions can be used by
 Morph for any field's value mapping. It will not trickle down to nested mappings.
 
 Specifying callables in the `defaults` section will make the callables available to any mapper.
@@ -237,7 +237,7 @@ Specifying callables in the `defaults` section will make the callables available
 ### Presets
 
 Morph allows you to write named collections of default configuration which can be applied at the
-package or type level. If you have a common pattern you want to use for certain packages, then it 
+package or type level. If you have a common pattern you want to use for certain packages, then it
 means you can drastically cut down on duplicate config. Presets can be defined as so:
 
 ```yaml
@@ -247,7 +247,7 @@ presets:
     callables:
     - google.golang.org/protobuf/types/known/timestamppb.Timestamp.AsTime
     - google.golang.org/protobuf/types/known/timestamppb.New
-    
+
     enum:
       failureMode: error
       patterns:
@@ -283,29 +283,181 @@ packages:
 
 ### Configuring Output
 
-TODO
+By default, Morph generates code into a single `mapping` package, in a `mapping` directory next to
+the configuration file. You can configure this globally:
+
+```yaml
+defaults:
+  packages:
+    output:
+      strategy: single_package
+      path: internal/mapping
+      package: mapping
+      filename: mapping.morph.go
+```
+
+Or, for a specific package mapping:
+
+```yaml
+packages:
+- source: example.com/foodplanner/foodpb
+  target: example.com/foodplanner/food
+  output:
+    strategy: target_package
+    filename: mapping.morph.go
+  types:
+  - name: Recipe
+```
+
+There are 3 output strategies:
+
+* `single_package` writes generated code to the configured `path` and `package`.
+* `source_package` writes generated code into the source package.
+* `target_package` writes generated code into the target package.
+
+For `source_package` and `target_package`, only `filename` is used. The package name and path come
+from the existing package Morph is writing into.
 
 ### Other Common Scenarios
 
+#### Customizing Mapper Function Names
+
+Morph generates mapper function names from templates. You can configure mapper names in defaults,
+presets, on packages, or on individual types. If you're generating ProtoBuf mappings, for example,
+you might want names which make the direction clearer:
+
+```yaml
+packages:
+- source: example.com/foodplanner/foodpb
+  target: example.com/foodplanner/food
+  mappers:
+    forward:
+      name: Map{{ .Target.Type }}FromProto
+    inverse:
+      name: Map{{ .Target.Type }}ToProto
+  bidirectional: true
+  types:
+  - name: Recipe
+```
+
+With the above config, Morph would generate names like `MapRecipeFromProto` and
+`MapRecipeToProto`.
+
+Patterns use Go's `text/template` library. Input to the template is `nameTemplateData` found in
+[naming.go](naming.go#L23). The package values are the Go package names with the first letter 
+uppercased, and the signature values are rendered as `Value` or `Pointer`.
+
+#### Customizing Mapper Signatures
+
+Similar to configuring mapper names, you can customize the signature of a mapper, controlling 
+whether the function accepts/returns pointers/values: 
+
+```yaml
+packages:
+- source: example.com/foodplanner/foodpb
+  target: example.com/foodplanner/food
+  types:
+  - name: Recipe
+    mappers:
+      forward:
+        name: Map{{ .Source.Type }}PointerTo{{ .Target.Type }}
+        signature:
+          accepts: pointer
+          returns: value
+```
+
 #### Overriding Field / Enum Value Mapping
 
-TODO
+Morph will try to match struct fields by name, including case-insensitive matches. If field names
+don't match clearly, you can map them explicitly:
+
+```yaml
+packages:
+- source: example.com/foodplanner/foodpb
+  target: example.com/foodplanner/food
+  types:
+  - name: Recipe
+    struct:
+      fields:
+        RecipeId:
+          target: ID
+```
+
+Enums work similarly. Morph will try to infer enum mappings by normalizing names, but you can
+provide explicit value mappings where names don't line up:
+
+```yaml
+packages:
+- source: example.com/foodplanner/foodpb
+  target: example.com/foodplanner/food
+  types:
+  - source: Difficulty
+    target: RecipeDifficulty
+    enum:
+      failureMode: error
+      values:
+        Difficulty_DIFFICULTY_UNSPECIFIED: RecipeDifficultyUnknown
+```
+
+For enums with regular generated naming patterns, you can also configure patterns instead of
+listing every value:
+
+```yaml
+packages:
+- source: example.com/foodplanner/foodpb
+  target: example.com/foodplanner/food
+  types:
+  - source: Difficulty
+    target: RecipeDifficulty
+    enum:
+      patterns:
+        source: "{{ .Type.Pascal }}_{{ .Type.Screaming }}_{{ .Value.Screaming }}"
+        target: "{{ .Type.Pascal }}{{ .Value.Pascal }}"
+```
+
+Patterns use Go's `text/template` library. Input to the template is `enumTemplateData` found in
+[planner_enum.go](planner_enum.go#L259).
 
 #### Bidirectional Mapping
 
-TODO
+Many mappings are useful in both directions. You can enable bidirectional mapping in defaults, in a
+preset, on a package, or on a specific type:
+
+```yaml
+packages:
+- source: example.com/foodplanner/foodpb
+  target: example.com/foodplanner/food
+  bidirectional: true
+  types:
+  - name: Recipe
+  - source: Difficulty
+    target: RecipeDifficulty
+```
+
+This will generate both `foodpb -> food` and `food -> foodpb` mappings. Struct field mappings and
+enum value mappings are inverted automatically for the inverse mapper.
+
+If only one type should be bidirectional, configure it at the type level:
+
+```yaml
+packages:
+- source: example.com/foodplanner/foodpb
+  target: example.com/foodplanner/food
+  types:
+  - name: Recipe
+    bidirectional: true
+```
 
 ## Known Limitations
 
 * Morph only generates top-level mappers for struct-to-struct or enum-to-enum mappings and does not
   support generating mapping functions for other types (e.g. basic types, slices, maps, so on).
 * Morph does not load test packages, so cannot create mappings for types in test files.
-* Morph only supports non-embedded fields. Unexported fields are supported only when the generated
-  mapper is emitted in the field's declaring package.
-* Morph only recognizes the standard, built-in `error` type for discovery, not custom aliases or 
-  wrappers.  
+* Morph only supports exported, non-embedded fields.
+* Morph only recognizes the standard, built-in `error` type for discovery, not custom aliases or
+  wrappers.
 * Morph does not support creating mappers explicitly for generic types. See
-  [docs/decisions/01-high-order-explicit-roots.md][1] for the rationale. 
+  [docs/decisions/01-high-order-explicit-roots.md][1] for the rationale.
 * Morph assumes at least one package referenced in the spec is the main module. If this is not the
   case, Morph will not be able to figure out the workspace and planning will fail.
 * If using `single_package` output, package name detection includes files that have build

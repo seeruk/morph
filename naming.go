@@ -7,7 +7,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/seeruk/morph/internal/slicesx"
 	"github.com/seeruk/morph/plan"
 	"github.com/seeruk/morph/spec"
 	"github.com/seeruk/morph/types"
@@ -15,28 +14,25 @@ import (
 
 // NameInput is a type used to collect information used for templating a mapper function name.
 type NameInput struct {
-	Source     types.Type
-	Target     types.Type
-	TypeParams []types.TypeParam
-	Signature  spec.MapperSignature
-	RunHash    string
+	Source    types.Type
+	Target    types.Type
+	Signature spec.MapperSignature
+	RunHash   string
 }
 
 type nameTemplateData struct {
-	Source     nameType
-	Target     nameType
-	TypeParams []nameTypeParam
-	Signature  nameSignature
-	RunHash    string
+	Source    nameType
+	Target    nameType
+	Signature nameSignature
+	RunHash   string
 }
 
 func nameTemplateDataFromInput(input NameInput) nameTemplateData {
 	return nameTemplateData{
-		Source:     nameTypeFromType(input.Source),
-		Target:     nameTypeFromType(input.Target),
-		TypeParams: slicesx.Map(input.TypeParams, nameTypeParamFromTypeParam),
-		Signature:  nameSignatureFromType(input.Signature),
-		RunHash:    input.RunHash,
+		Source:    nameTypeFromType(input.Source),
+		Target:    nameTypeFromType(input.Target),
+		Signature: nameSignatureFromType(input.Signature),
+		RunHash:   input.RunHash,
 	}
 }
 
@@ -51,19 +47,6 @@ func nameTypeFromType(typ types.Type) nameType {
 	return nameType{
 		Type:    typ.Name,
 		Package: uppercaseFirst(typ.Package.Name),
-	}
-}
-
-// nameTypeParam is a basic representation of a type parameter for use in name templates.
-type nameTypeParam struct {
-	Name       string
-	Constraint nameType
-}
-
-func nameTypeParamFromTypeParam(tp types.TypeParam) nameTypeParam {
-	return nameTypeParam{
-		Name:       tp.Name,
-		Constraint: nameTypeFromType(tp.Constraint),
 	}
 }
 
