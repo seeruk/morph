@@ -8,12 +8,12 @@ part of more complex code-generation pipelines.
 Morph generates functions like this:
 
 ```go
-func MapRecipeFromProto(source *foodpb.Recipe) food.Recipe {
+func MapFromRecipeToToRecipe(source *from.Recipe) to.Recipe {
   if source == nil {
-    return food.Recipe{}
+    return to.Recipe{}
   }
-  var target food.Recipe
-  target.ID = food.RecipeID(source.RecipeId)
+  var target to.Recipe
+  target.ID = to.RecipeID(source.RecipeId)
   target.Name = source.Name
   target.Servings = int(source.Servings)
   return target
