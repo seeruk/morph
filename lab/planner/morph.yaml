@@ -38,6 +38,9 @@ packages:
       fields:
         RecipeId:
           target: ID
+      omit:
+        target:
+        - Glorp
   - name: Single
   - source: Difficulty
     target: RecipeDifficulty
