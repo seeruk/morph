@@ -74,6 +74,43 @@ func TestResolve_DefaultPrecedence(t *testing.T) {
 	})
 }
 
+func TestResolve_StructOmissions(t *testing.T) {
+	t.Run("resolves and dedupes omissions", func(t *testing.T) {
+		cfg := minimalConfig()
+		cfg.Packages[0].Types[0].Struct = &config.Struct{Omit: config.StructOmissions{
+			Source: []string{"Legacy", "Internal", "Legacy"},
+			Target: []string{"CreatedAt", "CreatedAt"},
+		}}
+
+		typ := singleResolvedType(t, cfg)
+
+		assert.Equal(t, spec.StructOmissions{
+			Source: []string{"Internal", "Legacy"},
+			Target: []string{"CreatedAt"},
+		}, typ.Struct.Omit)
+	})
+
+	t.Run("swaps omissions for inverse mappings", func(t *testing.T) {
+		cfg := bidirectionalConfig()
+		cfg.Packages[0].Types[0].Struct.Omit = config.StructOmissions{
+			Source: []string{"ForwardSource"},
+			Target: []string{"ForwardTarget"},
+		}
+
+		types := resolveConfig(t, cfg).Packages[0].Types
+		require.Len(t, types, 2)
+
+		assert.Equal(t, spec.StructOmissions{
+			Source: []string{"ForwardSource"},
+			Target: []string{"ForwardTarget"},
+		}, types[0].Struct.Omit)
+		assert.Equal(t, spec.StructOmissions{
+			Source: []string{"ForwardTarget"},
+			Target: []string{"ForwardSource"},
+		}, types[1].Struct.Omit)
+	})
+}
+
 func TestResolve_EnumPatternDefaults(t *testing.T) {
 	t.Run("uses global enum default patterns", func(t *testing.T) {
 		cfg := minimalConfig()

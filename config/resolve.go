@@ -415,6 +415,7 @@ func resolveStruct(
 
 	out := spec.Struct{
 		Fields: make(map[string]spec.Field, len(structure.Fields)),
+		Omit:   resolveStructOmissions(structure.Omit),
 	}
 	for sourceName, field := range structure.Fields {
 		targetName := cmp.Or(field.Target, sourceName)
@@ -426,6 +427,23 @@ func resolveStruct(
 		}
 	}
 	return out
+}
+
+func resolveStructOmissions(omit StructOmissions) spec.StructOmissions {
+	return spec.StructOmissions{
+		Source: dedupeStrings(omit.Source),
+		Target: dedupeStrings(omit.Target),
+	}
+}
+
+func dedupeStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	out := slices.Clone(values)
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 func resolveFieldCallable(callable *FieldCallable, forward bool) *spec.CallableRef {
@@ -447,12 +465,13 @@ func cloneCallableRef(ref *spec.CallableRef) *spec.CallableRef {
 }
 
 func invertStruct(in spec.Struct) spec.Struct {
-	if len(in.Fields) == 0 {
+	if len(in.Fields) == 0 && structOmissionsEmpty(in.Omit) {
 		return spec.Struct{}
 	}
 
 	out := spec.Struct{
 		Fields: make(map[string]spec.Field, len(in.Fields)),
+		Omit:   invertStructOmissions(in.Omit),
 	}
 	for sourceName, field := range in.Fields {
 		targetName := cmp.Or(field.Target, sourceName)
@@ -464,6 +483,17 @@ func invertStruct(in spec.Struct) spec.Struct {
 		}
 	}
 	return out
+}
+
+func structOmissionsEmpty(omit spec.StructOmissions) bool {
+	return len(omit.Source) == 0 && len(omit.Target) == 0
+}
+
+func invertStructOmissions(in spec.StructOmissions) spec.StructOmissions {
+	return spec.StructOmissions{
+		Source: slices.Clone(in.Target),
+		Target: slices.Clone(in.Source),
+	}
 }
 
 func invertStringMap(in map[string]string) map[string]string {

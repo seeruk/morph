@@ -483,6 +483,36 @@ Patterns use Go's `text/template` library. Input to the template is `enumTemplat
 </details>
 
 <details>
+<summary>Omitting Fields</summary>
+
+#### Omitting Fields
+
+Morph reports coverage warnings when a target field cannot be populated from a source field, or vice
+versa. If a field is intentionally outside the mapping, you can omit it like so:
+
+```yaml
+packages:
+- source: example.com/foodplanner/foodpb
+  target: example.com/foodplanner/food
+  bidirectional: true
+  types:
+  - name: Recipe
+    struct:
+      omit:
+        source:
+        - InternalState
+        target:
+        - CreatedAt
+        - UpdatedAt
+```
+
+For bidirectional mappings, omissions are inverted automatically. Fields listed under `source` are
+treated as target omissions on the inverse mapper, and fields listed under `target` are treated as
+source omissions on the inverse mapper.
+
+</details>
+
+<details>
 <summary>Bidirectional Mapping</summary>
 
 #### Bidirectional Mapping
@@ -535,7 +565,17 @@ packages:
 
 ## Future Enhancements
 
+* Unknown enum value assignment to default? Like, `enum.fallbackValue` or something?
+* Assignment of literal / constant values for unmapped fields (i.e. while mapping set field x to y)
+* CLI improvements:
+  * A dry-run flag?
+  * `morph plan` / `morph explain`, some sort of human-readable and/or machine-readable plan view
+  * `morph init`, maybe point it at packages or something? Or maybe a different command which
+    creates or updates config to include pairs of types found? `morph scan` or something?
 * Package-local helpers could support cross-package mappings involving unexported fields.
+* Built-in helpers which can be used for discovery en masse
+* Built-in presets?
+  * This might just be a list of examples? I don't want built-in ones to be hard-coded.
 
 ## License
 

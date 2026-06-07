@@ -135,6 +135,7 @@ type EnumPatterns struct {
 // Struct holds configuration for how a struct should be mapped.
 type Struct struct {
 	Fields map[string]Field `json:"fields"`
+	Omit   StructOmissions  `json:"omit"`
 }
 
 // Field holds configuration for how a specific field should be mapped.
@@ -149,6 +150,12 @@ type Field struct {
 type FieldCallable struct {
 	Forward *spec.CallableRef `json:"forward"`
 	Inverse *spec.CallableRef `json:"inverse"`
+}
+
+// StructOmissions configures source or target fields intentionally omitted from a mapping.
+type StructOmissions struct {
+	Source []string `json:"source"`
+	Target []string `json:"target"`
 }
 
 // Preset provides a repeatable, easily referenced set of type defaults to apply.

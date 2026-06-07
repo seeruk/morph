@@ -55,6 +55,11 @@ packages:
             inverse: module.test/shared/conversions.UserID.String
         DisplayName:
           target: Name
+      omit:
+        source:
+        - InternalOnly
+        target:
+        - CreatedAt
     mappers:
       forward:
         name: MapSourceUserToTargetUser

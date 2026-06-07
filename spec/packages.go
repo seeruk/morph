@@ -123,6 +123,8 @@ type Struct struct {
 	// Fields is a map from source field name to target field config. Only explicit mappings need to
 	// be placed in this map, the planner will attempt to infer mappings for similarly named fields.
 	Fields map[string]Field
+	// Omit contains source and target fields intentionally left unmapped.
+	Omit StructOmissions
 }
 
 // Field holds configuration for how a specific field should be mapped, allowing more explicit
@@ -132,6 +134,12 @@ type Field struct {
 	Callable    *CallableRef
 	Optionality Optionality
 	Conversions ConversionsPolicy
+}
+
+// StructOmissions contains source and target fields intentionally left unmapped.
+type StructOmissions struct {
+	Source []string
+	Target []string
 }
 
 // Mappers holds resolved configuration for how mapper functions should be generated for a type pair.

@@ -87,6 +87,11 @@ type WarningSliceContainer struct {
 	Values []WarningThing
 }
 
+type OmissionContainer struct {
+	Shared     string
+	TargetOnly string
+}
+
 type OptionalThing struct {
 	Name string
 }

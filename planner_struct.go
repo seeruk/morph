@@ -19,19 +19,28 @@ func (p *attemptPlanner) planStruct(typ *plan.Type) {
 	}
 	sourceFields := plannableFieldsForType(typ.SourceDecl, typ.SourceType, outputImportPath)
 	targetFields := plannableFieldsForType(typ.TargetDecl, typ.TargetType, outputImportPath)
+	omittedSourceFields := fieldOmissionSet(typ.StructSpec.Omit.Source)
+	omittedTargetFields := fieldOmissionSet(typ.StructSpec.Omit.Target)
+	sourceFieldsForMatching := omitFields(sourceFields, omittedSourceFields)
+	usedSourceFields := make(map[string]struct{}, len(sourceFields))
 
 	var structPlan plan.Struct
 	for _, targetField := range targetFields {
-		sourceField, fieldSpec, mapped, ok := matchingField(targetField, sourceFields, typ.StructSpec.Fields)
+		if _, omitted := omittedTargetFields[targetField.Name]; omitted {
+			continue
+		}
+
+		sourceField, fieldSpec, mapped, ok := matchingField(targetField, sourceFieldsForMatching, typ.StructSpec.Fields)
 		if !ok {
 			diagnostic := plan.Diagnostic{
 				Level:   plan.DiagnosticLevelWarning,
 				Path:    plan.TargetFieldPath(typ.SourceType, typ.TargetType, targetField.Name),
-				Message: fmt.Sprintf("no source field found for target field %q; configure struct.fields to map it explicitly", targetField.Name),
+				Message: fmt.Sprintf("no source field found for target field %q; configure struct.fields to map it explicitly or struct.omit.target to omit it", targetField.Name),
 			}
 			typ.Diagnostics = appendDiagnostic(typ.Diagnostics, diagnostic)
 			continue
 		}
+		usedSourceFields[sourceField.Name] = struct{}{}
 
 		fieldPath := plan.FieldPath(typ.SourceType, typ.TargetType, sourceField, targetField)
 
@@ -75,6 +84,24 @@ func (p *attemptPlanner) planStruct(typ *plan.Type) {
 			SourceField: sourceField,
 			TargetField: targetField,
 			Mapping:     valuePlan,
+		})
+	}
+
+	for _, sourceField := range sourceFields {
+		if _, used := usedSourceFields[sourceField.Name]; used {
+			continue
+		}
+		if _, configured := typ.StructSpec.Fields[sourceField.Name]; configured {
+			continue
+		}
+		if _, omitted := omittedSourceFields[sourceField.Name]; omitted {
+			continue
+		}
+
+		typ.Diagnostics = appendDiagnostic(typ.Diagnostics, plan.Diagnostic{
+			Level:   plan.DiagnosticLevelWarning,
+			Path:    plan.SourceFieldPath(typ.SourceType, typ.TargetType, sourceField.Name),
+			Message: fmt.Sprintf("no target field found for source field %q; configure struct.fields to map it explicitly or struct.omit.source to omit it", sourceField.Name),
 		})
 	}
 
@@ -1991,6 +2018,28 @@ func fieldsByName(fields []types.Field) map[string]types.Field {
 	out := make(map[string]types.Field, len(fields))
 	for _, field := range fields {
 		out[field.Name] = field
+	}
+	return out
+}
+
+func fieldOmissionSet(fields []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(fields))
+	for _, field := range fields {
+		out[field] = struct{}{}
+	}
+	return out
+}
+
+func omitFields(fields []types.Field, omit map[string]struct{}) []types.Field {
+	if len(omit) == 0 {
+		return fields
+	}
+
+	out := make([]types.Field, 0, len(fields))
+	for _, field := range fields {
+		if _, ok := omit[field.Name]; !ok {
+			out = append(out, field)
+		}
 	}
 	return out
 }

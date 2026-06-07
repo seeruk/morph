@@ -88,6 +88,14 @@
                 "conversions": null,
                 "optionality": null
               }
+            },
+            "omit": {
+              "source": [
+                "InternalOnly"
+              ],
+              "target": [
+                "CreatedAt"
+              ]
             }
           },
           "mappers": {

@@ -340,6 +340,10 @@
           "additionalProperties": {
             "$ref": "#/$defs/field"
           }
+        },
+        "omit": {
+          "$ref": "#/$defs/structOmissions",
+          "description": "Source and target fields intentionally omitted from struct mapping coverage."
         }
       }
     },
@@ -376,6 +380,26 @@
         "inverse": {
           "$ref": "#/$defs/callableRef",
           "description": "Callable to use for the inverse field mapping."
+        }
+      }
+    },
+    "structOmissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "array",
+          "description": "Source fields intentionally not mapped to target fields.",
+          "items": {
+            "$ref": "#/$defs/fieldName"
+          }
+        },
+        "target": {
+          "type": "array",
+          "description": "Target fields intentionally left at their zero value.",
+          "items": {
+            "$ref": "#/$defs/fieldName"
+          }
         }
       }
     },

@@ -581,6 +581,10 @@ func invertStructSpec(in *spec.Struct) *spec.Struct {
 
 	out := *in
 	out.Fields = make(map[string]spec.Field, len(in.Fields))
+	out.Omit = spec.StructOmissions{
+		Source: slices.Clone(in.Omit.Target),
+		Target: slices.Clone(in.Omit.Source),
+	}
 	for sourceName, field := range in.Fields {
 		targetName := structFieldTarget(sourceName, field)
 		field.Target = sourceName
@@ -590,7 +594,7 @@ func invertStructSpec(in *spec.Struct) *spec.Struct {
 }
 
 func validateStructFieldMappings(typ *plan.Type, outputImportPath string) []plan.Diagnostic {
-	if len(typ.StructSpec.Fields) == 0 {
+	if len(typ.StructSpec.Fields) == 0 && structOmissionsEmpty(typ.StructSpec.Omit) {
 		return nil
 	}
 
@@ -652,7 +656,62 @@ func validateStructFieldMappings(typ *plan.Type, outputImportPath string) []plan
 		}
 	}
 
+	omittedSourceFields := sortedUniqueStrings(typ.StructSpec.Omit.Source)
+	for _, sourceName := range omittedSourceFields {
+		if _, ok := sourceFields[sourceName]; !ok {
+			out = append(out, configuredFieldDiagnostic(
+				"source",
+				typ.SourceDecl,
+				typ.SourceType,
+				typ.TargetType,
+				sourceName,
+				outputImportPath,
+			))
+		}
+		if _, ok := typ.StructSpec.Fields[sourceName]; ok {
+			out = append(out, plan.Diagnostic{
+				Level:   plan.DiagnosticLevelFatal,
+				Path:    plan.SourceFieldPath(typ.SourceType, typ.TargetType, sourceName),
+				Message: fmt.Sprintf("source field %q cannot be both omitted and explicitly mapped", sourceName),
+			})
+		}
+	}
+
+	omittedTargetFields := sortedUniqueStrings(typ.StructSpec.Omit.Target)
+	for _, targetName := range omittedTargetFields {
+		if _, ok := targetFields[targetName]; !ok {
+			out = append(out, configuredFieldDiagnostic(
+				"target",
+				typ.TargetDecl,
+				typ.SourceType,
+				typ.TargetType,
+				targetName,
+				outputImportPath,
+			))
+		}
+		if len(sourcesByTarget[targetName]) > 0 {
+			out = append(out, plan.Diagnostic{
+				Level:   plan.DiagnosticLevelFatal,
+				Path:    plan.TargetFieldPath(typ.SourceType, typ.TargetType, targetName),
+				Message: fmt.Sprintf("target field %q cannot be both omitted and explicitly mapped", targetName),
+			})
+		}
+	}
+
 	return out
+}
+
+func sortedUniqueStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := slices.Clone(values)
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+func structOmissionsEmpty(omit spec.StructOmissions) bool {
+	return len(omit.Source) == 0 && len(omit.Target) == 0
 }
 
 func configuredFieldDiagnostic(
@@ -860,7 +919,8 @@ func sameEnumSpec(a, b spec.Enum) bool {
 }
 
 func sameStructSpec(a, b spec.Struct) bool {
-	return maps.EqualFunc(a.Fields, b.Fields, sameFieldSpec)
+	return maps.EqualFunc(a.Fields, b.Fields, sameFieldSpec) &&
+		sameStructOmissions(a.Omit, b.Omit)
 }
 
 func sameFieldSpec(a, b spec.Field) bool {
@@ -868,6 +928,11 @@ func sameFieldSpec(a, b spec.Field) bool {
 		a.Optionality == b.Optionality &&
 		a.Conversions == b.Conversions &&
 		sameCallableRefPtr(a.Callable, b.Callable)
+}
+
+func sameStructOmissions(a, b spec.StructOmissions) bool {
+	return slices.Equal(a.Source, b.Source) &&
+		slices.Equal(a.Target, b.Target)
 }
 
 func sameCallableRefPtr(a, b *spec.CallableRef) bool {

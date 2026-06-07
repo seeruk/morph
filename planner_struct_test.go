@@ -39,6 +39,108 @@ func TestPlannerPlanCompositeDiagnostics(t *testing.T) {
 	})
 }
 
+func TestPlannerPlanStructOmissions(t *testing.T) {
+	t.Run("warns for unmapped source and target fields by default", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{Name: "OmissionContainer"})
+
+		assert.Equal(t, []string{
+			`no source field found for target field "TargetOnly"; configure struct.fields to map it explicitly or struct.omit.target to omit it`,
+			`no target field found for source field "SourceOnly"; configure struct.fields to map it explicitly or struct.omit.source to omit it`,
+		}, diagnosticsMessages(root.Diagnostics))
+		assert.False(t, plan.HasFatalDiagnostics(root.Diagnostics))
+	})
+
+	t.Run("omits target fields from planning and target coverage warnings", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{
+			Name: "OmissionContainer",
+			Struct: &config.Struct{Omit: config.StructOmissions{
+				Target: []string{"TargetOnly"},
+			}},
+		})
+
+		assert.NotContains(t, planFieldTargetNames(root.StructPlan), "TargetOnly")
+		assert.NotContains(t, diagnosticsMessages(root.Diagnostics), `no source field found for target field "TargetOnly"; configure struct.fields to map it explicitly or struct.omit.target to omit it`)
+		assert.Contains(t, diagnosticsMessages(root.Diagnostics), `no target field found for source field "SourceOnly"; configure struct.fields to map it explicitly or struct.omit.source to omit it`)
+	})
+
+	t.Run("omits source fields from matching and source coverage warnings", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{
+			Name: "OmissionContainer",
+			Struct: &config.Struct{Omit: config.StructOmissions{
+				Source: []string{"SourceOnly"},
+			}},
+		})
+
+		assert.NotContains(t, diagnosticsMessages(root.Diagnostics), `no target field found for source field "SourceOnly"; configure struct.fields to map it explicitly or struct.omit.source to omit it`)
+		assert.Contains(t, diagnosticsMessages(root.Diagnostics), `no source field found for target field "TargetOnly"; configure struct.fields to map it explicitly or struct.omit.target to omit it`)
+	})
+
+	t.Run("inverts omissions for bidirectional mappings", func(t *testing.T) {
+		out := planWithConfig(t, ".", config.Config{
+			Packages: []config.Package{{
+				Source:        plannerFromPackage,
+				Target:        plannerToPackage,
+				Bidirectional: new(true),
+				Types: []config.Type{{
+					Name: "OmissionContainer",
+					Struct: &config.Struct{Omit: config.StructOmissions{
+						Source: []string{"SourceOnly"},
+						Target: []string{"TargetOnly"},
+					}},
+				}},
+			}},
+		})
+
+		require.Len(t, out.OutputGroups, 1)
+		require.Len(t, out.OutputGroups[0].Roots, 2)
+
+		forward := requireRootBySourcePackage(t, out.OutputGroups[0].Roots, plannerFromPackage)
+		inverse := requireRootBySourcePackage(t, out.OutputGroups[0].Roots, plannerToPackage)
+
+		assert.Empty(t, forward.Diagnostics)
+		assert.Empty(t, inverse.Diagnostics)
+	})
+
+	t.Run("rejects invalid omitted fields", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{
+			Name: "OmissionContainer",
+			Struct: &config.Struct{Omit: config.StructOmissions{
+				Source: []string{"MissingSource"},
+				Target: []string{"MissingTarget"},
+			}},
+		})
+
+		assertFatalDiagnosticMessages(
+			t,
+			root.Diagnostics,
+			`source field "MissingSource" does not exist`,
+			`target field "MissingTarget" does not exist`,
+		)
+	})
+
+	t.Run("rejects omitted fields that are explicitly mapped", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{
+			Name: "OmissionContainer",
+			Struct: &config.Struct{
+				Fields: map[string]config.Field{
+					"SourceOnly": {Target: "TargetOnly"},
+				},
+				Omit: config.StructOmissions{
+					Source: []string{"SourceOnly"},
+					Target: []string{"TargetOnly"},
+				},
+			},
+		})
+
+		assertFatalDiagnosticMessages(
+			t,
+			root.Diagnostics,
+			`source field "SourceOnly" cannot be both omitted and explicitly mapped`,
+			`target field "TargetOnly" cannot be both omitted and explicitly mapped`,
+		)
+	})
+}
+
 func TestInvertStructSpec(t *testing.T) {
 	t.Run("returns nil for nil struct specs", func(t *testing.T) {
 		assert.Nil(t, invertStructSpec(nil))
@@ -50,6 +152,10 @@ func TestInvertStructSpec(t *testing.T) {
 				"RecipeId":    {Target: "ID"},
 				"DisplayName": {Target: "Name"},
 			},
+			Omit: spec.StructOmissions{
+				Source: []string{"Legacy"},
+				Target: []string{"CreatedAt"},
+			},
 		})
 
 		require.NotNil(t, got)
@@ -57,6 +163,10 @@ func TestInvertStructSpec(t *testing.T) {
 			"ID":   {Target: "RecipeId"},
 			"Name": {Target: "DisplayName"},
 		}, got.Fields)
+		assert.Equal(t, spec.StructOmissions{
+			Source: []string{"CreatedAt"},
+			Target: []string{"Legacy"},
+		}, got.Omit)
 	})
 }
 
@@ -1104,6 +1214,18 @@ func requirePlanField(t *testing.T, structPlan *plan.Struct, targetName string) 
 
 	require.Failf(t, "field not planned", "target field %q was not planned", targetName)
 	return plan.Field{}
+}
+
+func planFieldTargetNames(structPlan *plan.Struct) []string {
+	if structPlan == nil {
+		return nil
+	}
+
+	out := make([]string, 0, len(structPlan.Fields))
+	for _, field := range structPlan.Fields {
+		out = append(out, field.TargetField.Name)
+	}
+	return out
 }
 
 func requireFieldPlan(t *testing.T, structPlan *plan.Struct, targetName string) *plan.Type {

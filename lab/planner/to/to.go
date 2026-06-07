@@ -6,6 +6,7 @@ type Recipe struct {
 	ID       RecipeID
 	Name     string
 	Servings int
+	Glorp    string
 }
 
 type Tuple[A, B any] struct {
