@@ -9,6 +9,10 @@ type Recipe struct {
 	Glorp    string
 }
 
+func (r *Recipe) SetID(id RecipeID) {
+	r.ID = id
+}
+
 type Tuple[A, B any] struct {
 	A A
 	B B

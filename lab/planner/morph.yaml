@@ -36,17 +36,12 @@ packages:
           accepts: pointer
     struct:
       properties:
-      - source: EmailAddress
-        target: Email
-        accessors:
-          forward:
-            read: GetEmailAddress
-            write: SetEmail
-          inverse:
-            read: GetEmail
-            write: SetEmailAddress
       - source: RecipeId
         target: ID
+        accessors:
+          forward:
+            read: RecipeId
+            write: SetID
       omit:
         target:
         - Glorp

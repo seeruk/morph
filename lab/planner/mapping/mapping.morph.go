@@ -13,7 +13,7 @@ func MapFromRecipeToToRecipe(source *from.Recipe) to.Recipe {
 		return to.Recipe{}
 	}
 	var target to.Recipe
-	target.ID = to.RecipeID(source.RecipeId)
+	target.SetID(to.RecipeID(source.RecipeId))
 	target.Name = source.Name
 	target.Servings = int(source.Servings)
 	return target
@@ -21,8 +21,8 @@ func MapFromRecipeToToRecipe(source *from.Recipe) to.Recipe {
 
 func MapToRecipeFromFromRecipe(source to.Recipe) from.Recipe {
 	var target from.Recipe
-	target.Name = source.Name
 	target.RecipeId = string(source.ID)
+	target.Name = source.Name
 	target.Servings = int32(source.Servings)
 	return target
 }
