@@ -23,47 +23,47 @@ type Type struct {
 	SourcePackage string
 	TargetPackage string
 	Enum          Enum
-	Callables     []TieredCallables
+	Callables     []PrioritizedCallables
 	Struct        Struct
 	Mapper        Mapper
 	Optionality   Optionality
 	Conversions   ConversionsPolicy
 }
 
-// TieredCallables contains explicit callables from one specificity tier.
-type TieredCallables struct {
-	Tier      CallableTier
+// PrioritizedCallables contains explicit callables from one config-derived priority.
+type PrioritizedCallables struct {
+	Priority  CallablePriority
 	Callables []CallableRef
 }
 
-// CallableTier identifies where a set of explicit callables came from. More specific tiers are
-// considered before less specific tiers when planning value mappings.
-type CallableTier uint8
+// CallablePriority identifies where a set of explicit callables came from. More specific
+// priorities are considered before less specific priorities when planning value mappings.
+type CallablePriority uint8
 
 const (
-	CallableTierType CallableTier = iota
-	CallableTierTypePreset
-	CallableTierPackage
-	CallableTierPackagePreset
-	CallableTierDefaults
-	callableTierMax
+	CallablePriorityType CallablePriority = iota
+	CallablePriorityTypePreset
+	CallablePriorityPackage
+	CallablePriorityPackagePreset
+	CallablePriorityDefaults
+	callablePriorityMax
 )
 
-var callableTierNames = map[CallableTier]string{
-	CallableTierType:          "type",
-	CallableTierTypePreset:    "type_preset",
-	CallableTierPackage:       "package",
-	CallableTierPackagePreset: "package_preset",
-	CallableTierDefaults:      "defaults",
+var callablePriorityNames = map[CallablePriority]string{
+	CallablePriorityType:          "type",
+	CallablePriorityTypePreset:    "type_preset",
+	CallablePriorityPackage:       "package",
+	CallablePriorityPackagePreset: "package_preset",
+	CallablePriorityDefaults:      "defaults",
 }
 
-func (t CallableTier) String() string {
-	return callableTierNames[t]
+func (p CallablePriority) String() string {
+	return callablePriorityNames[p]
 }
 
-// CallableTierCount returns the number of valid callable tiers.
-func CallableTierCount() int {
-	return int(callableTierMax)
+// CallablePriorityCount returns the number of valid callable priorities.
+func CallablePriorityCount() int {
+	return int(callablePriorityMax)
 }
 
 // Enum represents configuration for how an enum mapping function should be generated,

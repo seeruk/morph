@@ -43,7 +43,7 @@ type Type struct {
 	CanError   bool
 	// Spec
 	EnumSpec    spec.Enum
-	Callables   []spec.TieredCallables
+	Callables   []spec.PrioritizedCallables
 	StructSpec  spec.Struct
 	Optionality spec.Optionality
 	Conversions spec.ConversionsPolicy

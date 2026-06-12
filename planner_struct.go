@@ -113,14 +113,14 @@ func (p *attemptPlanner) planValue(
 	path string,
 	optionality spec.Optionality,
 	conversion spec.ConversionsPolicy,
-	callables []spec.TieredCallables,
+	callables []spec.PrioritizedCallables,
 ) plan.Value {
 	sourceType = types.UnwrapAlias(sourceType)
 	targetType = types.UnwrapAlias(targetType)
 
 	var deferredDiagnostics []plan.Diagnostic
 
-	if value, diagnostics, ok := p.planTieredCallables(sourceType, targetType, path, optionality, conversion, callables); ok {
+	if value, diagnostics, ok := p.planPrioritizedCallables(sourceType, targetType, path, optionality, conversion, callables); ok {
 		return value
 	} else {
 		deferredDiagnostics = appendDiagnostic(deferredDiagnostics, diagnostics...)
@@ -290,7 +290,7 @@ func (p *attemptPlanner) planFieldCallable(
 	optionality spec.Optionality,
 	conversion spec.ConversionsPolicy,
 	ref spec.CallableRef,
-	callables []spec.TieredCallables,
+	callables []spec.PrioritizedCallables,
 ) plan.Value {
 	sourceType = types.UnwrapAlias(sourceType)
 	targetType = types.UnwrapAlias(targetType)
@@ -355,37 +355,122 @@ func (p *attemptPlanner) planFieldCallable(
 	)
 }
 
-func (p *attemptPlanner) planTieredCallables(
+func (p *attemptPlanner) planPrioritizedCallables(
 	sourceType, targetType types.Type,
 	path string,
 	optionality spec.Optionality,
 	conversion spec.ConversionsPolicy,
-	callables []spec.TieredCallables,
+	callables []spec.PrioritizedCallables,
 ) (plan.Value, []plan.Diagnostic, bool) {
 	var deferredDiagnostics []plan.Diagnostic
 
-	for _, tier := range callables {
-		if callable, compatibility, diagnostics, ok := p.discoverExplicitCallable(sourceType, targetType, path, tier.Callables); ok {
-			value := p.callableValue(sourceType, targetType, path, callable, compatibility, optionality, nil, diagnostics...)
+	for _, priority := range callables {
+		candidates, diagnostics := p.rankedExplicitCallableCandidates(sourceType, targetType, path, priority.Callables)
+		deferredDiagnostics = appendDiagnostic(deferredDiagnostics, diagnostics...)
+
+		for _, candidate := range candidates {
+			if len(candidate.Compatibility.MapperArgs) == 0 {
+				value := p.callableValue(
+					sourceType,
+					targetType,
+					path,
+					candidate.Callable,
+					candidate.Compatibility,
+					optionality,
+					nil,
+				)
+				return value, value.Diagnostics, true
+			}
+
+			args, diagnostics, ok := p.planCallableArgs(
+				candidate.Compatibility.MapperArgs,
+				path,
+				optionality,
+				conversion,
+				callables,
+			)
+			if !ok {
+				deferredDiagnostics = appendDiagnostic(deferredDiagnostics, diagnostics...)
+				continue
+			}
+
+			value := p.callableValue(
+				sourceType,
+				targetType,
+				path,
+				candidate.Callable,
+				candidate.Compatibility,
+				optionality,
+				args,
+				diagnostics...,
+			)
 			return value, value.Diagnostics, true
-		} else {
-			deferredDiagnostics = appendDiagnostic(deferredDiagnostics, diagnostics...)
-		}
-		if value, diagnostics, ok := p.planExplicitHigherOrderCallable(
-			sourceType,
-			targetType,
-			path,
-			optionality,
-			conversion,
-			tier.Callables,
-			callables,
-		); ok {
-			return value, diagnostics, true
-		} else {
-			deferredDiagnostics = appendDiagnostic(deferredDiagnostics, diagnostics...)
 		}
 	}
+
 	return plan.Value{}, deferredDiagnostics, false
+}
+
+func (p *attemptPlanner) rankedExplicitCallableCandidates(
+	sourceType, targetType types.Type,
+	path string,
+	refs []spec.CallableRef,
+) ([]callableCandidate, []plan.Diagnostic) {
+	candidates := make(map[plan.CallableRef]callableCompatibility)
+	var diagnostics []plan.Diagnostic
+
+	for _, ref := range refs {
+		callable, ok := p.callables[ref]
+		if !ok {
+			continue
+		}
+
+		switch {
+		case callable.Function != nil:
+			fn := *callable.Function
+			callableRef, ok := plan.CallableRefFromFunctionDecl(fn, plan.CallableSourceUser)
+			if !ok {
+				continue
+			}
+
+			if compatibility := assessFunctionCompatibility(sourceType, targetType, fn); compatibility.Compatible() {
+				if diagnostic, ok := p.callableImportDiagnostic(path, callableRef); ok {
+					diagnostics = appendDiagnostic(diagnostics, diagnostic)
+					continue
+				}
+				candidates[callableRef] = compatibility
+				continue
+			}
+
+			if p.isCallableBanned(path, sourceType, targetType, callableRef) {
+				continue
+			}
+
+			compatibility := assessHigherOrderFunctionCompatibility(sourceType, targetType, fn)
+			if !compatibility.Compatible() {
+				continue
+			}
+			if diagnostic, ok := p.callableImportDiagnostic(path, callableRef); ok {
+				diagnostics = appendDiagnostic(diagnostics, diagnostic)
+				continue
+			}
+
+			candidates[callableRef] = compatibility
+
+		case callable.Method != nil:
+			method := *callable.Method
+			callableRef, ok := plan.CallableRefFromMethod(method, plan.CallableSourceUser)
+			if !ok {
+				continue
+			}
+			compatibility := assessMethodCompatibility(sourceType, targetType, method)
+			if compatibility.Compatible() {
+				candidates[callableRef] = compatibility
+			}
+		}
+	}
+
+	return rankedCallableCandidates(candidates), diagnostics
 }
 
 func planCallableValue(
@@ -629,7 +714,7 @@ func (p *attemptPlanner) planNestedStruct(
 	source, target types.Type,
 	path string,
 	optionality spec.Optionality,
-	callables []spec.TieredCallables,
+	callables []spec.PrioritizedCallables,
 ) (plan.Value, bool) {
 	sourceLookup, targetLookup := generatedMapperLookupPair(source, target)
 	sourceDecl, sourceOK := p.resolveStructType(sourceLookup)
@@ -796,7 +881,7 @@ func (p *attemptPlanner) planPointerAdaptation(
 	path string,
 	optionality spec.Optionality,
 	conversion spec.ConversionsPolicy,
-	callables []spec.TieredCallables,
+	callables []spec.PrioritizedCallables,
 ) plan.Value {
 	sourcePointer := source.Kind == types.TypeKindPointer
 	targetPointer := target.Kind == types.TypeKindPointer
@@ -925,7 +1010,7 @@ func (p *attemptPlanner) planDiscoveredHigherOrderCallable(
 	path string,
 	optionality spec.Optionality,
 	conversion spec.ConversionsPolicy,
-	callables []spec.TieredCallables,
+	callables []spec.PrioritizedCallables,
 ) (plan.Value, []plan.Diagnostic, bool) {
 	candidates := make(map[plan.CallableRef]callableCompatibility)
 	for _, fn := range p.registry.Candidates(sourceType, targetType, plan.CallableSourceDiscovered) {
@@ -985,7 +1070,7 @@ func (p *attemptPlanner) planExplicitHigherOrderCallable(
 	optionality spec.Optionality,
 	conversion spec.ConversionsPolicy,
 	refs []spec.CallableRef,
-	callables []spec.TieredCallables,
+	callables []spec.PrioritizedCallables,
 ) (plan.Value, []plan.Diagnostic, bool) {
 	candidates := make(map[plan.CallableRef]callableCompatibility)
 	var deferredDiagnostics []plan.Diagnostic
@@ -1051,7 +1136,7 @@ func (p *attemptPlanner) planCallableArgs(
 	path string,
 	optionality spec.Optionality,
 	conversion spec.ConversionsPolicy,
-	callables []spec.TieredCallables,
+	callables []spec.PrioritizedCallables,
 ) ([]plan.CallableArg, []plan.Diagnostic, bool) {
 	out := make([]plan.CallableArg, 0, len(args))
 	var diagnostics []plan.Diagnostic
@@ -1822,18 +1907,18 @@ func (p *attemptPlanner) nestedFunctionName(
 	return MapperName(input, defaultNestedMapperName)
 }
 
-func callableContextKey(callables []spec.TieredCallables) string {
+func callableContextKey(callables []spec.PrioritizedCallables) string {
 	var sb strings.Builder
-	for _, tier := range callables {
-		if len(tier.Callables) == 0 {
+	for _, priority := range callables {
+		if len(priority.Callables) == 0 {
 			continue
 		}
 		if sb.Len() > 0 {
 			sb.WriteString("|")
 		}
-		sb.WriteString(tier.Tier.String())
+		sb.WriteString(priority.Priority.String())
 		sb.WriteString(":")
-		for i, ref := range tier.Callables {
+		for i, ref := range priority.Callables {
 			if i > 0 {
 				sb.WriteString(",")
 			}

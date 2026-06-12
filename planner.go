@@ -301,8 +301,8 @@ func explicitCallableRefs(specification Spec) []spec.CallableRef {
 
 	for _, pkg := range specification.Packages {
 		for _, typ := range pkg.Types {
-			for _, tier := range typ.Callables {
-				for _, ref := range tier.Callables {
+			for _, priority := range typ.Callables {
+				for _, ref := range priority.Callables {
 					add(ref)
 				}
 			}
@@ -906,7 +906,7 @@ func typeRefDisplay(ref plan.TypeRef) string {
 
 func sameRootPlanningConfig(a, b *plan.Type) bool {
 	return sameEnumSpec(a.EnumSpec, b.EnumSpec) &&
-		sameTieredCallables(a.Callables, b.Callables) &&
+		samePrioritizedCallables(a.Callables, b.Callables) &&
 		sameStructSpec(a.StructSpec, b.StructSpec) &&
 		a.Optionality == b.Optionality &&
 		a.Conversions == b.Conversions
@@ -942,9 +942,9 @@ func sameCallableRefPtr(a, b *spec.CallableRef) bool {
 	return *a == *b
 }
 
-func sameTieredCallables(a, b []spec.TieredCallables) bool {
-	return slices.EqualFunc(a, b, func(a, b spec.TieredCallables) bool {
-		return a.Tier == b.Tier && slices.Equal(a.Callables, b.Callables)
+func samePrioritizedCallables(a, b []spec.PrioritizedCallables) bool {
+	return slices.EqualFunc(a, b, func(a, b spec.PrioritizedCallables) bool {
+		return a.Priority == b.Priority && slices.Equal(a.Callables, b.Callables)
 	})
 }
 

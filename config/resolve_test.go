@@ -411,15 +411,15 @@ func TestResolve_Presets(t *testing.T) {
 }
 
 func TestResolve_Callables(t *testing.T) {
-	t.Run("resolves scoped callables in specificity order", func(t *testing.T) {
+	t.Run("resolves scoped callables in priority order", func(t *testing.T) {
 		got := singleResolvedType(t, callableConfig())
 
-		assert.Equal(t, []spec.TieredCallables{
-			{Tier: spec.CallableTierType, Callables: []spec.CallableRef{callableRef("type")}},
-			{Tier: spec.CallableTierTypePreset, Callables: []spec.CallableRef{callableRef("type_preset")}},
-			{Tier: spec.CallableTierPackage, Callables: []spec.CallableRef{callableRef("package")}},
-			{Tier: spec.CallableTierPackagePreset, Callables: []spec.CallableRef{callableRef("package_preset")}},
-			{Tier: spec.CallableTierDefaults, Callables: []spec.CallableRef{callableRef("defaults")}},
+		assert.Equal(t, []spec.PrioritizedCallables{
+			{Priority: spec.CallablePriorityType, Callables: []spec.CallableRef{callableRef("type")}},
+			{Priority: spec.CallablePriorityTypePreset, Callables: []spec.CallableRef{callableRef("type_preset")}},
+			{Priority: spec.CallablePriorityPackage, Callables: []spec.CallableRef{callableRef("package")}},
+			{Priority: spec.CallablePriorityPackagePreset, Callables: []spec.CallableRef{callableRef("package_preset")}},
+			{Priority: spec.CallablePriorityDefaults, Callables: []spec.CallableRef{callableRef("defaults")}},
 		}, got.Callables)
 	})
 

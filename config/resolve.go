@@ -75,8 +75,8 @@ func Resolve(cfg Config) (spec.Spec, error) {
 		Conversions: conversions,
 	}
 
-	callables := makeCallableTiers()
-	callables.Add(spec.CallableTierDefaults, defaultTypes.Callables)
+	callables := makeCallablePriorities()
+	callables.Add(spec.CallablePriorityDefaults, defaultTypes.Callables)
 
 	for i, pkg := range cfg.Packages {
 		if len(pkg.Types) == 0 {
@@ -104,7 +104,7 @@ func resolvePackage(
 	pkg Package,
 	outputDefaults Output,
 	typeDefaults TypesDefaults,
-	callables callableTiers,
+	callables callablePriorities,
 	presets map[string]Preset,
 	index int,
 ) (spec.Package, error) {
@@ -121,11 +121,11 @@ func resolvePackage(
 		if !ok {
 			return spec.Package{}, fmt.Errorf("packages[%d]: preset not found %q", index, pkg.Preset)
 		}
-		callables.Add(spec.CallableTierPackagePreset, preset.Callables)
+		callables.Add(spec.CallablePriorityPackagePreset, preset.Callables)
 		typeDefaults = applyPresetToTypeDefaults(typeDefaults, preset)
 	}
 
-	callables.Add(spec.CallableTierPackage, pkg.Callables)
+	callables.Add(spec.CallablePriorityPackage, pkg.Callables)
 	typeDefaults = applyPackageToTypeDefaults(typeDefaults, pkg)
 
 	out := spec.Package{
@@ -156,7 +156,7 @@ func resolvePackage(
 func resolveType(
 	typ Type,
 	typeDefaults TypesDefaults,
-	callables callableTiers,
+	callables callablePriorities,
 	presets map[string]Preset,
 	packageIndex, typeIndex int,
 ) (spec.Type, *spec.Type, error) {
@@ -171,7 +171,7 @@ func resolveType(
 				typ.Preset,
 			)
 		}
-		callables.Add(spec.CallableTierTypePreset, preset.Callables)
+		callables.Add(spec.CallablePriorityTypePreset, preset.Callables)
 		typeDefaults = applyPresetToTypeDefaults(typeDefaults, preset)
 	}
 
@@ -184,7 +184,7 @@ func resolveType(
 	mappers := resolveMappers(mergeMappersDefaults(typ.Mappers, typeDefaults.Mappers))
 	optionality := optionalityFromDefaults(mergeOptionalityDefaults(typ.Optionality, typeDefaults.Optionality))
 	conversion := conversionsFromDefaults(mergeConversionsDefaults(typ.Conversions, typeDefaults.Conversions))
-	callables.Add(spec.CallableTierType, typ.Callables)
+	callables.Add(spec.CallablePriorityType, typ.Callables)
 	structure := resolveStruct(typ.Struct, optionality, conversion, true)
 
 	forward := spec.Type{
@@ -366,37 +366,37 @@ func invertEnum(enum spec.Enum) spec.Enum {
 	return enum
 }
 
-type callableTiers map[spec.CallableTier][]spec.CallableRef
+type callablePriorities map[spec.CallablePriority][]spec.CallableRef
 
-func makeCallableTiers() callableTiers {
-	return make(callableTiers)
+func makeCallablePriorities() callablePriorities {
+	return make(callablePriorities)
 }
 
-func (c callableTiers) Add(tier spec.CallableTier, callables []spec.CallableRef) {
+func (c callablePriorities) Add(priority spec.CallablePriority, callables []spec.CallableRef) {
 	if len(callables) == 0 {
 		return
 	}
-	c[tier] = append(c[tier], callables...)
+	c[priority] = append(c[priority], callables...)
 }
 
-func (c callableTiers) Clone() callableTiers {
-	out := makeCallableTiers()
-	for tier, callables := range c {
-		out[tier] = slices.Clone(callables)
+func (c callablePriorities) Clone() callablePriorities {
+	out := makeCallablePriorities()
+	for priority, callables := range c {
+		out[priority] = slices.Clone(callables)
 	}
 	return out
 }
 
-func (c callableTiers) Ordered() []spec.TieredCallables {
-	out := make([]spec.TieredCallables, 0, spec.CallableTierCount())
-	for i := range spec.CallableTierCount() {
-		tier := spec.CallableTier(i)
-		callables := c[tier]
+func (c callablePriorities) Ordered() []spec.PrioritizedCallables {
+	out := make([]spec.PrioritizedCallables, 0, spec.CallablePriorityCount())
+	for i := range spec.CallablePriorityCount() {
+		priority := spec.CallablePriority(i)
+		callables := c[priority]
 		if len(callables) == 0 {
 			continue
 		}
-		out = append(out, spec.TieredCallables{
-			Tier:      tier,
+		out = append(out, spec.PrioritizedCallables{
+			Priority:  priority,
 			Callables: slices.Clone(callables),
 		})
 	}

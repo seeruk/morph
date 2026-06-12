@@ -269,7 +269,12 @@ packages:
 In the above example, since this is specified at the type level, these functions can be used by
 Morph for any field's value mapping. It will not trickle down to nested mappings.
 
-Specifying callables in the `defaults` section will make the callables available to any mapper.
+Scoped callables are prioritized by where they are configured: type callables are tried before type
+preset callables, then package callables, package preset callables, and finally defaults. Within the
+same priority, Morph uses callable compatibility rank to choose the best candidate.
+
+Specifying callables in the `defaults` section will make the callables available to any mapper at
+the lowest priority.
 
 </details>
 
@@ -565,7 +570,6 @@ packages:
 
 ## Future Enhancements
 
-* Callable priority, more specific callables should be preferred over less specific ones?
 * Unknown enum value assignment to default? Like, `enum.fallbackValue` or something?
 * Assignment of literal / constant values for unmapped fields (i.e. while mapping set field x to y)
 * CLI improvements:

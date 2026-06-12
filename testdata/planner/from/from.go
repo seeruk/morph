@@ -173,11 +173,23 @@ func TypeAStringToInt(in string) int {
 	return len(in)
 }
 
+func TypeAStringPtrToInt(in *string) int {
+	if in == nil {
+		return 0
+	}
+	return len(*in)
+}
+
 func TypeBStringToInt(in string) int {
 	return len(in)
 }
 
 func ZZZStringToInt(in string) int {
+	return len(in)
+}
+
+func StringToIntWithBadMapperArg(in string, mapBad func(OptionalBadThing) to.OptionalBadThing) int {
+	_ = mapBad
 	return len(in)
 }
 

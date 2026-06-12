@@ -73,7 +73,7 @@
         },
         "callables": {
           "$ref": "#/$defs/callableRefs",
-          "description": "Callable references available to every type mapping."
+          "description": "Lowest-priority callable references available to every type mapping."
         },
         "mappers": {
           "$ref": "#/$defs/mappersDefaults",
@@ -163,7 +163,7 @@
         },
         "callables": {
           "$ref": "#/$defs/callableRefs",
-          "description": "Callable references available to type mappings in this package pair."
+          "description": "Callable references available to type mappings in this package pair; preferred over package preset and default callables."
         },
         "enum": {
           "$ref": "#/$defs/enumDefaults",
@@ -226,7 +226,7 @@
         },
         "callables": {
           "$ref": "#/$defs/callableRefs",
-          "description": "Callable references considered first for this type mapping."
+          "description": "Highest-priority scoped callable references for this type mapping."
         },
         "enum": {
           "$ref": "#/$defs/enum",
@@ -260,7 +260,7 @@
         },
         "callables": {
           "$ref": "#/$defs/callableRefs",
-          "description": "Callable references supplied by this preset."
+          "description": "Callable references supplied by this preset; priority depends on whether the preset is applied to a package or type."
         },
         "mappers": {
           "$ref": "#/$defs/mappersDefaults",

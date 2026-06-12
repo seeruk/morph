@@ -102,7 +102,7 @@ func TestPlannerPlanStructFieldsFromConfig(t *testing.T) {
 }
 
 func TestPlannerPlanCallableSelectionFromConfig(t *testing.T) {
-	t.Run("uses type callables before defaults", func(t *testing.T) {
+	t.Run("uses type callables before better-ranked defaults", func(t *testing.T) {
 		out := planWithConfig(t, ".", config.Config{
 			Defaults: config.Defaults{
 				Packages: config.PackagesDefaults{
@@ -116,7 +116,7 @@ func TestPlannerPlanCallableSelectionFromConfig(t *testing.T) {
 				Target: plannerToPackage,
 				Types: []config.Type{{
 					Name:      "ExplicitCallableContainer",
-					Callables: []spec.CallableRef{{ImportPath: plannerFromPackage, Name: "TypeAStringToInt"}},
+					Callables: []spec.CallableRef{{ImportPath: plannerFromPackage, Name: "TypeAStringPtrToInt"}},
 				}},
 			}},
 		})
@@ -125,7 +125,58 @@ func TestPlannerPlanCallableSelectionFromConfig(t *testing.T) {
 		value := requirePlanField(t, root.StructPlan, "Value")
 		require.NotNil(t, value.Mapping.Callable)
 
-		assert.Equal(t, "TypeAStringToInt", value.Mapping.Callable.Name)
+		assert.Equal(t, "TypeAStringPtrToInt", value.Mapping.Callable.Name)
+		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationAddress}, value.Mapping.SourceAdaptations)
+	})
+
+	t.Run("uses compatibility rank within the same callable priority", func(t *testing.T) {
+		out := planWithConfig(t, ".", config.Config{
+			Packages: []config.Package{{
+				Source: plannerFromPackage,
+				Target: plannerToPackage,
+				Types: []config.Type{{
+					Name: "ExplicitCallableContainer",
+					Callables: []spec.CallableRef{
+						{ImportPath: plannerFromPackage, Name: "TypeAStringPtrToInt"},
+						{ImportPath: plannerFromPackage, Name: "ExplicitStringToInt"},
+					},
+				}},
+			}},
+		})
+
+		root := requireSingleRoot(t, out)
+		value := requirePlanField(t, root.StructPlan, "Value")
+		require.NotNil(t, value.Mapping.Callable)
+
+		assert.Equal(t, "ExplicitStringToInt", value.Mapping.Callable.Name)
+		assert.Empty(t, value.Mapping.SourceAdaptations)
+	})
+
+	t.Run("falls back from failed higher-order priority to defaults", func(t *testing.T) {
+		out := planWithConfig(t, ".", config.Config{
+			Defaults: config.Defaults{
+				Packages: config.PackagesDefaults{
+					Types: config.TypesDefaults{
+						Callables: []spec.CallableRef{{ImportPath: plannerFromPackage, Name: "ExplicitStringToInt"}},
+					},
+				},
+			},
+			Packages: []config.Package{{
+				Source: plannerFromPackage,
+				Target: plannerToPackage,
+				Types: []config.Type{{
+					Name:      "ExplicitCallableContainer",
+					Callables: []spec.CallableRef{{ImportPath: plannerFromPackage, Name: "StringToIntWithBadMapperArg"}},
+				}},
+			}},
+		})
+
+		root := requireSingleRoot(t, out)
+		value := requirePlanField(t, root.StructPlan, "Value")
+		require.NotNil(t, value.Mapping.Callable)
+
+		assert.Equal(t, "ExplicitStringToInt", value.Mapping.Callable.Name)
+		assert.False(t, plan.HasFatalDiagnostics(root.Diagnostics))
 	})
 
 	t.Run("falls back from incompatible scoped callables to discovery", func(t *testing.T) {
