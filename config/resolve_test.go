@@ -58,10 +58,12 @@ func TestResolve_DefaultPrecedence(t *testing.T) {
 		assert.Equal(t, spec.ValueOptionalityAddress, typ.Optionality.OnZeroSourceValue)
 	})
 
-	t.Run("resolves field optionality from type defaults and field overrides", func(t *testing.T) {
+	t.Run("resolves property optionality from type defaults and property overrides", func(t *testing.T) {
 		typ := singleResolvedType(t, precedenceConfig())
 
-		assert.Equal(t, spec.Field{
+		require.Len(t, typ.Struct.Properties, 1)
+		assert.Equal(t, spec.Property{
+			Source: "Name",
 			Target: "DisplayName",
 			Optionality: spec.Optionality{
 				OnNilSourcePointer: spec.PointerOptionalityError,
@@ -70,7 +72,7 @@ func TestResolve_DefaultPrecedence(t *testing.T) {
 			Conversions: spec.ConversionsPolicy{
 				Enabled: true,
 			},
-		}, typ.Struct.Fields["Name"])
+		}, typ.Struct.Properties[0])
 	})
 }
 
@@ -230,15 +232,19 @@ func TestResolve_BidirectionalExpansion(t *testing.T) {
 		forward := resolvedBidirectionalTypes(t)[0]
 
 		assert.Equal(t, "TargetRecipe", forward.Target)
-		assert.Equal(t, "ID", forward.Struct.Fields["RecipeId"].Target)
+		require.Len(t, forward.Struct.Properties, 1)
+		assert.Equal(t, "RecipeId", forward.Struct.Properties[0].Source)
+		assert.Equal(t, "ID", forward.Struct.Properties[0].Target)
 		assert.Equal(t, map[string]string{"SourceReady": "TargetReady"}, forward.Enum.Values)
 	})
 
-	t.Run("inverts struct fields and enum values on the inverse mapping", func(t *testing.T) {
+	t.Run("inverts struct properties and enum values on the inverse mapping", func(t *testing.T) {
 		inverse := resolvedBidirectionalTypes(t)[1]
 
 		assert.Equal(t, "SourceRecipe", inverse.Target)
-		assert.Equal(t, "RecipeId", inverse.Struct.Fields["ID"].Target)
+		require.Len(t, inverse.Struct.Properties, 1)
+		assert.Equal(t, "ID", inverse.Struct.Properties[0].Source)
+		assert.Equal(t, "RecipeId", inverse.Struct.Properties[0].Target)
 		assert.Equal(t, map[string]string{"TargetReady": "SourceReady"}, inverse.Enum.Values)
 	})
 
@@ -366,20 +372,22 @@ func TestResolve_Conversions(t *testing.T) {
 		assert.True(t, typ.Conversions.Enabled)
 	})
 
-	t.Run("uses field policy", func(t *testing.T) {
+	t.Run("uses property policy", func(t *testing.T) {
 		cfg := minimalConfig()
 		cfg.Packages[0].Types[0].Conversions = &config.ConversionsDefaults{
 			Enabled: new(false),
 		}
 		cfg.Packages[0].Types[0].Struct = &config.Struct{
-			Fields: map[string]config.Field{
-				"ID": {Conversions: &config.ConversionsDefaults{Enabled: new(true)}},
-			},
+			Properties: []config.Property{{
+				Name:        "ID",
+				Conversions: &config.ConversionsDefaults{Enabled: new(true)},
+			}},
 		}
 
 		typ := singleResolvedType(t, cfg)
 
-		assert.True(t, typ.Struct.Fields["ID"].Conversions.Enabled)
+		require.Len(t, typ.Struct.Properties, 1)
+		assert.True(t, typ.Struct.Properties[0].Conversions.Enabled)
 	})
 }
 
@@ -423,12 +431,14 @@ func TestResolve_Callables(t *testing.T) {
 		}, got.Callables)
 	})
 
-	t.Run("resolves field callables directionally", func(t *testing.T) {
+	t.Run("resolves property callables directionally", func(t *testing.T) {
 		types := resolvedBidirectionalTypes(t, callableFieldConfig())
 		require.Len(t, types, 2)
+		require.Len(t, types[0].Struct.Properties, 1)
+		require.Len(t, types[1].Struct.Properties, 1)
 
-		assert.Equal(t, callableRef("field_forward"), *types[0].Struct.Fields["RecipeId"].Callable)
-		assert.Equal(t, callableRef("field_inverse"), *types[1].Struct.Fields["ID"].Callable)
+		assert.Equal(t, callableRef("field_forward"), *types[0].Struct.Properties[0].Callable)
+		assert.Equal(t, callableRef("field_inverse"), *types[1].Struct.Properties[0].Callable)
 	})
 }
 
@@ -519,6 +529,59 @@ func TestResolve_Errors(t *testing.T) {
 			},
 			err: "at least one target is required",
 		},
+		{
+			name: "invalid property naming",
+			cfg: config.Config{
+				Packages: []config.Package{{
+					Source: "module.test/source",
+					Target: "module.test/target",
+					Types: []config.Type{{
+						Name: "User",
+						Struct: &config.Struct{Properties: []config.Property{{
+							Source: "Name",
+						}}},
+					}},
+				}},
+			},
+			err: "either name, or source and target property names are required",
+		},
+		{
+			name: "property name combined with target",
+			cfg: config.Config{
+				Packages: []config.Package{{
+					Source: "module.test/source",
+					Target: "module.test/target",
+					Types: []config.Type{{
+						Name: "User",
+						Struct: &config.Struct{Properties: []config.Property{{
+							Name:   "Name",
+							Target: "DisplayName",
+						}}},
+					}},
+				}},
+			},
+			err: "name cannot be combined with source or target",
+		},
+		{
+			name: "duplicate properties",
+			cfg: config.Config{
+				Packages: []config.Package{{
+					Source: "module.test/source",
+					Target: "module.test/target",
+					Types: []config.Type{{
+						Name: "User",
+						Struct: &config.Struct{Properties: []config.Property{
+							{Source: "ID", Target: "Name"},
+							{Source: "ID", Target: "DisplayName"},
+							{Source: "Code", Target: "Name"},
+							{Source: "Code", Target: "CodeName"},
+							{Source: "Other", Target: "Name"},
+						}},
+					}},
+				}},
+			},
+			err: `duplicate struct property mappings: source property "Code" appears in properties[2], properties[3]; source property "ID" appears in properties[0], properties[1]; target property "Name" appears in properties[0], properties[2], properties[4]`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -588,14 +651,13 @@ func precedenceConfig() config.Config {
 					FailureMode: new(spec.EnumFailureModeZero),
 				},
 				Struct: &config.Struct{
-					Fields: map[string]config.Field{
-						"Name": {
-							Target: "DisplayName",
-							Optionality: &config.OptionalityDefaults{
-								OnNilSourcePointer: new(spec.PointerOptionalityError),
-							},
+					Properties: []config.Property{{
+						Source: "Name",
+						Target: "DisplayName",
+						Optionality: &config.OptionalityDefaults{
+							OnNilSourcePointer: new(spec.PointerOptionalityError),
 						},
-					},
+					}},
 				},
 				Mappers: &config.MappersDefaults{
 					Forward: &config.MapperDefaults{
@@ -628,9 +690,7 @@ func bidirectionalConfig() config.Config {
 					},
 				},
 				Struct: &config.Struct{
-					Fields: map[string]config.Field{
-						"RecipeId": {Target: "ID"},
-					},
+					Properties: []config.Property{{Source: "RecipeId", Target: "ID"}},
 				},
 			}},
 		}},
@@ -710,9 +770,10 @@ func callableFieldConfig() config.Config {
 	forward := callableRef("field_forward")
 	inverse := callableRef("field_inverse")
 	cfg := bidirectionalConfig()
-	cfg.Packages[0].Types[0].Struct.Fields["RecipeId"] = config.Field{
+	cfg.Packages[0].Types[0].Struct.Properties[0] = config.Property{
+		Source: "RecipeId",
 		Target: "ID",
-		Callable: &config.FieldCallable{
+		Callable: &config.PropertyCallable{
 			Forward: &forward,
 			Inverse: &inverse,
 		},

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/seeruk/morph/plan"
+	"github.com/seeruk/morph/types"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -12,9 +13,9 @@ func TestWalkOutputGroups(t *testing.T) {
 		location := testOutputLocation("module.test/out", "/repo/out/morph.gen.go")
 		nested := testWalkType(location, "NestedSource", "NestedTarget", "MapNested")
 		root := testWalkType(location, "RootSource", "RootTarget", "MapRoot")
-		root.StructPlan = &plan.Struct{Fields: []plan.Field{{
-			SourceField: testField("Nested", nested.SourceType),
-			TargetField: testField("Nested", nested.TargetType),
+		root.StructPlan = &plan.Struct{Properties: []plan.Property{{
+			Source: testFieldMember("Nested", nested.SourceType),
+			Target: testFieldMember("Nested", nested.TargetType),
 			Mapping: plan.Value{
 				Operation: plan.OperationStruct,
 				Plan:      nested,
@@ -38,11 +39,11 @@ func TestWalkOutputGroups(t *testing.T) {
 	t.Run("walks values with stable diagnostic paths", func(t *testing.T) {
 		location := testOutputLocation("module.test/out", "/repo/out/morph.gen.go")
 		root := testWalkType(location, "Source", "Target", "MapRoot")
-		sourceField := testField("Input", basicTestType("string"))
-		targetField := testField("Output", basicTestType("int"))
-		root.StructPlan = &plan.Struct{Fields: []plan.Field{{
-			SourceField: sourceField,
-			TargetField: targetField,
+		sourceMember := testFieldMember("Input", basicTestType("string"))
+		targetMember := testFieldMember("Output", basicTestType("int"))
+		root.StructPlan = &plan.Struct{Properties: []plan.Property{{
+			Source: sourceMember,
+			Target: targetMember,
 			Mapping: plan.Value{
 				Operation: plan.OperationMap,
 				CallableArgs: []plan.CallableArg{{
@@ -52,7 +53,7 @@ func TestWalkOutputGroups(t *testing.T) {
 				Value: &plan.Value{Operation: plan.OperationAssign},
 			},
 		}}}
-		fieldPath := plan.FieldPath(root.SourceType, root.TargetType, sourceField, targetField)
+		propertyPath := plan.PropertyPath(root.SourceType, root.TargetType, sourceMember.Name, targetMember.Name)
 
 		var paths []string
 		walkOutputGroups([]plan.OutputGroup{{
@@ -65,19 +66,19 @@ func TestWalkOutputGroups(t *testing.T) {
 		})
 
 		assert.Equal(t, []string{
-			fieldPath,
-			callableArgPath(fieldPath, 0),
-			fieldPath + "[key]",
-			fieldPath + "[value]",
+			propertyPath,
+			callableArgPath(propertyPath, 0),
+			propertyPath + "[key]",
+			propertyPath + "[value]",
 		}, paths)
 	})
 
 	t.Run("handles recursive generated mapper plans", func(t *testing.T) {
 		location := testOutputLocation("module.test/out", "/repo/out/morph.gen.go")
 		root := testWalkType(location, "Node", "Node", "MapNode")
-		root.StructPlan = &plan.Struct{Fields: []plan.Field{{
-			SourceField: testField("Next", root.SourceType),
-			TargetField: testField("Next", root.TargetType),
+		root.StructPlan = &plan.Struct{Properties: []plan.Property{{
+			Source: testFieldMember("Next", root.SourceType),
+			Target: testFieldMember("Next", root.TargetType),
 			Mapping: plan.Value{
 				Operation: plan.OperationStruct,
 				Plan:      root,
@@ -100,6 +101,15 @@ func TestWalkOutputGroups(t *testing.T) {
 		assert.Equal(t, 1, typeCount)
 		assert.Equal(t, 1, valueCount)
 	})
+}
+
+func testFieldMember(name string, typ types.Type) plan.Member {
+	return plan.Member{
+		Name:     name,
+		Accessor: name,
+		Kind:     plan.MemberKindField,
+		Type:     typ,
+	}
 }
 
 func testWalkType(location plan.OutputLocation, sourceName, targetName, functionName string) *plan.Type {

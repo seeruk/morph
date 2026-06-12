@@ -17,56 +17,118 @@ func (p *attemptPlanner) planStruct(typ *plan.Type) {
 	if p.currentOutputLocation != nil {
 		outputImportPath = p.currentOutputLocation.ImportPath
 	}
-	sourceFields := plannableFieldsForType(typ.SourceDecl, typ.SourceType, outputImportPath)
-	targetFields := plannableFieldsForType(typ.TargetDecl, typ.TargetType, outputImportPath)
-	omittedSourceFields := fieldOmissionSet(typ.StructSpec.Omit.Source)
-	omittedTargetFields := fieldOmissionSet(typ.StructSpec.Omit.Target)
-	sourceFieldsForMatching := omitFields(sourceFields, omittedSourceFields)
-	usedSourceFields := make(map[string]struct{}, len(sourceFields))
+	sourceMembers := readableMembersForType(
+		typ.SourceDecl,
+		typ.SourceType,
+		outputImportPath,
+		typ.StructSpec.InferMethods,
+	)
+	targetMembers := writableMembersForType(
+		typ.TargetDecl,
+		typ.TargetType,
+		outputImportPath,
+		typ.StructSpec.InferMethods,
+	)
+	omittedSourceProperties := propertyOmissionSet(typ.StructSpec.Omit.Source)
+	omittedTargetProperties := propertyOmissionSet(typ.StructSpec.Omit.Target)
+	usedSourceProperties := make(map[string]struct{}, len(sourceMembers))
+	usedTargetProperties := make(map[string]struct{}, len(targetMembers))
 
 	var structPlan plan.Struct
-	for _, targetField := range targetFields {
-		if _, omitted := omittedTargetFields[targetField.Name]; omitted {
+	for _, diagnostic := range validateOmittedProperties(
+		typ.SourceType,
+		typ.TargetType,
+		sourceMembers,
+		targetMembers,
+		typ.StructSpec,
+	) {
+		typ.Diagnostics = appendDiagnostic(typ.Diagnostics, diagnostic)
+	}
+
+	candidates := propertyCandidates(
+		typ.StructSpec.Properties,
+		sourceMembers,
+		targetMembers,
+		omittedSourceProperties,
+		omittedTargetProperties,
+	)
+	for _, candidate := range candidates {
+		usedSourceProperties[candidate.Source] = struct{}{}
+		usedTargetProperties[candidate.Target] = struct{}{}
+
+		if _, omitted := omittedSourceProperties[candidate.Source]; omitted {
+			typ.Diagnostics = appendDiagnostic(typ.Diagnostics, plan.Diagnostic{
+				Level:   plan.DiagnosticLevelFatal,
+				Path:    plan.SourcePropertyPath(typ.SourceType, typ.TargetType, candidate.Source),
+				Message: fmt.Sprintf("source property %q cannot be both omitted and explicitly mapped", candidate.Source),
+			})
+			continue
+		}
+		if _, omitted := omittedTargetProperties[candidate.Target]; omitted {
+			typ.Diagnostics = appendDiagnostic(typ.Diagnostics, plan.Diagnostic{
+				Level:   plan.DiagnosticLevelFatal,
+				Path:    plan.TargetPropertyPath(typ.SourceType, typ.TargetType, candidate.Target),
+				Message: fmt.Sprintf("target property %q cannot be both omitted and explicitly mapped", candidate.Target),
+			})
 			continue
 		}
 
-		sourceField, fieldSpec, mapped, ok := matchingField(targetField, sourceFieldsForMatching, typ.StructSpec.Fields)
+		sourceMember, diagnostic, ok := resolveReadableMember(
+			typ.SourceDecl,
+			typ.SourceType,
+			typ.SourceType,
+			typ.TargetType,
+			outputImportPath,
+			sourceMembers,
+			candidate.Source,
+			candidate.Spec.Accessors.Read,
+			candidate.Configured,
+		)
 		if !ok {
-			diagnostic := plan.Diagnostic{
-				Level:   plan.DiagnosticLevelWarning,
-				Path:    plan.TargetFieldPath(typ.SourceType, typ.TargetType, targetField.Name),
-				Message: fmt.Sprintf("no source field found for target field %q; configure struct.fields to map it explicitly or struct.omit.target to omit it", targetField.Name),
-			}
 			typ.Diagnostics = appendDiagnostic(typ.Diagnostics, diagnostic)
 			continue
 		}
-		usedSourceFields[sourceField.Name] = struct{}{}
 
-		fieldPath := plan.FieldPath(typ.SourceType, typ.TargetType, sourceField, targetField)
+		targetMember, diagnostic, ok := resolveWritableMember(
+			typ.TargetDecl,
+			typ.TargetType,
+			typ.SourceType,
+			typ.TargetType,
+			outputImportPath,
+			targetMembers,
+			candidate.Target,
+			candidate.Spec.Accessors.Write,
+			candidate.Configured,
+		)
+		if !ok {
+			typ.Diagnostics = appendDiagnostic(typ.Diagnostics, diagnostic)
+			continue
+		}
 
+		propertyPath := plan.PropertyPath(typ.SourceType, typ.TargetType, candidate.Source, candidate.Target)
 		optionality := typ.Optionality
 		conversion := typ.Conversions
-		if mapped {
-			optionality = fieldSpec.Optionality
-			conversion = fieldSpec.Conversions
+		if candidate.Configured {
+			optionality = candidate.Spec.Optionality
+			conversion = candidate.Spec.Conversions
 		}
 
 		var valuePlan plan.Value
-		if mapped && fieldSpec.Callable != nil {
-			valuePlan = p.planFieldCallable(
-				sourceField.Type,
-				targetField.Type,
-				fieldPath,
+		if candidate.Configured && candidate.Spec.Callable != nil {
+			valuePlan = p.planPropertyCallable(
+				sourceMember.Type,
+				targetMember.Type,
+				propertyPath,
 				optionality,
 				conversion,
-				*fieldSpec.Callable,
+				*candidate.Spec.Callable,
 				typ.Callables,
 			)
 		} else {
 			valuePlan = p.planValue(
-				sourceField.Type,
-				targetField.Type,
-				fieldPath,
+				sourceMember.Type,
+				targetMember.Type,
+				propertyPath,
 				optionality,
 				conversion,
 				typ.Callables,
@@ -79,29 +141,45 @@ func (p *attemptPlanner) planStruct(typ *plan.Type) {
 			// Once set to true by any value mapping, this is never set back to false
 			typ.CanError = true
 		}
+		if sourceMember.CanError || targetMember.CanError {
+			typ.CanError = true
+			valuePlan.CanError = true
+		}
 
-		structPlan.Fields = append(structPlan.Fields, plan.Field{
-			SourceField: sourceField,
-			TargetField: targetField,
-			Mapping:     valuePlan,
+		structPlan.Properties = append(structPlan.Properties, plan.Property{
+			Source:  sourceMember,
+			Target:  targetMember,
+			Mapping: valuePlan,
 		})
 	}
 
-	for _, sourceField := range sourceFields {
-		if _, used := usedSourceFields[sourceField.Name]; used {
+	for _, targetName := range sortedMemberNames(targetMembers) {
+		if _, used := usedTargetProperties[targetName]; used {
 			continue
 		}
-		if _, configured := typ.StructSpec.Fields[sourceField.Name]; configured {
-			continue
-		}
-		if _, omitted := omittedSourceFields[sourceField.Name]; omitted {
+		if _, omitted := omittedTargetProperties[targetName]; omitted {
 			continue
 		}
 
 		typ.Diagnostics = appendDiagnostic(typ.Diagnostics, plan.Diagnostic{
 			Level:   plan.DiagnosticLevelWarning,
-			Path:    plan.SourceFieldPath(typ.SourceType, typ.TargetType, sourceField.Name),
-			Message: fmt.Sprintf("no target field found for source field %q; configure struct.fields to map it explicitly or struct.omit.source to omit it", sourceField.Name),
+			Path:    plan.TargetPropertyPath(typ.SourceType, typ.TargetType, targetName),
+			Message: fmt.Sprintf("no source property found for target property %q; configure struct.properties to map it explicitly or struct.omit.target to omit it", targetName),
+		})
+	}
+
+	for _, sourceName := range sortedMemberNames(sourceMembers) {
+		if _, used := usedSourceProperties[sourceName]; used {
+			continue
+		}
+		if _, omitted := omittedSourceProperties[sourceName]; omitted {
+			continue
+		}
+
+		typ.Diagnostics = appendDiagnostic(typ.Diagnostics, plan.Diagnostic{
+			Level:   plan.DiagnosticLevelWarning,
+			Path:    plan.SourcePropertyPath(typ.SourceType, typ.TargetType, sourceName),
+			Message: fmt.Sprintf("no target property found for source property %q; configure struct.properties to map it explicitly or struct.omit.source to omit it", sourceName),
 		})
 	}
 
@@ -284,7 +362,7 @@ func (p *attemptPlanner) planValue(
 	), deferredDiagnostics...)
 }
 
-func (p *attemptPlanner) planFieldCallable(
+func (p *attemptPlanner) planPropertyCallable(
 	sourceType, targetType types.Type,
 	path string,
 	optionality spec.Optionality,
@@ -305,7 +383,7 @@ func (p *attemptPlanner) planFieldCallable(
 				targetType,
 				path,
 				fmt.Sprintf(
-					"configured field callable %q cannot be imported by generated code; expected callable to accept %s and return %s",
+					"configured property callable %q cannot be imported by generated code; expected callable to accept %s and return %s",
 					ref.String(),
 					types.TypeKey(sourceType),
 					types.TypeKey(targetType),
@@ -332,7 +410,7 @@ func (p *attemptPlanner) planFieldCallable(
 				targetType,
 				path,
 				fmt.Sprintf(
-					"configured field callable %q could not use a required mapper argument; expected callable to accept %s and return %s",
+					"configured property callable %q could not use a required mapper argument; expected callable to accept %s and return %s",
 					ref.String(),
 					types.TypeKey(sourceType),
 					types.TypeKey(targetType),
@@ -347,7 +425,7 @@ func (p *attemptPlanner) planFieldCallable(
 		targetType,
 		path,
 		fmt.Sprintf(
-			"configured field callable %q is not compatible; expected callable to accept %s and return %s",
+			"configured property callable %q is not compatible; expected callable to accept %s and return %s",
 			ref.String(),
 			types.TypeKey(sourceType),
 			types.TypeKey(targetType),
@@ -757,8 +835,8 @@ func (p *attemptPlanner) planNestedStruct(
 		Callables:   callables,
 		Optionality: defaultTypes.Optionality,
 		Conversions: defaultTypes.Conversions,
-		// We can't set structSpec in this case, because it's just field mapping currently. To have
-		// field mapping this type pair would have to be defined explicitly.
+		// We can't set structSpec in this case, because customized property mapping for this type
+		// pair would have to be defined explicitly.
 	}
 
 	mapperKey := plan.TypeMapperKey(nested.Source, nested.Target, nested.Signature)
@@ -1950,58 +2028,240 @@ func isStructType(typ types.TypeDecl) bool {
 	return types.UnwrapAlias(typ.Underlying).Kind == types.TypeKindStruct
 }
 
-func matchingField(
-	needle types.Field,
-	fields []types.Field,
-	mapping map[string]spec.Field,
-) (field types.Field, fieldSpec spec.Field, mapped bool, ok bool) {
-	fieldsByFieldName := fieldsByName(fields)
-
-	// Explicit field mappings are source -> target, so search for a source field whose mapped
-	// target name matches this target field.
-	if len(mapping) > 0 {
-		for _, sourceField := range fields {
-			fieldSpec, mapped := mapping[sourceField.Name]
-			if mapped && structFieldTarget(sourceField.Name, fieldSpec) == needle.Name {
-				return sourceField, fieldSpec, true, true
-			}
-		}
-	}
-
-	// Then we'll fall back to exact name matching.
-	if field, ok = fieldsByFieldName[needle.Name]; ok {
-		if fieldAvailableForTarget(field, needle.Name, mapping) {
-			fieldSpec, mapped = mapping[field.Name]
-			return field, fieldSpec, mapped, true
-		}
-	}
-
-	// If that didn't work, we'll try case-insensitive matching.
-	for _, field := range fields {
-		if strings.EqualFold(field.Name, needle.Name) &&
-			fieldAvailableForTarget(field, needle.Name, mapping) {
-			fieldSpec, mapped = mapping[field.Name]
-			return field, fieldSpec, mapped, true
-		}
-	}
-
-	// NOTE: We don't try any more strategies here because they can be easily explicitly specified,
-	// and any more advanced patterns would be too likely to return false positives, I think.
-
-	// Otherwise, we failed...
-	return field, spec.Field{}, false, false
+type propertyCandidate struct {
+	Source     string
+	Target     string
+	Spec       spec.Property
+	Configured bool
 }
 
-func fieldAvailableForTarget(field types.Field, targetName string, mapping map[string]spec.Field) bool {
-	fieldSpec, ok := mapping[field.Name]
-	return !ok || structFieldTarget(field.Name, fieldSpec) == targetName
+func propertyCandidates(
+	configured []spec.Property,
+	sourceMembers map[string]plan.Member,
+	targetMembers map[string]plan.Member,
+	omittedSourceProperties map[string]struct{},
+	omittedTargetProperties map[string]struct{},
+) []propertyCandidate {
+	out := make([]propertyCandidate, 0, len(configured)+len(sourceMembers))
+	usedSources := make(map[string]struct{}, len(configured))
+	usedTargets := make(map[string]struct{}, len(configured))
+
+	for _, property := range configured {
+		out = append(out, propertyCandidate{
+			Source:     property.Source,
+			Target:     property.Target,
+			Spec:       property,
+			Configured: true,
+		})
+		usedSources[property.Source] = struct{}{}
+		usedTargets[property.Target] = struct{}{}
+	}
+
+	for _, sourceName := range sortedMemberNames(sourceMembers) {
+		if _, used := usedSources[sourceName]; used {
+			continue
+		}
+		if _, omitted := omittedSourceProperties[sourceName]; omitted {
+			continue
+		}
+		if _, omitted := omittedTargetProperties[sourceName]; omitted {
+			continue
+		}
+		targetName, ok := matchingTargetProperty(sourceName, targetMembers, usedTargets)
+		if !ok {
+			continue
+		}
+		out = append(out, propertyCandidate{
+			Source: sourceName,
+			Target: targetName,
+		})
+		usedSources[sourceName] = struct{}{}
+		usedTargets[targetName] = struct{}{}
+	}
+
+	return out
 }
 
-func structFieldTarget(sourceName string, field spec.Field) string {
-	if field.Target != "" {
-		return field.Target
+func matchingTargetProperty(
+	sourceName string,
+	targetMembers map[string]plan.Member,
+	usedTargets map[string]struct{},
+) (string, bool) {
+	if _, used := usedTargets[sourceName]; !used {
+		if _, ok := targetMembers[sourceName]; ok {
+			return sourceName, true
+		}
 	}
-	return sourceName
+
+	var matches []string
+	for _, targetName := range sortedMemberNames(targetMembers) {
+		if _, used := usedTargets[targetName]; used {
+			continue
+		}
+		if strings.EqualFold(sourceName, targetName) {
+			matches = append(matches, targetName)
+		}
+	}
+	if len(matches) != 1 {
+		return "", false
+	}
+	return matches[0], true
+}
+
+func validateOmittedProperties(
+	sourceType, targetType types.Type,
+	sourceMembers map[string]plan.Member,
+	targetMembers map[string]plan.Member,
+	structure spec.Struct,
+) []plan.Diagnostic {
+	var out []plan.Diagnostic
+	configuredSources := make(map[string]struct{}, len(structure.Properties))
+	configuredTargets := make(map[string]struct{}, len(structure.Properties))
+	for _, property := range structure.Properties {
+		configuredSources[property.Source] = struct{}{}
+		configuredTargets[property.Target] = struct{}{}
+	}
+
+	for _, sourceName := range sortedUniqueStrings(structure.Omit.Source) {
+		if _, ok := sourceMembers[sourceName]; !ok {
+			out = append(out, plan.Diagnostic{
+				Level:   plan.DiagnosticLevelFatal,
+				Path:    plan.SourcePropertyPath(sourceType, targetType, sourceName),
+				Message: fmt.Sprintf("source property %q does not exist", sourceName),
+			})
+		}
+		if _, configured := configuredSources[sourceName]; configured {
+			out = append(out, plan.Diagnostic{
+				Level:   plan.DiagnosticLevelFatal,
+				Path:    plan.SourcePropertyPath(sourceType, targetType, sourceName),
+				Message: fmt.Sprintf("source property %q cannot be both omitted and explicitly mapped", sourceName),
+			})
+		}
+	}
+
+	for _, targetName := range sortedUniqueStrings(structure.Omit.Target) {
+		if _, ok := targetMembers[targetName]; !ok {
+			out = append(out, plan.Diagnostic{
+				Level:   plan.DiagnosticLevelFatal,
+				Path:    plan.TargetPropertyPath(sourceType, targetType, targetName),
+				Message: fmt.Sprintf("target property %q does not exist", targetName),
+			})
+		}
+		if _, configured := configuredTargets[targetName]; configured {
+			out = append(out, plan.Diagnostic{
+				Level:   plan.DiagnosticLevelFatal,
+				Path:    plan.TargetPropertyPath(sourceType, targetType, targetName),
+				Message: fmt.Sprintf("target property %q cannot be both omitted and explicitly mapped", targetName),
+			})
+		}
+	}
+
+	return out
+}
+
+func resolveReadableMember(
+	typeDecl types.TypeDecl,
+	typ types.Type,
+	rootSourceType types.Type,
+	rootTargetType types.Type,
+	outputImportPath string,
+	members map[string]plan.Member,
+	logicalName string,
+	exactAccessor string,
+	configured bool,
+) (plan.Member, plan.Diagnostic, bool) {
+	if exactAccessor != "" {
+		return resolveExactReadableMember(typeDecl, typ, rootSourceType, rootTargetType, outputImportPath, logicalName, exactAccessor)
+	}
+	if member, ok := members[logicalName]; ok {
+		return member, plan.Diagnostic{}, true
+	}
+	if diagnostic, ok := configuredFieldDiagnostic(
+		configured,
+		typeDecl,
+		rootSourceType,
+		rootTargetType,
+		logicalName,
+		outputImportPath,
+		"source",
+	); ok {
+		return plan.Member{}, diagnostic, false
+	}
+	return plan.Member{}, missingPropertyDiagnostic("source", rootSourceType, rootTargetType, logicalName, configured), false
+}
+
+func resolveWritableMember(
+	typeDecl types.TypeDecl,
+	typ types.Type,
+	rootSourceType types.Type,
+	rootTargetType types.Type,
+	outputImportPath string,
+	members map[string]plan.Member,
+	logicalName string,
+	exactAccessor string,
+	configured bool,
+) (plan.Member, plan.Diagnostic, bool) {
+	if exactAccessor != "" {
+		return resolveExactWritableMember(typeDecl, typ, rootSourceType, rootTargetType, outputImportPath, logicalName, exactAccessor)
+	}
+	if member, ok := members[logicalName]; ok {
+		return member, plan.Diagnostic{}, true
+	}
+	if diagnostic, ok := configuredFieldDiagnostic(
+		configured,
+		typeDecl,
+		rootSourceType,
+		rootTargetType,
+		logicalName,
+		outputImportPath,
+		"target",
+	); ok {
+		return plan.Member{}, diagnostic, false
+	}
+	return plan.Member{}, missingPropertyDiagnostic("target", rootSourceType, rootTargetType, logicalName, configured), false
+}
+
+func configuredFieldDiagnostic(
+	configured bool,
+	typeDecl types.TypeDecl,
+	sourceType types.Type,
+	targetType types.Type,
+	logicalName string,
+	outputImportPath string,
+	side string,
+) (plan.Diagnostic, bool) {
+	if !configured {
+		return plan.Diagnostic{}, false
+	}
+
+	field, ok := typeDecl.Fields[logicalName]
+	if !ok {
+		return plan.Diagnostic{}, false
+	}
+
+	diagnostic, valid := validateFieldMember(typeDecl, sourceType, targetType, field, outputImportPath, side)
+	return diagnostic, !valid
+}
+
+func missingPropertyDiagnostic(
+	side string,
+	sourceType, targetType types.Type,
+	name string,
+	configured bool,
+) plan.Diagnostic {
+	level := plan.DiagnosticLevelWarning
+	if configured {
+		level = plan.DiagnosticLevelFatal
+	}
+	path := plan.SourcePropertyPath(sourceType, targetType, name)
+	if side == "target" {
+		path = plan.TargetPropertyPath(sourceType, targetType, name)
+	}
+	return plan.Diagnostic{
+		Level:   level,
+		Path:    path,
+		Message: fmt.Sprintf("%s property %q does not exist", side, name),
+	}
 }
 
 func operationForCallable(callable plan.CallableRef) plan.Operation {
@@ -2057,10 +2317,6 @@ func adaptationsCanError(adaptations []plan.ValueAdaptation, optionality spec.Op
 		optionality.OnNilSourcePointer == spec.PointerOptionalityError
 }
 
-func plannableFields(typeDecl types.TypeDecl, outputImportPath string) []types.Field {
-	return plannableFieldsForType(typeDecl, typeDecl.Type, outputImportPath)
-}
-
 func plannableFieldsForType(typeDecl types.TypeDecl, typ types.Type, outputImportPath string) []types.Field {
 	bindings := concreteTypeParamBindings(typeDecl, typ)
 	out := make([]types.Field, 0, len(typeDecl.Fields))
@@ -2082,6 +2338,298 @@ func plannableFieldsForType(typeDecl types.TypeDecl, typ types.Type, outputImpor
 	return out
 }
 
+type rankedMember struct {
+	Member plan.Member
+	Rank   int
+}
+
+func readableMembersForType(
+	typeDecl types.TypeDecl,
+	typ types.Type,
+	outputImportPath string,
+	inferMethods bool,
+) map[string]plan.Member {
+	out := make(map[string]rankedMember)
+	bindings := concreteTypeParamBindings(typeDecl, typ)
+
+	if inferMethods {
+		for _, method := range typeDecl.Methods {
+			if !methodAccessibleFrom(typeDecl, method, outputImportPath) {
+				continue
+			}
+			if member, ok := readableMethodMember(method, bindings, method.Name); ok {
+				if strings.HasPrefix(method.Name, "Get") && len(method.Name) > len("Get") {
+					member.Name = method.Name[len("Get"):]
+					addRankedMember(out, member, 0)
+					continue
+				}
+				addRankedMember(out, member, 1)
+			}
+		}
+	}
+
+	for _, field := range plannableFieldsForType(typeDecl, typ, outputImportPath) {
+		addRankedMember(out, fieldMember(field.Name, field.Name, field.Type), 2)
+	}
+
+	return unrankMembers(out)
+}
+
+func writableMembersForType(
+	typeDecl types.TypeDecl,
+	typ types.Type,
+	outputImportPath string,
+	inferMethods bool,
+) map[string]plan.Member {
+	out := make(map[string]rankedMember)
+	bindings := concreteTypeParamBindings(typeDecl, typ)
+
+	if inferMethods {
+		for _, method := range typeDecl.Methods {
+			if !methodAccessibleFrom(typeDecl, method, outputImportPath) {
+				continue
+			}
+			if !strings.HasPrefix(method.Name, "Set") || len(method.Name) == len("Set") {
+				continue
+			}
+			if member, ok := writableMethodMember(method, bindings, method.Name[len("Set"):]); ok {
+				addRankedMember(out, member, 0)
+			}
+		}
+	}
+
+	for _, field := range plannableFieldsForType(typeDecl, typ, outputImportPath) {
+		addRankedMember(out, fieldMember(field.Name, field.Name, field.Type), 1)
+	}
+
+	return unrankMembers(out)
+}
+
+func addRankedMember(members map[string]rankedMember, member plan.Member, rank int) {
+	existing, ok := members[member.Name]
+	if !ok || rank < existing.Rank {
+		members[member.Name] = rankedMember{Member: member, Rank: rank}
+	}
+}
+
+func unrankMembers(members map[string]rankedMember) map[string]plan.Member {
+	out := make(map[string]plan.Member, len(members))
+	for name, member := range members {
+		out[name] = member.Member
+	}
+	return out
+}
+
+func fieldMember(logicalName, accessor string, typ types.Type) plan.Member {
+	return plan.Member{
+		Name:     logicalName,
+		Accessor: accessor,
+		Kind:     plan.MemberKindField,
+		Type:     typ,
+	}
+}
+
+func methodMember(logicalName, accessor string, typ types.Type, canError bool) plan.Member {
+	return plan.Member{
+		Name:     logicalName,
+		Accessor: accessor,
+		Kind:     plan.MemberKindMethod,
+		Type:     typ,
+		CanError: canError,
+	}
+}
+
+func readableMethodMember(
+	method types.Method,
+	bindings map[string]types.Type,
+	logicalName string,
+) (plan.Member, bool) {
+	if method.IsVariadic || len(method.TypeParams) > 0 || len(method.Params) != 0 {
+		return plan.Member{}, false
+	}
+	returnsError, ok := getterResults(method.Results)
+	if !ok {
+		return plan.Member{}, false
+	}
+	resultType := substituteTypeParams(method.Results[0].Type, bindings)
+	return methodMember(logicalName, method.Name, resultType, returnsError), true
+}
+
+func writableMethodMember(
+	method types.Method,
+	bindings map[string]types.Type,
+	logicalName string,
+) (plan.Member, bool) {
+	if method.IsVariadic || len(method.TypeParams) > 0 || len(method.Params) != 1 {
+		return plan.Member{}, false
+	}
+	if method.Receiver == nil || method.Receiver.Type.Kind != types.TypeKindPointer {
+		return plan.Member{}, false
+	}
+	returnsError, ok := setterResults(method.Results)
+	if !ok {
+		return plan.Member{}, false
+	}
+	paramType := substituteTypeParams(method.Params[0].Type, bindings)
+	return methodMember(logicalName, method.Name, paramType, returnsError), true
+}
+
+func getterResults(results []types.Parameter) (returnsError bool, ok bool) {
+	switch len(results) {
+	case 1:
+		return false, true
+	case 2:
+		if isErrorResult(results[1].Type) {
+			return true, true
+		}
+	}
+	return false, false
+}
+
+func setterResults(results []types.Parameter) (returnsError bool, ok bool) {
+	switch len(results) {
+	case 0:
+		return false, true
+	case 1:
+		if isErrorResult(results[0].Type) {
+			return true, true
+		}
+	}
+	return false, false
+}
+
+func isErrorResult(typ types.Type) bool {
+	return typ.Name == "error" && typ.Package.ImportPath == ""
+}
+
+func methodAccessibleFrom(typeDecl types.TypeDecl, method types.Method, from string) bool {
+	if method.IsExported {
+		return true
+	}
+	return typeDecl.Package.ImportPath == from
+}
+
+func resolveExactReadableMember(
+	typeDecl types.TypeDecl,
+	typ types.Type,
+	rootSourceType types.Type,
+	rootTargetType types.Type,
+	outputImportPath string,
+	logicalName string,
+	accessor string,
+) (plan.Member, plan.Diagnostic, bool) {
+	if field, ok := typeDecl.Fields[accessor]; ok {
+		if diagnostic, ok := validateFieldMember(typeDecl, rootSourceType, rootTargetType, field, outputImportPath, "source"); !ok {
+			return plan.Member{}, diagnostic, false
+		}
+		bindings := concreteTypeParamBindings(typeDecl, typ)
+		if len(bindings) > 0 {
+			field.Type = substituteTypeParams(field.Type, bindings)
+		}
+		return fieldMember(logicalName, accessor, field.Type), plan.Diagnostic{}, true
+	}
+
+	method, ok := typeDecl.Methods[accessor]
+	if !ok {
+		return plan.Member{}, exactAccessorDiagnostic("source", rootSourceType, rootTargetType, accessor, "does not exist"), false
+	}
+	if !methodAccessibleFrom(typeDecl, method, outputImportPath) {
+		return plan.Member{}, exactAccessorDiagnostic("source", rootSourceType, rootTargetType, accessor, "is not accessible"), false
+	}
+	member, ok := readableMethodMember(method, concreteTypeParamBindings(typeDecl, typ), logicalName)
+	if !ok {
+		return plan.Member{}, exactAccessorDiagnostic("source", rootSourceType, rootTargetType, accessor, "is not a readable accessor"), false
+	}
+	return member, plan.Diagnostic{}, true
+}
+
+func resolveExactWritableMember(
+	typeDecl types.TypeDecl,
+	typ types.Type,
+	rootSourceType types.Type,
+	rootTargetType types.Type,
+	outputImportPath string,
+	logicalName string,
+	accessor string,
+) (plan.Member, plan.Diagnostic, bool) {
+	if field, ok := typeDecl.Fields[accessor]; ok {
+		if diagnostic, ok := validateFieldMember(typeDecl, rootSourceType, rootTargetType, field, outputImportPath, "target"); !ok {
+			return plan.Member{}, diagnostic, false
+		}
+		bindings := concreteTypeParamBindings(typeDecl, typ)
+		if len(bindings) > 0 {
+			field.Type = substituteTypeParams(field.Type, bindings)
+		}
+		return fieldMember(logicalName, accessor, field.Type), plan.Diagnostic{}, true
+	}
+
+	method, ok := typeDecl.Methods[accessor]
+	if !ok {
+		return plan.Member{}, exactAccessorDiagnostic("target", rootSourceType, rootTargetType, accessor, "does not exist"), false
+	}
+	if !methodAccessibleFrom(typeDecl, method, outputImportPath) {
+		return plan.Member{}, exactAccessorDiagnostic("target", rootSourceType, rootTargetType, accessor, "is not accessible"), false
+	}
+	member, ok := writableMethodMember(method, concreteTypeParamBindings(typeDecl, typ), logicalName)
+	if !ok {
+		return plan.Member{}, exactAccessorDiagnostic("target", rootSourceType, rootTargetType, accessor, "is not a writable accessor"), false
+	}
+	return member, plan.Diagnostic{}, true
+}
+
+func validateFieldMember(
+	typeDecl types.TypeDecl,
+	sourceType, targetType types.Type,
+	field types.Field,
+	outputImportPath string,
+	side string,
+) (plan.Diagnostic, bool) {
+	path := plan.SourcePropertyPath(sourceType, targetType, field.Name)
+	if side == "target" {
+		path = plan.TargetPropertyPath(sourceType, targetType, field.Name)
+	}
+	switch {
+	case field.IsEmbedded:
+		return plan.Diagnostic{
+			Level:   plan.DiagnosticLevelFatal,
+			Path:    path,
+			Message: fmt.Sprintf("%s field %q is embedded; embedded fields are not supported", side, field.Name),
+		}, false
+	case !fieldAccessibleFrom(typeDecl, field, outputImportPath):
+		return plan.Diagnostic{
+			Level: plan.DiagnosticLevelFatal,
+			Path:  path,
+			Message: fmt.Sprintf(
+				"%s field %q is not accessible from generated package %q; unexported fields can only be mapped from their declaring package %q",
+				side,
+				field.Name,
+				outputImportPath,
+				typeDecl.Package.ImportPath,
+			),
+		}, false
+	default:
+		return plan.Diagnostic{}, true
+	}
+}
+
+func exactAccessorDiagnostic(side string, sourceType, targetType types.Type, accessor, reason string) plan.Diagnostic {
+	path := plan.SourcePropertyPath(sourceType, targetType, accessor)
+	if side == "target" {
+		path = plan.TargetPropertyPath(sourceType, targetType, accessor)
+	}
+	return plan.Diagnostic{
+		Level:   plan.DiagnosticLevelFatal,
+		Path:    path,
+		Message: fmt.Sprintf("%s accessor %q %s", side, accessor, reason),
+	}
+}
+
+func sortedMemberNames(members map[string]plan.Member) []string {
+	names := slices.Collect(maps.Keys(members))
+	slices.Sort(names)
+	return names
+}
+
 func concreteTypeParamBindings(typeDecl types.TypeDecl, typ types.Type) map[string]types.Type {
 	typ = types.UnwrapAlias(typ)
 	if len(typeDecl.Type.TypeParams) == 0 || len(typeDecl.Type.TypeParams) != len(typ.TypeArgs) {
@@ -2095,36 +2643,10 @@ func concreteTypeParamBindings(typeDecl types.TypeDecl, typ types.Type) map[stri
 	return bindings
 }
 
-func plannableFieldsByName(typeDecl types.TypeDecl, outputImportPath string) map[string]types.Field {
-	return fieldsByName(plannableFields(typeDecl, outputImportPath))
-}
-
-func fieldsByName(fields []types.Field) map[string]types.Field {
-	out := make(map[string]types.Field, len(fields))
-	for _, field := range fields {
-		out[field.Name] = field
-	}
-	return out
-}
-
-func fieldOmissionSet(fields []string) map[string]struct{} {
-	out := make(map[string]struct{}, len(fields))
-	for _, field := range fields {
-		out[field] = struct{}{}
-	}
-	return out
-}
-
-func omitFields(fields []types.Field, omit map[string]struct{}) []types.Field {
-	if len(omit) == 0 {
-		return fields
-	}
-
-	out := make([]types.Field, 0, len(fields))
-	for _, field := range fields {
-		if _, ok := omit[field.Name]; !ok {
-			out = append(out, field)
-		}
+func propertyOmissionSet(properties []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(properties))
+	for _, property := range properties {
+		out[property] = struct{}{}
 	}
 	return out
 }

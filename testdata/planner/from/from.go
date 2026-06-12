@@ -55,6 +55,20 @@ type MethodCallableContainer struct {
 	ID MethodID
 }
 
+type MethodID struct {
+	Value string
+}
+
+func (m MethodID) String() string {
+	return m.Value
+}
+
+type UserID string
+
+type AliasUserID = UserID
+
+type SecretID string
+
 type ConversionContainer struct {
 	ID     UserID
 	Count  int
@@ -76,6 +90,68 @@ type ConversionsPolicyContainer struct {
 
 type StructConversionContainer struct {
 	Code StructCode
+}
+
+type StructCode struct {
+	Value string
+}
+
+type FieldToSetterContainer struct {
+	Name string
+}
+
+type GetterToFieldContainer struct {
+	name string
+}
+
+func (g GetterToFieldContainer) GetName() string {
+	return g.name
+}
+
+type GetterToSetterContainer struct {
+	name string
+}
+
+func (g GetterToSetterContainer) GetName() string {
+	return g.name
+}
+
+type ReadMethodOnlyContainer struct{}
+
+func (r ReadMethodOnlyContainer) Name() string {
+	return "name"
+}
+
+type ExplicitAccessorContainer struct {
+	email string
+}
+
+func (e ExplicitAccessorContainer) FetchEmail() string {
+	return e.email
+}
+
+type BidirectionalAccessorContainer struct {
+	email string
+}
+
+func (b BidirectionalAccessorContainer) GetEmailAddress() string {
+	return b.email
+}
+
+func (b *BidirectionalAccessorContainer) SetEmailAddress(email string) {
+	b.email = email
+}
+
+type ErrorAccessorContainer struct {
+	name string
+}
+
+func (e ErrorAccessorContainer) GetName() (string, error) {
+	return e.name, nil
+}
+
+type CaseInsensitivePropertyContainer struct {
+	RecipeID string
 }
 
 type ScopedStringBoxA struct {
@@ -151,20 +227,6 @@ type Either[L, R any] struct {
 	IsRight bool
 }
 
-type MethodID struct {
-	Value string
-}
-
-type UserID string
-
-type AliasUserID = UserID
-
-type SecretID string
-
-type StructCode struct {
-	Value string
-}
-
 func ExplicitStringToInt(in string) int {
 	return len(in)
 }
@@ -191,10 +253,6 @@ func ZZZStringToInt(in string) int {
 func StringToIntWithBadMapperArg(in string, mapBad func(OptionalBadThing) to.OptionalBadThing) int {
 	_ = mapBad
 	return len(in)
-}
-
-func (m MethodID) String() string {
-	return m.Value
 }
 
 func MapOptional[I, O any](in Optional[I], mapValue func(I) O) to.Optional[O] {

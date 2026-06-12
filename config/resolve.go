@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/seeruk/morph/spec"
 )
@@ -185,7 +186,10 @@ func resolveType(
 	optionality := optionalityFromDefaults(mergeOptionalityDefaults(typ.Optionality, typeDefaults.Optionality))
 	conversion := conversionsFromDefaults(mergeConversionsDefaults(typ.Conversions, typeDefaults.Conversions))
 	callables.Add(spec.CallablePriorityType, typ.Callables)
-	structure := resolveStruct(typ.Struct, optionality, conversion, true)
+	structure, err := resolveStruct(typ.Struct, optionality, conversion, true)
+	if err != nil {
+		return spec.Type{}, nil, fmt.Errorf("packages[%d].types[%d].struct: %w", packageIndex, typeIndex, err)
+	}
 
 	forward := spec.Type{
 		Source:      source,
@@ -202,12 +206,17 @@ func resolveType(
 		return forward, nil, nil
 	}
 
+	inverseStructure, err := resolveStruct(typ.Struct, optionality, conversion, false)
+	if err != nil {
+		return spec.Type{}, nil, fmt.Errorf("packages[%d].types[%d].struct: %w", packageIndex, typeIndex, err)
+	}
+
 	inverse := spec.Type{
 		Source:      target,
 		Target:      source,
 		Enum:        invertEnum(enum),
 		Callables:   callables.Ordered(),
-		Struct:      invertStruct(resolveStruct(typ.Struct, optionality, conversion, false)),
+		Struct:      inverseStructure,
 		Mapper:      mappers.Inverse,
 		Optionality: optionality,
 		Conversions: conversion,
@@ -408,25 +417,121 @@ func resolveStruct(
 	optionality spec.Optionality,
 	conversion spec.ConversionsPolicy,
 	forward bool,
-) spec.Struct {
+) (spec.Struct, error) {
+	inferMethods := true
 	if structure == nil {
-		return spec.Struct{}
+		return spec.Struct{InferMethods: inferMethods}, nil
+	}
+	if structure.InferMethods != nil {
+		inferMethods = *structure.InferMethods
 	}
 
 	out := spec.Struct{
-		Fields: make(map[string]spec.Field, len(structure.Fields)),
-		Omit:   resolveStructOmissions(structure.Omit),
+		InferMethods: inferMethods,
+		Properties:   make([]spec.Property, 0, len(structure.Properties)),
+		Omit:         resolveStructOmissions(structure.Omit),
 	}
-	for sourceName, field := range structure.Fields {
-		targetName := cmp.Or(field.Target, sourceName)
-		out.Fields[sourceName] = spec.Field{
-			Target:      targetName,
-			Callable:    resolveFieldCallable(field.Callable, forward),
-			Optionality: optionalityFromOverrides(field.Optionality, optionality),
-			Conversions: conversionsFromOverrides(field.Conversions, conversion),
+	if !forward {
+		out.Omit = invertStructOmissions(out.Omit)
+	}
+
+	sourceIndexes := make(map[string][]int, len(structure.Properties))
+	targetIndexes := make(map[string][]int, len(structure.Properties))
+	for i, property := range structure.Properties {
+		resolved, err := resolveStructProperty(property, optionality, conversion, forward)
+		if err != nil {
+			return spec.Struct{}, fmt.Errorf("properties[%d]: %w", i, err)
 		}
+		sourceIndexes[resolved.Source] = append(sourceIndexes[resolved.Source], i)
+		targetIndexes[resolved.Target] = append(targetIndexes[resolved.Target], i)
+		out.Properties = append(out.Properties, resolved)
 	}
-	return out
+	if err := duplicateStructPropertiesError(sourceIndexes, targetIndexes); err != nil {
+		return spec.Struct{}, err
+	}
+
+	return out, nil
+}
+
+func resolveStructProperty(
+	property Property,
+	optionality spec.Optionality,
+	conversion spec.ConversionsPolicy,
+	forward bool,
+) (spec.Property, error) {
+	source, target, err := resolvePropertyNames(property)
+	if err != nil {
+		return spec.Property{}, err
+	}
+
+	accessors := property.Accessors.Forward
+	if !forward {
+		source, target = target, source
+		accessors = property.Accessors.Inverse
+	}
+
+	return spec.Property{
+		Source:      source,
+		Target:      target,
+		Accessors:   spec.PropertyAccessors{Read: accessors.Read, Write: accessors.Write},
+		Callable:    resolvePropertyCallable(property.Callable, forward),
+		Optionality: optionalityFromOverrides(property.Optionality, optionality),
+		Conversions: conversionsFromOverrides(property.Conversions, conversion),
+	}, nil
+}
+
+func resolvePropertyNames(property Property) (string, string, error) {
+	if property.Name != "" {
+		if property.Source != "" || property.Target != "" {
+			return "", "", errors.New("name cannot be combined with source or target")
+		}
+		return property.Name, property.Name, nil
+	}
+	if property.Source == "" || property.Target == "" {
+		return "", "", errors.New("either name, or source and target property names are required")
+	}
+	return property.Source, property.Target, nil
+}
+
+func duplicateStructPropertiesError(
+	sourceIndexes map[string][]int,
+	targetIndexes map[string][]int,
+) error {
+	parts := duplicatePropertyMessages("source", sourceIndexes)
+	parts = append(parts, duplicatePropertyMessages("target", targetIndexes)...)
+	if len(parts) == 0 {
+		return nil
+	}
+	return fmt.Errorf("duplicate struct property mappings: %s", strings.Join(parts, "; "))
+}
+
+func duplicatePropertyMessages(side string, indexesByName map[string][]int) []string {
+	names := slices.Collect(maps.Keys(indexesByName))
+	slices.Sort(names)
+
+	var messages []string
+	for _, name := range names {
+		indexes := indexesByName[name]
+		if len(indexes) < 2 {
+			continue
+		}
+		messages = append(
+			messages,
+			fmt.Sprintf("%s property %q appears in %s", side, name, formatPropertyIndexes(indexes)),
+		)
+	}
+	return messages
+}
+
+func formatPropertyIndexes(indexes []int) string {
+	indexes = slices.Clone(indexes)
+	slices.Sort(indexes)
+
+	parts := make([]string, len(indexes))
+	for i, index := range indexes {
+		parts[i] = fmt.Sprintf("properties[%d]", index)
+	}
+	return strings.Join(parts, ", ")
 }
 
 func resolveStructOmissions(omit StructOmissions) spec.StructOmissions {
@@ -446,7 +551,7 @@ func dedupeStrings(values []string) []string {
 	return slices.Compact(out)
 }
 
-func resolveFieldCallable(callable *FieldCallable, forward bool) *spec.CallableRef {
+func resolvePropertyCallable(callable *PropertyCallable, forward bool) *spec.CallableRef {
 	if callable == nil {
 		return nil
 	}
@@ -462,27 +567,6 @@ func cloneCallableRef(ref *spec.CallableRef) *spec.CallableRef {
 	}
 	out := *ref
 	return &out
-}
-
-func invertStruct(in spec.Struct) spec.Struct {
-	if len(in.Fields) == 0 && structOmissionsEmpty(in.Omit) {
-		return spec.Struct{}
-	}
-
-	out := spec.Struct{
-		Fields: make(map[string]spec.Field, len(in.Fields)),
-		Omit:   invertStructOmissions(in.Omit),
-	}
-	for sourceName, field := range in.Fields {
-		targetName := cmp.Or(field.Target, sourceName)
-		out.Fields[targetName] = spec.Field{
-			Target:      sourceName,
-			Callable:    cloneCallableRef(field.Callable),
-			Optionality: field.Optionality,
-			Conversions: field.Conversions,
-		}
-	}
-	return out
 }
 
 func structOmissionsEmpty(omit spec.StructOmissions) bool {

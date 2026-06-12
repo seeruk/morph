@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPlannerPlanStructFieldsFromConfig(t *testing.T) {
-	t.Run("uses explicit field mappings", func(t *testing.T) {
+func TestPlannerPlanStructPropertiesFromConfig(t *testing.T) {
+	t.Run("uses explicit property mappings", func(t *testing.T) {
 		out := planWithConfig(t, "lab/planner", config.Config{
 			Conversions: []config.Conversion{labStringyConversion()},
 			Packages: []config.Package{{
@@ -21,30 +21,30 @@ func TestPlannerPlanStructFieldsFromConfig(t *testing.T) {
 				Target: "github.com/seeruk/morph/lab/planner/to",
 				Types: []config.Type{{
 					Name: "Single",
-					Struct: &config.Struct{Fields: map[string]config.Field{
-						"Foo": {Target: "Bla"},
+					Struct: &config.Struct{Properties: []config.Property{
+						{Source: "Foo", Target: "Bla"},
 					}},
 				}},
 			}},
 		})
 
 		root := requireSingleRoot(t, out)
-		bla := requirePlanField(t, root.StructPlan, "Bla")
+		bla := requirePlanProperty(t, root.StructPlan, "Bla")
 
-		assert.Equal(t, "Foo", bla.SourceField.Name)
+		assert.Equal(t, "Foo", bla.Source.Name)
 		assert.Equal(t, plan.OperationConvert, bla.Mapping.Operation)
 	})
 
-	t.Run("reports invalid configured fields", func(t *testing.T) {
+	t.Run("reports invalid configured properties", func(t *testing.T) {
 		out := planWithConfig(t, ".", config.Config{
 			Packages: []config.Package{{
 				Source: plannerFromPackage,
 				Target: plannerToPackage,
 				Types: []config.Type{{
 					Name: "ConversionContainer",
-					Struct: &config.Struct{Fields: map[string]config.Field{
-						"MissingSource": {Target: "ID"},
-						"ID":            {Target: "MissingTarget"},
+					Struct: &config.Struct{Properties: []config.Property{
+						{Source: "MissingSource", Target: "ID"},
+						{Source: "ID", Target: "MissingTarget"},
 					}},
 				}},
 			}},
@@ -53,47 +53,46 @@ func TestPlannerPlanStructFieldsFromConfig(t *testing.T) {
 		root := requireSingleRoot(t, out)
 		assertFatalDiagnosticMessages(
 			t, root.Diagnostics,
-			`source field "MissingSource" does not exist`,
-			`target field "MissingTarget" does not exist`,
+			`source property "MissingSource" does not exist`,
+			`target property "MissingTarget" does not exist`,
 		)
 	})
 
-	t.Run("reports duplicate target fields", func(t *testing.T) {
-		out := planWithConfig(t, ".", config.Config{
+	t.Run("reports duplicate target properties", func(t *testing.T) {
+		_, err := config.Resolve(config.Config{
 			Packages: []config.Package{{
 				Source: plannerFromPackage,
 				Target: plannerToPackage,
 				Types: []config.Type{{
 					Name: "ConversionContainer",
-					Struct: &config.Struct{Fields: map[string]config.Field{
-						"ID":     {Target: "ID"},
-						"Secret": {Target: "ID"},
+					Struct: &config.Struct{Properties: []config.Property{
+						{Source: "ID", Target: "ID"},
+						{Source: "Secret", Target: "ID"},
 					}},
 				}},
 			}},
 		})
 
-		root := requireSingleRoot(t, out)
-
-		assertFatalDiagnosticMessages(t, root.Diagnostics, `target field "ID" is mapped from multiple source fields ["ID" "Secret"]`)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, `duplicate struct property mappings: target property "ID" appears in properties[0], properties[1]`)
 	})
 
-	t.Run("applies field optionality overrides", func(t *testing.T) {
+	t.Run("applies property optionality overrides", func(t *testing.T) {
 		out := planWithConfig(t, ".", config.Config{
 			Packages: []config.Package{{
 				Source: plannerFromPackage,
 				Target: plannerToPackage,
 				Types: []config.Type{{
 					Name: "Node",
-					Struct: &config.Struct{Fields: map[string]config.Field{
-						"Required": {Optionality: pointerErrorOptionalityDefaults()},
+					Struct: &config.Struct{Properties: []config.Property{
+						{Name: "Required", Optionality: pointerErrorOptionalityDefaults()},
 					}},
 				}},
 			}},
 		})
 
 		root := requireSingleRoot(t, out)
-		required := requirePlanField(t, root.StructPlan, "Required")
+		required := requirePlanProperty(t, root.StructPlan, "Required")
 
 		assert.True(t, root.CanError)
 		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, required.Mapping.SourceAdaptations)
@@ -122,7 +121,7 @@ func TestPlannerPlanCallableSelectionFromConfig(t *testing.T) {
 		})
 
 		root := requireSingleRoot(t, out)
-		value := requirePlanField(t, root.StructPlan, "Value")
+		value := requirePlanProperty(t, root.StructPlan, "Value")
 		require.NotNil(t, value.Mapping.Callable)
 
 		assert.Equal(t, "TypeAStringPtrToInt", value.Mapping.Callable.Name)
@@ -145,7 +144,7 @@ func TestPlannerPlanCallableSelectionFromConfig(t *testing.T) {
 		})
 
 		root := requireSingleRoot(t, out)
-		value := requirePlanField(t, root.StructPlan, "Value")
+		value := requirePlanProperty(t, root.StructPlan, "Value")
 		require.NotNil(t, value.Mapping.Callable)
 
 		assert.Equal(t, "ExplicitStringToInt", value.Mapping.Callable.Name)
@@ -172,7 +171,7 @@ func TestPlannerPlanCallableSelectionFromConfig(t *testing.T) {
 		})
 
 		root := requireSingleRoot(t, out)
-		value := requirePlanField(t, root.StructPlan, "Value")
+		value := requirePlanProperty(t, root.StructPlan, "Value")
 		require.NotNil(t, value.Mapping.Callable)
 
 		assert.Equal(t, "ExplicitStringToInt", value.Mapping.Callable.Name)
@@ -193,7 +192,7 @@ func TestPlannerPlanCallableSelectionFromConfig(t *testing.T) {
 		})
 
 		root := requireSingleRoot(t, out)
-		value := requirePlanField(t, root.StructPlan, "Value")
+		value := requirePlanProperty(t, root.StructPlan, "Value")
 		require.NotNil(t, value.Mapping.Callable)
 
 		assert.Equal(t, plan.CallableSourceDiscovered, value.Mapping.Callable.Source)
@@ -207,9 +206,10 @@ func TestPlannerPlanCallableSelectionFromConfig(t *testing.T) {
 				Bidirectional: new(true),
 				Types: []config.Type{{
 					Name: "Explicit",
-					Struct: &config.Struct{Fields: map[string]config.Field{
-						"Foo": {
-							Callable: &config.FieldCallable{Inverse: &spec.CallableRef{
+					Struct: &config.Struct{Properties: []config.Property{
+						{
+							Name: "Foo",
+							Callable: &config.PropertyCallable{Inverse: &spec.CallableRef{
 								ImportPath: "github.com/seeruk/morph/lab/planner/from",
 								Name:       "OptionalOfString2",
 							}},
@@ -220,7 +220,7 @@ func TestPlannerPlanCallableSelectionFromConfig(t *testing.T) {
 		})
 
 		inverse := requireRootBySourcePackage(t, out.OutputGroups[0].Roots, "github.com/seeruk/morph/lab/planner/to")
-		foo := requirePlanField(t, inverse.StructPlan, "Foo")
+		foo := requirePlanProperty(t, inverse.StructPlan, "Foo")
 
 		assert.Equal(t, plan.OperationFunction, foo.Mapping.Operation)
 		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationAddress}, foo.Mapping.SourceAdaptations)
@@ -238,9 +238,9 @@ func TestPlannerPlanCollectionsFromConfig(t *testing.T) {
 	})
 
 	root := requireSingleRoot(t, out)
-	values := requirePlanField(t, root.StructPlan, "Values")
-	codes := requirePlanField(t, root.StructPlan, "Codes")
-	lookup := requirePlanField(t, root.StructPlan, "Lookup")
+	values := requirePlanProperty(t, root.StructPlan, "Values")
+	codes := requirePlanProperty(t, root.StructPlan, "Codes")
+	lookup := requirePlanProperty(t, root.StructPlan, "Lookup")
 
 	require.NotNil(t, values.Mapping.Elem)
 	require.NotNil(t, codes.Mapping.Elem)

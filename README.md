@@ -97,7 +97,7 @@ defaults are specified in the `defaults` section of the configuration.
 
 The order of preference is:
 
-1. Field-level config
+1. Property-level config
 2. Type-level config
 3. Type preset
 4. Package-level config
@@ -105,7 +105,7 @@ The order of preference is:
 6. Top-level default config
 7. Morph built-in defaults
 
-It's worth noting, configuration on a package, type, or field level does not trickle down to nested
+It's worth noting, configuration on a package, type, or property level does not trickle down to nested
 mapping functions that Morph generates automatically. If you need Morph to make a customized mapper,
 it must be specified in the config file, or use top-level defaults.
 
@@ -135,7 +135,7 @@ conversions:
 ```
 
 As conversions are global configuration, you might find there are scenarios where you want to
-disable them for certain packages, types, or fields. This can be done at any of these levels like
+disable them for certain packages, types, or properties. This can be done at any of these levels like
 so:
 
 ```yaml
@@ -149,10 +149,10 @@ packages:
     conversions:
       enabled: true # Re-enable for this type pair.
     struct:
-      fields:
-        LegacyID:
-          conversions:
-            enabled: false # Disable again for this field.
+      properties:
+      - name: LegacyID
+        conversions:
+          enabled: false # Disable again for this property.
 ```
 
 </details>
@@ -253,7 +253,7 @@ you want. Also, discovery is not scoped.
 
 Explicitly configuring callables is the solution to both of those issues. Similar to other
 configuration options, you can configure callables in defaults, presets, on packages, on types, and
-on specific fields. Configuration looks something like this:
+on specific properties. Configuration looks something like this:
 
 ```yaml
 packages:
@@ -267,7 +267,7 @@ packages:
 ```
 
 In the above example, since this is specified at the type level, these functions can be used by
-Morph for any field's value mapping. It will not trickle down to nested mappings.
+Morph for any property's value mapping. It will not trickle down to nested mappings.
 
 Scoped callables are prioritized by where they are configured: type callables are tried before type
 preset callables, then package callables, package preset callables, and finally defaults. Within the
@@ -431,12 +431,13 @@ packages:
 </details>
 
 <details>
-<summary>Overriding Field / Enum Value Mapping</summary>
+<summary>Overriding Property / Enum Value Mapping</summary>
 
-#### Overriding Field / Enum Value Mapping
+#### Overriding Property / Enum Value Mapping
 
-Morph will try to match struct fields by name, including case-insensitive matches. If field names
-don't match clearly, you can map them explicitly:
+Morph will try to match logical struct properties by name, including case-insensitive matches. A
+property is usually backed by a Go field, but can also be backed by getter and setter methods. If
+property names don't match clearly, you can map them explicitly:
 
 ```yaml
 packages:
@@ -445,9 +446,27 @@ packages:
   types:
   - name: Recipe
     struct:
-      fields:
-        RecipeId:
-          target: ID
+      properties:
+      - source: RecipeId
+        target: ID
+```
+
+You can also configure exact accessors when Morph should read or write through specific methods:
+
+```yaml
+packages:
+- source: example.com/foodplanner/foodpb
+  target: example.com/foodplanner/food
+  types:
+  - name: Recipe
+    struct:
+      properties:
+      - source: EmailAddress
+        target: Email
+        accessors:
+          forward:
+            read: GetEmailAddress
+            write: SetEmail
 ```
 
 Enums work similarly. Morph will try to infer enum mappings by normalizing names, but you can
@@ -488,12 +507,12 @@ Patterns use Go's `text/template` library. Input to the template is `enumTemplat
 </details>
 
 <details>
-<summary>Omitting Fields</summary>
+<summary>Omitting Properties</summary>
 
-#### Omitting Fields
+#### Omitting Properties
 
-Morph reports coverage warnings when a target field cannot be populated from a source field, or vice
-versa. If a field is intentionally outside the mapping, you can omit it like so:
+Morph reports coverage warnings when a target property cannot be populated from a source property,
+or vice versa. If a property is intentionally outside the mapping, you can omit it like so:
 
 ```yaml
 packages:
@@ -511,8 +530,8 @@ packages:
         - UpdatedAt
 ```
 
-For bidirectional mappings, omissions are inverted automatically. Fields listed under `source` are
-treated as target omissions on the inverse mapper, and fields listed under `target` are treated as
+For bidirectional mappings, omissions are inverted automatically. Properties listed under `source` are
+treated as target omissions on the inverse mapper, and properties listed under `target` are treated as
 source omissions on the inverse mapper.
 
 </details>
@@ -536,7 +555,7 @@ packages:
     target: RecipeDifficulty
 ```
 
-This will generate both `foodpb -> food` and `food -> foodpb` mappings. Struct field mappings and
+This will generate both `foodpb -> food` and `food -> foodpb` mappings. Struct property mappings and
 enum value mappings are inverted automatically for the inverse mapper.
 
 If only one type should be bidirectional, configure it at the type level:

@@ -74,10 +74,11 @@ func finalizeTypeErrability(typ *plan.Type) bool {
 		// We can trust enums, because there's no opportunity for callables.
 		canError = typ.EnumPlan != nil && typ.CanError
 	case typ.StructPlan != nil:
-		// Structs can have callables, so we need to check each field.
-		for i := range typ.StructPlan.Fields {
-			field := &typ.StructPlan.Fields[i]
-			canError = canError || field.Mapping.CanError
+		// Structs can have callables and erroring accessors, so we need to check each property.
+		for i := range typ.StructPlan.Properties {
+			property := &typ.StructPlan.Properties[i]
+			memberCanError := property.Source.CanError || property.Target.CanError
+			canError = canError || memberCanError || property.Mapping.CanError
 		}
 	}
 

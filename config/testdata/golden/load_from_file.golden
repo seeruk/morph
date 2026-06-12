@@ -72,23 +72,48 @@
           "callables": null,
           "enum": null,
           "struct": {
-            "fields": {
-              "DisplayName": {
-                "target": "Name",
-                "callable": null,
-                "conversions": null,
-                "optionality": null
-              },
-              "ID": {
+            "inferMethods": null,
+            "properties": [
+              {
+                "name": "",
+                "source": "ID",
                 "target": "UserID",
+                "accessors": {
+                  "forward": {
+                    "read": "",
+                    "write": ""
+                  },
+                  "inverse": {
+                    "read": "",
+                    "write": ""
+                  }
+                },
                 "callable": {
                   "forward": "module.test/shared/conversions.StringToUserID",
                   "inverse": "module.test/shared/conversions.UserID.String"
                 },
                 "conversions": null,
                 "optionality": null
+              },
+              {
+                "name": "",
+                "source": "DisplayName",
+                "target": "Name",
+                "accessors": {
+                  "forward": {
+                    "read": "",
+                    "write": ""
+                  },
+                  "inverse": {
+                    "read": "",
+                    "write": ""
+                  }
+                },
+                "callable": null,
+                "conversions": null,
+                "optionality": null
               }
-            },
+            ],
             "omit": {
               "source": [
                 "InternalOnly"

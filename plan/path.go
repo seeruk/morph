@@ -7,19 +7,19 @@ func TypesPath(source, target types.Type) string {
 	return types.TypeKey(source) + "->" + types.TypeKey(target)
 }
 
-// FieldPath returns a stable diagnostic path for a source/target field mapping.
-func FieldPath(source, target types.Type, sourceField, targetField types.Field) string {
-	return TypesPath(source, target) + " :: " + sourceField.Name + "->" + targetField.Name
+// PropertyPath returns a stable diagnostic path for a source/target property mapping.
+func PropertyPath(source, target types.Type, sourceProperty, targetProperty string) string {
+	return TypesPath(source, target) + " :: " + sourceProperty + "->" + targetProperty
 }
 
-// SourceFieldPath returns a stable diagnostic path for a source field within a type pair.
-func SourceFieldPath(source, target types.Type, sourceField string) string {
-	return TypesPath(source, target) + " :: source field " + sourceField
+// SourcePropertyPath returns a stable diagnostic path for a source property within a type pair.
+func SourcePropertyPath(source, target types.Type, sourceProperty string) string {
+	return TypesPath(source, target) + " :: source property " + sourceProperty
 }
 
-// TargetFieldPath returns a stable diagnostic path for a target field within a type pair.
-func TargetFieldPath(source, target types.Type, targetField string) string {
-	return TypesPath(source, target) + " :: target field " + targetField
+// TargetPropertyPath returns a stable diagnostic path for a target property within a type pair.
+func TargetPropertyPath(source, target types.Type, targetProperty string) string {
+	return TypesPath(source, target) + " :: target property " + targetProperty
 }
 
 // SourceEnumValuePath returns a stable diagnostic path for a source enum value within a type pair.

@@ -47,14 +47,14 @@ packages:
   types:
   - name: User
     struct:
-      fields:
-        ID:
-          target: UserID
-          callable:
-            forward: module.test/shared/conversions.StringToUserID
-            inverse: module.test/shared/conversions.UserID.String
-        DisplayName:
-          target: Name
+      properties:
+      - source: ID
+        target: UserID
+        callable:
+          forward: module.test/shared/conversions.StringToUserID
+          inverse: module.test/shared/conversions.UserID.String
+      - source: DisplayName
+        target: Name
       omit:
         source:
         - InternalOnly

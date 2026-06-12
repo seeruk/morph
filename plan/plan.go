@@ -66,14 +66,31 @@ type EnumValue struct {
 }
 
 type Struct struct {
-	Fields []Field
+	Properties []Property
 }
 
-type Field struct {
-	SourceField types.Field
-	TargetField types.Field
-	Mapping     Value
+type Property struct {
+	Source  Member
+	Target  Member
+	Mapping Value
 }
+
+// Member describes a readable or writable struct property member used by a mapping.
+type Member struct {
+	Name     string
+	Accessor string
+	Kind     MemberKind
+	Type     types.Type
+	CanError bool
+}
+
+// MemberKind describes how a property member is accessed in generated code.
+type MemberKind string
+
+const (
+	MemberKindField  MemberKind = "field"
+	MemberKindMethod MemberKind = "method"
+)
 
 // Value describes how to map one value to another. Compound mappings point to child mappings for
 // elements, keys, or values (i.e. for nested types). Generators should apply SourceAdaptations to

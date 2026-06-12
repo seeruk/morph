@@ -55,12 +55,12 @@ packages:
   - name: Ingredient
   - name: Recipe
     struct:
-      fields:
-        RecipeId:
-          target: ID
-          callable:
-            forward: github.com/seeruk/nextmealplease/internal/protomap.StringToID
-            inverse: github.com/seeruk/nextmealplease/internal/protomap.IDToString
+      properties:
+      - source: RecipeId
+        target: ID
+        callable:
+          forward: github.com/seeruk/nextmealplease/internal/protomap.StringToID
+          inverse: github.com/seeruk/nextmealplease/internal/protomap.IDToString
 
 - source: github.com/seeruk/nextmealplease/internal/db
   target: github.com/seeruk/nextmealplease/internal/nmp

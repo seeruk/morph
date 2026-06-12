@@ -35,9 +35,18 @@ packages:
         signature:
           accepts: pointer
     struct:
-      fields:
-        RecipeId:
-          target: ID
+      properties:
+      - source: EmailAddress
+        target: Email
+        accessors:
+          forward:
+            read: GetEmailAddress
+            write: SetEmail
+          inverse:
+            read: GetEmail
+            write: SetEmailAddress
+      - source: RecipeId
+        target: ID
       omit:
         target:
         - Glorp
@@ -64,7 +73,7 @@ packages:
   - name: Single
   - name: Explicit
     struct:
-      fields:
-        Foo:
-          callable:
-            inverse: github.com/seeruk/morph/lab/planner/from.OptionalOfString2
+      properties:
+      - name: Foo
+        callable:
+          inverse: github.com/seeruk/morph/lab/planner/from.OptionalOfString2

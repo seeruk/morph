@@ -28,10 +28,10 @@ func TestPlannerFinalizesRecursiveGeneratedMapperErrability(t *testing.T) {
 	})
 
 	root := requireSingleRoot(t, out)
-	first := requireFieldPlan(t, root.StructPlan, "First")
-	children := requirePlanField(t, first.StructPlan, "Children")
+	first := requirePropertyPlan(t, root.StructPlan, "First")
+	children := requirePlanProperty(t, first.StructPlan, "Children")
 	childrenElem := requireValueElem(t, children.Mapping)
-	required := requirePlanField(t, first.StructPlan, "Required")
+	required := requirePlanProperty(t, first.StructPlan, "Required")
 
 	t.Run("propagates recursive errability", func(t *testing.T) {
 		assert.True(t, root.CanError)
@@ -73,7 +73,7 @@ func TestPlannerRetriesHigherOrderFunctionWhenRecursiveArgCanError(t *testing.T)
 	require.False(t, out.HasFatalDiagnostics())
 
 	root := requireSingleRoot(t, out)
-	maybe := requirePlanField(t, root.StructPlan, "Maybe")
+	maybe := requirePlanProperty(t, root.StructPlan, "Maybe")
 	arg := requireCallableArg(t, maybe.Mapping, 0)
 	elem := requireValueElem(t, arg.Mapping)
 

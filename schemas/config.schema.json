@@ -234,7 +234,7 @@
         },
         "struct": {
           "$ref": "#/$defs/struct",
-          "description": "Explicit field mappings and field-level policies for this type mapping."
+          "description": "Explicit property mappings, accessor policy, and property-level policies for this type mapping."
         },
         "mappers": {
           "$ref": "#/$defs/mappersDefaults",
@@ -334,52 +334,118 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "fields": {
-          "type": "object",
-          "description": "Explicit source field mappings keyed by source field name.",
-          "additionalProperties": {
-            "$ref": "#/$defs/field"
+        "inferMethods": {
+          "type": "boolean",
+          "description": "Whether Morph may infer getter and setter method accessors for struct properties.",
+          "default": true
+        },
+        "properties": {
+          "type": "array",
+          "description": "Explicit logical property mappings and property-level policies.",
+          "items": {
+            "$ref": "#/$defs/property"
           }
         },
         "omit": {
           "$ref": "#/$defs/structOmissions",
-          "description": "Source and target fields intentionally omitted from struct mapping coverage."
+          "description": "Source and target properties intentionally omitted from struct mapping coverage."
         }
       }
     },
-    "field": {
+    "property": {
       "type": "object",
       "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": ["name"],
+          "not": {
+            "anyOf": [
+              {
+                "required": ["source"]
+              },
+              {
+                "required": ["target"]
+              }
+            ]
+          }
+        },
+        {
+          "required": ["source", "target"],
+          "not": {
+            "required": ["name"]
+          }
+        }
+      ],
       "properties": {
+        "name": {
+          "$ref": "#/$defs/propertyName",
+          "description": "Shared logical property name to use for both source and target."
+        },
+        "source": {
+          "$ref": "#/$defs/propertyName",
+          "description": "Source logical property name."
+        },
         "target": {
-          "$ref": "#/$defs/fieldName",
-          "description": "Target field name; defaults to the source field name when omitted."
+          "$ref": "#/$defs/propertyName",
+          "description": "Target logical property name."
+        },
+        "accessors": {
+          "$ref": "#/$defs/propertyAccessors",
+          "description": "Exact source read and target write accessors for each mapping direction."
         },
         "callable": {
-          "$ref": "#/$defs/fieldCallable",
-          "description": "Explicit callable to use for this field."
+          "$ref": "#/$defs/propertyCallable",
+          "description": "Explicit callable to use for this property."
         },
         "conversions": {
           "$ref": "#/$defs/conversionsDefaults",
-          "description": "Conversion policy for this field."
+          "description": "Conversion policy for this property."
         },
         "optionality": {
           "$ref": "#/$defs/optionalityDefaults",
-          "description": "Pointer/value optionality policy for this field."
+          "description": "Pointer/value optionality policy for this property."
         }
       }
     },
-    "fieldCallable": {
+    "propertyAccessors": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "forward": {
+          "$ref": "#/$defs/propertyDirectionAccessors",
+          "description": "Exact accessors used by the forward mapper."
+        },
+        "inverse": {
+          "$ref": "#/$defs/propertyDirectionAccessors",
+          "description": "Exact accessors used by the inverse mapper."
+        }
+      }
+    },
+    "propertyDirectionAccessors": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "read": {
+          "$ref": "#/$defs/propertyName",
+          "description": "Exact readable accessor name on the source side for this direction."
+        },
+        "write": {
+          "$ref": "#/$defs/propertyName",
+          "description": "Exact writable accessor name on the target side for this direction."
+        }
+      }
+    },
+    "propertyCallable": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "forward": {
           "$ref": "#/$defs/callableRef",
-          "description": "Callable to use for the forward field mapping."
+          "description": "Callable to use for the forward property mapping."
         },
         "inverse": {
           "$ref": "#/$defs/callableRef",
-          "description": "Callable to use for the inverse field mapping."
+          "description": "Callable to use for the inverse property mapping."
         }
       }
     },
@@ -389,16 +455,16 @@
       "properties": {
         "source": {
           "type": "array",
-          "description": "Source fields intentionally not mapped to target fields.",
+          "description": "Source properties intentionally not mapped to target properties.",
           "items": {
-            "$ref": "#/$defs/fieldName"
+            "$ref": "#/$defs/propertyName"
           }
         },
         "target": {
           "type": "array",
-          "description": "Target fields intentionally left at their zero value.",
+          "description": "Target properties intentionally left at their zero value.",
           "items": {
-            "$ref": "#/$defs/fieldName"
+            "$ref": "#/$defs/propertyName"
           }
         }
       }
@@ -570,10 +636,10 @@
       "description": "Go template for enum value names using .Type and .Value with Raw, Pascal, Camel, Kebab, Snake, or Screaming.",
       "examples": ["{{ .Type.Pascal }}_{{ .Value.Screaming }}"]
     },
-    "fieldName": {
+    "propertyName": {
       "type": "string",
       "minLength": 1,
-      "description": "Go struct field name."
+      "description": "Logical struct property or exact accessor name."
     },
     "presetName": {
       "type": "string",

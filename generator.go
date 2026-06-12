@@ -173,16 +173,22 @@ func (g *fileGenerator) renderStructMapper(typ *plan.Type) error {
 		g.writer.Line("var target %s", targetType)
 	})
 
-	for _, field := range typ.StructPlan.Fields {
-		source := "source." + field.SourceField.Name
-		name := renderNameFromField(field)
+	for _, property := range typ.StructPlan.Properties {
+		name := renderNameFromProperty(property)
 		g.writer.Indent(func() {
-			expr, err := g.renderValue(scope, source, field.Mapping, name)
+			source, err := g.renderMemberRead(scope, "source", property.Source, name)
 			if err != nil {
 				scope.Err = err
 				return
 			}
-			g.writer.Line("target.%s = %s", field.TargetField.Name, expr)
+			expr, err := g.renderValue(scope, source, property.Mapping, name)
+			if err != nil {
+				scope.Err = err
+				return
+			}
+			if err := g.renderMemberWrite(scope, "target", property.Target, expr); err != nil {
+				scope.Err = err
+			}
 		})
 		if scope.Err != nil {
 			return scope.Err
@@ -292,12 +298,67 @@ func (g *fileGenerator) renderMapperNilSourceGuard(scope *renderScope, typ *plan
 
 type renderName string
 
-func renderNameFromField(field plan.Field) renderName {
-	name := field.TargetField.Name
+func renderNameFromProperty(property plan.Property) renderName {
+	name := property.Target.Name
 	if name == "" {
-		name = field.SourceField.Name
+		name = property.Source.Name
 	}
 	return renderName(localNameBase(name))
+}
+
+func (g *fileGenerator) renderMemberRead(
+	scope *renderScope,
+	source string,
+	member plan.Member,
+	name renderName,
+) (string, error) {
+	switch member.Kind {
+	case plan.MemberKindField:
+		return source + "." + member.Accessor, nil
+	case plan.MemberKindMethod:
+		call := source + "." + member.Accessor + "()"
+		if !member.CanError {
+			return call, nil
+		}
+		valueName := scope.Names.Next(name.Suffix("Value", "sourceValue"))
+		errName := scope.Names.Next("err")
+		g.writer.Line("%s, %s := %s", valueName, errName, call)
+		g.writer.Line("if %s != nil {", errName)
+		g.writer.Indent(func() {
+			g.renderReturnError(scope, errName)
+		})
+		g.writer.Line("}")
+		return valueName, nil
+	default:
+		return "", fmt.Errorf("cannot render unknown member kind %q", member.Kind)
+	}
+}
+
+func (g *fileGenerator) renderMemberWrite(
+	scope *renderScope,
+	target string,
+	member plan.Member,
+	expr string,
+) error {
+	switch member.Kind {
+	case plan.MemberKindField:
+		g.writer.Line("%s.%s = %s", target, member.Accessor, expr)
+	case plan.MemberKindMethod:
+		call := fmt.Sprintf("%s.%s(%s)", target, member.Accessor, expr)
+		if !member.CanError {
+			g.writer.Line("%s", call)
+			return nil
+		}
+		errName := scope.Names.Next("err")
+		g.writer.Line("if %s := %s; %s != nil {", errName, call, errName)
+		g.writer.Indent(func() {
+			g.renderReturnError(scope, errName)
+		})
+		g.writer.Line("}")
+	default:
+		return fmt.Errorf("cannot render unknown member kind %q", member.Kind)
+	}
+	return nil
 }
 
 func (n renderName) Base(fallback string) string {

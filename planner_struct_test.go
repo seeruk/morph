@@ -15,7 +15,7 @@ func TestPlannerPlanCompositeDiagnostics(t *testing.T) {
 	t.Run("keeps slice mapping supported when the element mapper only warns", func(t *testing.T) {
 		root := planPlannerRoot(t, config.Type{Name: "WarningSliceContainer"})
 
-		values := requirePlanField(t, root.StructPlan, "Values")
+		values := requirePlanProperty(t, root.StructPlan, "Values")
 
 		assert.Equal(t, plan.OperationSlice, values.Mapping.Operation)
 		require.NotNil(t, values.Mapping.Elem)
@@ -23,13 +23,13 @@ func TestPlannerPlanCompositeDiagnostics(t *testing.T) {
 		require.Len(t, root.Diagnostics, 1)
 		assert.Equal(t, plan.DiagnosticLevelWarning, root.Diagnostics[0].Level)
 		assert.False(t, plan.HasFatalDiagnostics(root.Diagnostics))
-		assert.Contains(t, root.Diagnostics[0].Path, "target field Extra")
+		assert.Contains(t, root.Diagnostics[0].Path, "target property Extra")
 	})
 
 	t.Run("marks slice mapping unsupported when the element mapper is fatal", func(t *testing.T) {
 		root := planPlannerRoot(t, config.Type{Name: "ConversionContainer"})
 
-		values := requirePlanField(t, root.StructPlan, "Values")
+		values := requirePlanProperty(t, root.StructPlan, "Values")
 
 		assert.Equal(t, plan.OperationUnsupported, values.Mapping.Operation)
 		require.NotNil(t, values.Mapping.Elem)
@@ -40,17 +40,17 @@ func TestPlannerPlanCompositeDiagnostics(t *testing.T) {
 }
 
 func TestPlannerPlanStructOmissions(t *testing.T) {
-	t.Run("warns for unmapped source and target fields by default", func(t *testing.T) {
+	t.Run("warns for unmapped source and target properties by default", func(t *testing.T) {
 		root := planPlannerRoot(t, config.Type{Name: "OmissionContainer"})
 
 		assert.Equal(t, []string{
-			`no source field found for target field "TargetOnly"; configure struct.fields to map it explicitly or struct.omit.target to omit it`,
-			`no target field found for source field "SourceOnly"; configure struct.fields to map it explicitly or struct.omit.source to omit it`,
+			`no source property found for target property "TargetOnly"; configure struct.properties to map it explicitly or struct.omit.target to omit it`,
+			`no target property found for source property "SourceOnly"; configure struct.properties to map it explicitly or struct.omit.source to omit it`,
 		}, diagnosticsMessages(root.Diagnostics))
 		assert.False(t, plan.HasFatalDiagnostics(root.Diagnostics))
 	})
 
-	t.Run("omits target fields from planning and target coverage warnings", func(t *testing.T) {
+	t.Run("omits target properties from planning and target coverage warnings", func(t *testing.T) {
 		root := planPlannerRoot(t, config.Type{
 			Name: "OmissionContainer",
 			Struct: &config.Struct{Omit: config.StructOmissions{
@@ -58,12 +58,12 @@ func TestPlannerPlanStructOmissions(t *testing.T) {
 			}},
 		})
 
-		assert.NotContains(t, planFieldTargetNames(root.StructPlan), "TargetOnly")
-		assert.NotContains(t, diagnosticsMessages(root.Diagnostics), `no source field found for target field "TargetOnly"; configure struct.fields to map it explicitly or struct.omit.target to omit it`)
-		assert.Contains(t, diagnosticsMessages(root.Diagnostics), `no target field found for source field "SourceOnly"; configure struct.fields to map it explicitly or struct.omit.source to omit it`)
+		assert.NotContains(t, planPropertyTargetNames(root.StructPlan), "TargetOnly")
+		assert.NotContains(t, diagnosticsMessages(root.Diagnostics), `no source property found for target property "TargetOnly"; configure struct.properties to map it explicitly or struct.omit.target to omit it`)
+		assert.Contains(t, diagnosticsMessages(root.Diagnostics), `no target property found for source property "SourceOnly"; configure struct.properties to map it explicitly or struct.omit.source to omit it`)
 	})
 
-	t.Run("omits source fields from matching and source coverage warnings", func(t *testing.T) {
+	t.Run("omits source properties from matching and source coverage warnings", func(t *testing.T) {
 		root := planPlannerRoot(t, config.Type{
 			Name: "OmissionContainer",
 			Struct: &config.Struct{Omit: config.StructOmissions{
@@ -71,8 +71,8 @@ func TestPlannerPlanStructOmissions(t *testing.T) {
 			}},
 		})
 
-		assert.NotContains(t, diagnosticsMessages(root.Diagnostics), `no target field found for source field "SourceOnly"; configure struct.fields to map it explicitly or struct.omit.source to omit it`)
-		assert.Contains(t, diagnosticsMessages(root.Diagnostics), `no source field found for target field "TargetOnly"; configure struct.fields to map it explicitly or struct.omit.target to omit it`)
+		assert.NotContains(t, diagnosticsMessages(root.Diagnostics), `no target property found for source property "SourceOnly"; configure struct.properties to map it explicitly or struct.omit.source to omit it`)
+		assert.Contains(t, diagnosticsMessages(root.Diagnostics), `no source property found for target property "TargetOnly"; configure struct.properties to map it explicitly or struct.omit.target to omit it`)
 	})
 
 	t.Run("inverts omissions for bidirectional mappings", func(t *testing.T) {
@@ -101,7 +101,7 @@ func TestPlannerPlanStructOmissions(t *testing.T) {
 		assert.Empty(t, inverse.Diagnostics)
 	})
 
-	t.Run("rejects invalid omitted fields", func(t *testing.T) {
+	t.Run("rejects invalid omitted properties", func(t *testing.T) {
 		root := planPlannerRoot(t, config.Type{
 			Name: "OmissionContainer",
 			Struct: &config.Struct{Omit: config.StructOmissions{
@@ -113,17 +113,17 @@ func TestPlannerPlanStructOmissions(t *testing.T) {
 		assertFatalDiagnosticMessages(
 			t,
 			root.Diagnostics,
-			`source field "MissingSource" does not exist`,
-			`target field "MissingTarget" does not exist`,
+			`source property "MissingSource" does not exist`,
+			`target property "MissingTarget" does not exist`,
 		)
 	})
 
-	t.Run("rejects omitted fields that are explicitly mapped", func(t *testing.T) {
+	t.Run("rejects omitted properties that are explicitly mapped", func(t *testing.T) {
 		root := planPlannerRoot(t, config.Type{
 			Name: "OmissionContainer",
 			Struct: &config.Struct{
-				Fields: map[string]config.Field{
-					"SourceOnly": {Target: "TargetOnly"},
+				Properties: []config.Property{
+					{Source: "SourceOnly", Target: "TargetOnly"},
 				},
 				Omit: config.StructOmissions{
 					Source: []string{"SourceOnly"},
@@ -135,38 +135,9 @@ func TestPlannerPlanStructOmissions(t *testing.T) {
 		assertFatalDiagnosticMessages(
 			t,
 			root.Diagnostics,
-			`source field "SourceOnly" cannot be both omitted and explicitly mapped`,
-			`target field "TargetOnly" cannot be both omitted and explicitly mapped`,
+			`source property "SourceOnly" cannot be both omitted and explicitly mapped`,
+			`target property "TargetOnly" cannot be both omitted and explicitly mapped`,
 		)
-	})
-}
-
-func TestInvertStructSpec(t *testing.T) {
-	t.Run("returns nil for nil struct specs", func(t *testing.T) {
-		assert.Nil(t, invertStructSpec(nil))
-	})
-
-	t.Run("inverts source to target mappings", func(t *testing.T) {
-		got := invertStructSpec(&spec.Struct{
-			Fields: map[string]spec.Field{
-				"RecipeId":    {Target: "ID"},
-				"DisplayName": {Target: "Name"},
-			},
-			Omit: spec.StructOmissions{
-				Source: []string{"Legacy"},
-				Target: []string{"CreatedAt"},
-			},
-		})
-
-		require.NotNil(t, got)
-		assert.Equal(t, map[string]spec.Field{
-			"ID":   {Target: "RecipeId"},
-			"Name": {Target: "DisplayName"},
-		}, got.Fields)
-		assert.Equal(t, spec.StructOmissions{
-			Source: []string{"CreatedAt"},
-			Target: []string{"Legacy"},
-		}, got.Omit)
 	})
 }
 
@@ -268,18 +239,18 @@ func TestPlannerPlanFieldVisibility(t *testing.T) {
 				Output: config.Output{Strategy: new(spec.OutputStrategySourcePackage)},
 				Types: []config.Type{{
 					Name: "LowerSourceFieldContainer",
-					Struct: &config.Struct{Fields: map[string]config.Field{
-						"secret": {Target: "Secret"},
+					Struct: &config.Struct{Properties: []config.Property{
+						{Source: "secret", Target: "Secret"},
 					}},
 				}},
 			}},
 		})
 
 		root := requireSingleRoot(t, out)
-		field := requirePlanField(t, root.StructPlan, "Secret")
+		field := requirePlanProperty(t, root.StructPlan, "Secret")
 
 		assert.False(t, plan.HasFatalDiagnostics(root.Diagnostics))
-		assert.Equal(t, "secret", field.SourceField.Name)
+		assert.Equal(t, "secret", field.Source.Name)
 	})
 
 	t.Run("allows unexported target fields from the generated package", func(t *testing.T) {
@@ -290,18 +261,18 @@ func TestPlannerPlanFieldVisibility(t *testing.T) {
 				Output: config.Output{Strategy: new(spec.OutputStrategyTargetPackage)},
 				Types: []config.Type{{
 					Name: "LowerTargetFieldContainer",
-					Struct: &config.Struct{Fields: map[string]config.Field{
-						"Secret": {Target: "secret"},
+					Struct: &config.Struct{Properties: []config.Property{
+						{Source: "Secret", Target: "secret"},
 					}},
 				}},
 			}},
 		})
 
 		root := requireSingleRoot(t, out)
-		field := requirePlanField(t, root.StructPlan, "secret")
+		field := requirePlanProperty(t, root.StructPlan, "secret")
 
 		assert.False(t, plan.HasFatalDiagnostics(root.Diagnostics))
-		assert.Equal(t, "Secret", field.SourceField.Name)
+		assert.Equal(t, "Secret", field.Source.Name)
 	})
 
 	t.Run("maps accessible unexported fields automatically", func(t *testing.T) {
@@ -318,10 +289,10 @@ func TestPlannerPlanFieldVisibility(t *testing.T) {
 		})
 
 		root := requireSingleRoot(t, out)
-		field := requirePlanField(t, root.StructPlan, "secret")
+		field := requirePlanProperty(t, root.StructPlan, "secret")
 
 		assert.False(t, plan.HasFatalDiagnostics(root.Diagnostics))
-		assert.Equal(t, "secret", field.SourceField.Name)
+		assert.Equal(t, "secret", field.Source.Name)
 	})
 
 	t.Run("skips inaccessible unexported fields during automatic matching", func(t *testing.T) {
@@ -339,7 +310,7 @@ func TestPlannerPlanFieldVisibility(t *testing.T) {
 		root := requireSingleRoot(t, out)
 
 		assert.False(t, plan.HasFatalDiagnostics(root.Diagnostics))
-		assert.Empty(t, root.StructPlan.Fields)
+		assert.Empty(t, root.StructPlan.Properties)
 	})
 
 	t.Run("rejects explicit unexported source fields from another generated package", func(t *testing.T) {
@@ -350,8 +321,8 @@ func TestPlannerPlanFieldVisibility(t *testing.T) {
 				Output: config.Output{Strategy: new(spec.OutputStrategyTargetPackage)},
 				Types: []config.Type{{
 					Name: "LowerSourceFieldContainer",
-					Struct: &config.Struct{Fields: map[string]config.Field{
-						"secret": {Target: "Secret"},
+					Struct: &config.Struct{Properties: []config.Property{
+						{Source: "secret", Target: "Secret"},
 					}},
 				}},
 			}},
@@ -373,8 +344,8 @@ func TestPlannerPlanFieldVisibility(t *testing.T) {
 				Output: config.Output{Strategy: new(spec.OutputStrategySourcePackage)},
 				Types: []config.Type{{
 					Name: "LowerTargetFieldContainer",
-					Struct: &config.Struct{Fields: map[string]config.Field{
-						"Secret": {Target: "secret"},
+					Struct: &config.Struct{Properties: []config.Property{
+						{Source: "Secret", Target: "secret"},
 					}},
 				}},
 			}},
@@ -396,8 +367,8 @@ func TestPlannerPlanFieldVisibility(t *testing.T) {
 				Output: config.Output{Strategy: new(spec.OutputStrategySourcePackage)},
 				Types: []config.Type{{
 					Name: "EmbeddedFieldContainer",
-					Struct: &config.Struct{Fields: map[string]config.Field{
-						"ID": {Target: "ID"},
+					Struct: &config.Struct{Properties: []config.Property{
+						{Name: "ID"},
 					}},
 				}},
 			}},
@@ -405,6 +376,188 @@ func TestPlannerPlanFieldVisibility(t *testing.T) {
 
 		root := requireSingleRoot(t, out)
 		assertFatalDiagnosticMessages(t, root.Diagnostics, `source field "ID" is embedded; embedded fields are not supported`)
+	})
+}
+
+func TestPlannerPlanStructMethodAccessors(t *testing.T) {
+	t.Run("keeps case-insensitive property matching", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{Name: "CaseInsensitivePropertyContainer"})
+
+		recipeID := requirePlanProperty(t, root.StructPlan, "RecipeId")
+
+		assert.Equal(t, "RecipeID", recipeID.Source.Name)
+		assert.Equal(t, "RecipeId", recipeID.Target.Name)
+		assert.Equal(t, plan.OperationAssign, recipeID.Mapping.Operation)
+	})
+
+	t.Run("maps source fields to target setters automatically", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{Name: "FieldToSetterContainer"})
+
+		name := requirePlanProperty(t, root.StructPlan, "Name")
+
+		assert.Equal(t, plan.MemberKindField, name.Source.Kind)
+		assert.Equal(t, "Name", name.Source.Accessor)
+		assert.Equal(t, plan.MemberKindMethod, name.Target.Kind)
+		assert.Equal(t, "SetName", name.Target.Accessor)
+		assert.Equal(t, plan.OperationAssign, name.Mapping.Operation)
+	})
+
+	t.Run("maps source getters to target fields automatically", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{Name: "GetterToFieldContainer"})
+
+		name := requirePlanProperty(t, root.StructPlan, "Name")
+
+		assert.Equal(t, plan.MemberKindMethod, name.Source.Kind)
+		assert.Equal(t, "GetName", name.Source.Accessor)
+		assert.Equal(t, plan.MemberKindField, name.Target.Kind)
+		assert.Equal(t, "Name", name.Target.Accessor)
+		assert.Equal(t, plan.OperationAssign, name.Mapping.Operation)
+	})
+
+	t.Run("maps getter to setter automatically", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{Name: "GetterToSetterContainer"})
+
+		name := requirePlanProperty(t, root.StructPlan, "Name")
+
+		assert.Equal(t, plan.MemberKindMethod, name.Source.Kind)
+		assert.Equal(t, "GetName", name.Source.Accessor)
+		assert.Equal(t, plan.MemberKindMethod, name.Target.Kind)
+		assert.Equal(t, "SetName", name.Target.Accessor)
+		assert.Equal(t, plan.OperationAssign, name.Mapping.Operation)
+	})
+
+	t.Run("does not infer method-to-method mappings without a target setter", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{Name: "ReadMethodOnlyContainer"})
+
+		require.NotNil(t, root.StructPlan)
+		assert.Empty(t, root.StructPlan.Properties)
+		assert.Contains(t, diagnosticsMessages(root.Diagnostics), `no target property found for source property "Name"; configure struct.properties to map it explicitly or struct.omit.source to omit it`)
+	})
+
+	t.Run("requires configured properties for accessor-only mappings", func(t *testing.T) {
+		automatic := planPlannerRoot(t, config.Type{Name: "ExplicitAccessorContainer"})
+		require.NotNil(t, automatic.StructPlan)
+		assert.Empty(t, automatic.StructPlan.Properties)
+
+		configured := planPlannerRoot(t, config.Type{
+			Name: "ExplicitAccessorContainer",
+			Struct: &config.Struct{Properties: []config.Property{{
+				Source: "EmailAddress",
+				Target: "Email",
+				Accessors: config.PropertyAccessors{
+					Forward: config.PropertyDirectionAccessors{
+						Read:  "FetchEmail",
+						Write: "StoreEmail",
+					},
+				},
+			}}},
+		})
+
+		email := requirePlanProperty(t, configured.StructPlan, "Email")
+		assert.Equal(t, plan.MemberKindMethod, email.Source.Kind)
+		assert.Equal(t, "FetchEmail", email.Source.Accessor)
+		assert.Equal(t, "EmailAddress", email.Source.Name)
+		assert.Equal(t, plan.MemberKindMethod, email.Target.Kind)
+		assert.Equal(t, "StoreEmail", email.Target.Accessor)
+		assert.Equal(t, "Email", email.Target.Name)
+	})
+
+	t.Run("inferMethods false disables automatic method inference but not explicit accessors", func(t *testing.T) {
+		inferMethods := false
+		automatic := planPlannerRoot(t, config.Type{
+			Name:   "GetterToFieldContainer",
+			Struct: &config.Struct{InferMethods: &inferMethods},
+		})
+		require.NotNil(t, automatic.StructPlan)
+		assert.Empty(t, automatic.StructPlan.Properties)
+		assert.Contains(t, diagnosticsMessages(automatic.Diagnostics), `no source property found for target property "Name"; configure struct.properties to map it explicitly or struct.omit.target to omit it`)
+
+		configured := planPlannerRoot(t, config.Type{
+			Name: "GetterToFieldContainer",
+			Struct: &config.Struct{
+				InferMethods: &inferMethods,
+				Properties: []config.Property{{
+					Name: "Name",
+					Accessors: config.PropertyAccessors{
+						Forward: config.PropertyDirectionAccessors{Read: "GetName"},
+					},
+				}},
+			},
+		})
+
+		name := requirePlanProperty(t, configured.StructPlan, "Name")
+		assert.Equal(t, "GetName", name.Source.Accessor)
+		assert.Equal(t, plan.MemberKindMethod, name.Source.Kind)
+		assert.Equal(t, "Name", name.Target.Accessor)
+		assert.Equal(t, plan.MemberKindField, name.Target.Kind)
+	})
+
+	t.Run("uses configured forward and inverse accessors directionally", func(t *testing.T) {
+		out := planWithConfig(t, ".", config.Config{
+			Packages: []config.Package{{
+				Source:        plannerFromPackage,
+				Target:        plannerToPackage,
+				Bidirectional: new(true),
+				Types: []config.Type{{
+					Name: "BidirectionalAccessorContainer",
+					Struct: &config.Struct{Properties: []config.Property{{
+						Source: "EmailAddress",
+						Target: "Email",
+						Accessors: config.PropertyAccessors{
+							Forward: config.PropertyDirectionAccessors{
+								Read:  "GetEmailAddress",
+								Write: "SetEmail",
+							},
+							Inverse: config.PropertyDirectionAccessors{
+								Read:  "GetEmail",
+								Write: "SetEmailAddress",
+							},
+						},
+					}}},
+				}},
+			}},
+		})
+
+		require.Len(t, out.OutputGroups, 1)
+		require.Len(t, out.OutputGroups[0].Roots, 2)
+
+		forward := requireRootBySourcePackage(t, out.OutputGroups[0].Roots, plannerFromPackage)
+		forwardEmail := requirePlanProperty(t, forward.StructPlan, "Email")
+		assert.Equal(t, "GetEmailAddress", forwardEmail.Source.Accessor)
+		assert.Equal(t, "SetEmail", forwardEmail.Target.Accessor)
+
+		inverse := requireRootBySourcePackage(t, out.OutputGroups[0].Roots, plannerToPackage)
+		inverseEmail := requirePlanProperty(t, inverse.StructPlan, "EmailAddress")
+		assert.Equal(t, "GetEmail", inverseEmail.Source.Accessor)
+		assert.Equal(t, "SetEmailAddress", inverseEmail.Target.Accessor)
+	})
+
+	t.Run("propagates accessor errors", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{Name: "ErrorAccessorContainer"})
+
+		name := requirePlanProperty(t, root.StructPlan, "Name")
+
+		assert.True(t, root.CanError)
+		assert.True(t, name.Source.CanError)
+		assert.True(t, name.Target.CanError)
+	})
+
+	t.Run("reports invalid explicit accessor signatures", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{
+			Name: "BidirectionalAccessorContainer",
+			Struct: &config.Struct{Properties: []config.Property{{
+				Source: "EmailAddress",
+				Target: "Email",
+				Accessors: config.PropertyAccessors{
+					Forward: config.PropertyDirectionAccessors{
+						Read:  "SetEmailAddress",
+						Write: "SetEmail",
+					},
+				},
+			}}},
+		})
+
+		assertFatalDiagnosticMessages(t, root.Diagnostics, `source accessor "SetEmailAddress" is not a readable accessor`)
 	})
 }
 
@@ -463,16 +616,16 @@ func TestPlannerPlanRecursiveNestedStructs(t *testing.T) {
 	root := requireSingleRoot(t, out)
 	assert.Equal(t, out.OutputGroups[0].Location, root.Location)
 	require.NotNil(t, root.StructPlan)
-	require.Len(t, root.StructPlan.Fields, 2)
+	require.Len(t, root.StructPlan.Properties, 2)
 
-	first := requireFieldPlan(t, root.StructPlan, "First")
-	second := requireFieldPlan(t, root.StructPlan, "Second")
+	first := requirePropertyPlan(t, root.StructPlan, "First")
+	second := requirePropertyPlan(t, root.StructPlan, "Second")
 	assert.Same(t, first, second)
 	assert.Same(t, first, out.OutputGroups[0].Nested[0])
 	assert.Equal(t, out.OutputGroups[0].Location, first.Location)
 	require.NotNil(t, first.StructPlan)
 
-	next := requirePlanField(t, first.StructPlan, "Next")
+	next := requirePlanProperty(t, first.StructPlan, "Next")
 	assert.Equal(t, plan.OperationStruct, next.Mapping.Operation)
 	assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, next.Mapping.SourceAdaptations)
 	assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationAddress}, next.Mapping.TargetAdaptations)
@@ -517,8 +670,8 @@ func TestPlannerPlanPackageOwnedNestedStructsInSameOutputPackage(t *testing.T) {
 
 	firstRoot := out.OutputGroups[0].Roots[0]
 	secondRoot := out.OutputGroups[1].Roots[0]
-	firstNested := requireFieldPlan(t, firstRoot.StructPlan, "First")
-	secondNested := requireFieldPlan(t, secondRoot.StructPlan, "First")
+	firstNested := requirePropertyPlan(t, firstRoot.StructPlan, "First")
+	secondNested := requirePropertyPlan(t, secondRoot.StructPlan, "First")
 
 	assert.Same(t, firstNested, secondNested)
 	assert.Same(t, out.OutputGroups[0].Nested[0], firstNested)
@@ -582,8 +735,8 @@ func TestPlannerPlanPackageOwnedNestedStructsSeparateOutputPackages(t *testing.T
 	nodeB := requireRootByTargetName(t, groupB.Roots, "Node")
 	boxContainerA := requireRootByTargetName(t, groupA.Roots, "NodeBoxContainer")
 	boxContainerB := requireRootByTargetName(t, groupB.Roots, "NodeBoxContainer")
-	nestedA := requireFieldPlan(t, boxContainerA.StructPlan, "Box")
-	nestedB := requireFieldPlan(t, boxContainerB.StructPlan, "Box")
+	nestedA := requirePropertyPlan(t, boxContainerA.StructPlan, "Box")
+	nestedB := requirePropertyPlan(t, boxContainerB.StructPlan, "Box")
 
 	assert.NotSame(t, nestedA, nestedB)
 	assert.Same(t, groupA.Nested[0], nestedA)
@@ -591,8 +744,8 @@ func TestPlannerPlanPackageOwnedNestedStructsSeparateOutputPackages(t *testing.T
 	assert.Equal(t, groupA.Location, nestedA.Location)
 	assert.Equal(t, groupB.Location, nestedB.Location)
 
-	valueA := requirePlanField(t, nestedA.StructPlan, "Value")
-	valueB := requirePlanField(t, nestedB.StructPlan, "Value")
+	valueA := requirePlanProperty(t, nestedA.StructPlan, "Value")
+	valueB := requirePlanProperty(t, nestedB.StructPlan, "Value")
 	assert.Same(t, nodeA, valueA.Mapping.Plan)
 	assert.Same(t, nodeB, valueB.Mapping.Plan)
 }
@@ -614,8 +767,8 @@ func TestPlannerPlanGenericNestedStructs(t *testing.T) {
 	root := out.OutputGroups[0].Roots[0]
 	require.NotNil(t, root.StructPlan)
 
-	intBox := requireFieldPlan(t, root.StructPlan, "IntBox")
-	stringBox := requireFieldPlan(t, root.StructPlan, "StringBox")
+	intBox := requirePropertyPlan(t, root.StructPlan, "IntBox")
+	stringBox := requirePropertyPlan(t, root.StructPlan, "StringBox")
 	require.Len(t, out.OutputGroups[0].Nested, 2)
 
 	assert.NotSame(t, stringBox, intBox)
@@ -627,14 +780,14 @@ func TestPlannerPlanGenericNestedStructs(t *testing.T) {
 	assert.NotEqual(t, stringBox.Source.Key, intBox.Source.Key)
 	assert.NotEqual(t, stringBox.Target.Key, intBox.Target.Key)
 
-	intValue := requirePlanField(t, intBox.StructPlan, "Value")
+	intValue := requirePlanProperty(t, intBox.StructPlan, "Value")
 	assert.Equal(t, plan.OperationConvert, intValue.Mapping.Operation)
 	assert.Equal(t, types.TypeKindBasic, intValue.Mapping.Source.Kind)
 	assert.Equal(t, "int", intValue.Mapping.Source.Name)
 	assert.Equal(t, types.TypeKindBasic, intValue.Mapping.Target.Kind)
 	assert.Equal(t, "int64", intValue.Mapping.Target.Name)
 
-	stringValue := requirePlanField(t, stringBox.StructPlan, "Value")
+	stringValue := requirePlanProperty(t, stringBox.StructPlan, "Value")
 	assert.Equal(t, plan.OperationAssign, stringValue.Mapping.Operation)
 	assert.Equal(t, types.TypeKindBasic, stringValue.Mapping.Source.Kind)
 	assert.Equal(t, "string", stringValue.Mapping.Source.Name)
@@ -653,7 +806,7 @@ func TestPlannerPlanConversions(t *testing.T) {
 	t.Run("keeps basic conversions automatic", func(t *testing.T) {
 		root := planPlannerRoot(t, config.Type{Name: "ConversionContainer"})
 
-		count := requirePlanField(t, root.StructPlan, "Count")
+		count := requirePlanProperty(t, root.StructPlan, "Count")
 
 		assert.Equal(t, plan.OperationConvert, count.Mapping.Operation)
 	})
@@ -673,7 +826,7 @@ func TestPlannerPlanConversions(t *testing.T) {
 		require.Len(t, out.OutputGroups[0].Roots, 2)
 
 		inverse := requireRootBySourcePackage(t, out.OutputGroups[0].Roots, plannerToPackage)
-		count := requirePlanField(t, inverse.StructPlan, "Count")
+		count := requirePlanProperty(t, inverse.StructPlan, "Count")
 
 		assert.Equal(t, plan.OperationUnsupported, count.Mapping.Operation)
 	})
@@ -698,7 +851,7 @@ func TestPlannerPlanConversions(t *testing.T) {
 		require.Len(t, out.OutputGroups[0].Roots, 2)
 
 		inverse := requireRootBySourcePackage(t, out.OutputGroups[0].Roots, plannerToPackage)
-		count := requirePlanField(t, inverse.StructPlan, "Count")
+		count := requirePlanProperty(t, inverse.StructPlan, "Count")
 
 		assert.Equal(t, plan.OperationConvert, count.Mapping.Operation)
 		assert.Equal(t, "int64", count.Mapping.Source.Name)
@@ -708,7 +861,7 @@ func TestPlannerPlanConversions(t *testing.T) {
 	t.Run("requires registry for named conversions", func(t *testing.T) {
 		root := planPlannerRoot(t, config.Type{Name: "ConversionContainer"})
 
-		id := requirePlanField(t, root.StructPlan, "ID")
+		id := requirePlanProperty(t, root.StructPlan, "ID")
 
 		assert.Equal(t, plan.OperationUnsupported, id.Mapping.Operation)
 	})
@@ -716,7 +869,7 @@ func TestPlannerPlanConversions(t *testing.T) {
 	t.Run("uses registered named conversions", func(t *testing.T) {
 		root := planPlannerRoot(t, config.Type{Name: "ConversionContainer"}, userIDToString)
 
-		id := requirePlanField(t, root.StructPlan, "ID")
+		id := requirePlanProperty(t, root.StructPlan, "ID")
 
 		assert.Equal(t, plan.OperationConvert, id.Mapping.Operation)
 	})
@@ -724,7 +877,7 @@ func TestPlannerPlanConversions(t *testing.T) {
 	t.Run("unwraps aliases before matching registry pairs", func(t *testing.T) {
 		root := planPlannerRoot(t, config.Type{Name: "ConversionContainer"}, userIDToString)
 
-		alias := requirePlanField(t, root.StructPlan, "Alias")
+		alias := requirePlanProperty(t, root.StructPlan, "Alias")
 
 		assert.Equal(t, plan.OperationConvert, alias.Mapping.Operation)
 	})
@@ -732,7 +885,7 @@ func TestPlannerPlanConversions(t *testing.T) {
 	t.Run("uses registry conversions inside slices", func(t *testing.T) {
 		root := planPlannerRoot(t, config.Type{Name: "ConversionContainer"}, userIDToString)
 
-		values := requirePlanField(t, root.StructPlan, "Values")
+		values := requirePlanProperty(t, root.StructPlan, "Values")
 		require.NotNil(t, values.Mapping.Elem)
 
 		assert.Equal(t, plan.OperationConvert, values.Mapping.Elem.Operation)
@@ -744,39 +897,35 @@ func TestPlannerPlanConversions(t *testing.T) {
 			Conversions: &config.ConversionsDefaults{Enabled: new(false)},
 		}, userIDToString)
 
-		id := requirePlanField(t, root.StructPlan, "ID")
+		id := requirePlanProperty(t, root.StructPlan, "ID")
 
 		assert.Equal(t, plan.OperationUnsupported, id.Mapping.Operation)
 	})
 
-	t.Run("re-enables registry conversions at field scope", func(t *testing.T) {
+	t.Run("re-enables registry conversions at property scope", func(t *testing.T) {
 		root := planPlannerRoot(t, config.Type{
 			Name:        "ConversionsPolicyContainer",
 			Conversions: &config.ConversionsDefaults{Enabled: new(false)},
-			Struct: &config.Struct{
-				Fields: map[string]config.Field{
-					"ID": {Conversions: &config.ConversionsDefaults{Enabled: new(true)}},
-				},
-			},
+			Struct: &config.Struct{Properties: []config.Property{
+				{Name: "ID", Conversions: &config.ConversionsDefaults{Enabled: new(true)}},
+			}},
 		}, userIDToString)
 
-		id := requirePlanField(t, root.StructPlan, "ID")
+		id := requirePlanProperty(t, root.StructPlan, "ID")
 
 		assert.Equal(t, plan.OperationConvert, id.Mapping.Operation)
 	})
 
-	t.Run("keeps disabled registry conversions disabled for other fields", func(t *testing.T) {
+	t.Run("keeps disabled registry conversions disabled for other properties", func(t *testing.T) {
 		root := planPlannerRoot(t, config.Type{
 			Name:        "ConversionsPolicyContainer",
 			Conversions: &config.ConversionsDefaults{Enabled: new(false)},
-			Struct: &config.Struct{
-				Fields: map[string]config.Field{
-					"ID": {Conversions: &config.ConversionsDefaults{Enabled: new(true)}},
-				},
-			},
+			Struct: &config.Struct{Properties: []config.Property{
+				{Name: "ID", Conversions: &config.ConversionsDefaults{Enabled: new(true)}},
+			}},
 		}, userIDToString)
 
-		other := requirePlanField(t, root.StructPlan, "Other")
+		other := requirePlanProperty(t, root.StructPlan, "Other")
 
 		assert.Equal(t, plan.OperationUnsupported, other.Mapping.Operation)
 	})
@@ -790,7 +939,7 @@ func TestPlannerPlanConversions(t *testing.T) {
 			}},
 		})
 
-		code := requirePlanField(t, root.StructPlan, "Code")
+		code := requirePlanProperty(t, root.StructPlan, "Code")
 
 		assert.Equal(t, plan.OperationStruct, code.Mapping.Operation)
 	})
@@ -842,14 +991,14 @@ func TestPlannerPlanNestedStructsWithScopedCallables(t *testing.T) {
 	rootA := requireRootByTargetName(t, out.OutputGroups[0].Roots, "ScopedStringBoxA")
 	rootB := requireRootByTargetName(t, out.OutputGroups[0].Roots, "ScopedStringBoxB")
 
-	boxA := requireFieldPlan(t, rootA.StructPlan, "Box")
-	boxB := requireFieldPlan(t, rootB.StructPlan, "Box")
+	boxA := requirePropertyPlan(t, rootA.StructPlan, "Box")
+	boxB := requirePropertyPlan(t, rootB.StructPlan, "Box")
 
 	assert.NotSame(t, boxA, boxB)
 	assert.NotEqual(t, boxA.FunctionName, boxB.FunctionName)
 
-	valueA := requirePlanField(t, boxA.StructPlan, "Value")
-	valueB := requirePlanField(t, boxB.StructPlan, "Value")
+	valueA := requirePlanProperty(t, boxA.StructPlan, "Value")
+	valueB := requirePlanProperty(t, boxB.StructPlan, "Value")
 	require.NotNil(t, valueA.Mapping.Callable)
 	require.NotNil(t, valueB.Mapping.Callable)
 	assert.Equal(t, "TypeAStringToInt", valueA.Mapping.Callable.Name)
@@ -876,10 +1025,10 @@ func TestPlannerPlanDefaultCallable(t *testing.T) {
 	})
 
 	root := out.OutputGroups[0].Roots[0]
-	field := requirePlanField(t, root.StructPlan, "Value")
+	property := requirePlanProperty(t, root.StructPlan, "Value")
 
-	require.NotNil(t, field.Mapping.Callable)
-	assert.Equal(t, "ExplicitStringToInt", field.Mapping.Callable.Name)
+	require.NotNil(t, property.Mapping.Callable)
+	assert.Equal(t, "ExplicitStringToInt", property.Mapping.Callable.Name)
 }
 
 func TestPlannerPlanMethodCallable(t *testing.T) {
@@ -893,9 +1042,9 @@ func TestPlannerPlanMethodCallable(t *testing.T) {
 		})
 
 		root := out.OutputGroups[0].Roots[0]
-		field := requirePlanField(t, root.StructPlan, "ID")
+		property := requirePlanProperty(t, root.StructPlan, "ID")
 
-		assert.Equal(t, plan.OperationUnsupported, field.Mapping.Operation)
+		assert.Equal(t, plan.OperationUnsupported, property.Mapping.Operation)
 	})
 
 	t.Run("uses explicitly referenced methods", func(t *testing.T) {
@@ -919,11 +1068,11 @@ func TestPlannerPlanMethodCallable(t *testing.T) {
 		})
 
 		root := out.OutputGroups[0].Roots[0]
-		field := requirePlanField(t, root.StructPlan, "ID")
+		property := requirePlanProperty(t, root.StructPlan, "ID")
 
-		require.NotNil(t, field.Mapping.Callable)
-		assert.Equal(t, plan.OperationMethod, field.Mapping.Operation)
-		assert.Equal(t, "String", field.Mapping.Callable.Name)
+		require.NotNil(t, property.Mapping.Callable)
+		assert.Equal(t, plan.OperationMethod, property.Mapping.Operation)
+		assert.Equal(t, "String", property.Mapping.Callable.Name)
 	})
 }
 
@@ -949,7 +1098,7 @@ func TestPlannerPlanHigherOrderGenericFunction(t *testing.T) {
 	root := out.OutputGroups[0].Roots[0]
 	require.NotNil(t, root.StructPlan)
 
-	maybe := requirePlanField(t, root.StructPlan, "Maybe")
+	maybe := requirePlanProperty(t, root.StructPlan, "Maybe")
 	require.NotNil(t, maybe.Mapping.Callable)
 	require.Len(t, maybe.Mapping.CallableArgs, 1)
 	arg := maybe.Mapping.CallableArgs[0]
@@ -969,8 +1118,8 @@ func TestPlannerPlanHigherOrderGenericFunction(t *testing.T) {
 		assert.Equal(t, "OptionalThing", arg.Mapping.Target.Name)
 	})
 
-	t.Run("plans the mapper argument fields", func(t *testing.T) {
-		name := requirePlanField(t, arg.Mapping.Plan.StructPlan, "Name")
+	t.Run("plans the mapper argument properties", func(t *testing.T) {
+		name := requirePlanProperty(t, arg.Mapping.Plan.StructPlan, "Name")
 		assert.Equal(t, plan.OperationAssign, name.Mapping.Operation)
 	})
 }
@@ -995,11 +1144,11 @@ func TestPlannerPlanHigherOrderGenericFunctionWithUnplannableArg(t *testing.T) {
 	root := out.OutputGroups[0].Roots[0]
 	require.NotNil(t, root.StructPlan)
 
-	maybe := requirePlanField(t, root.StructPlan, "Maybe")
+	maybe := requirePlanProperty(t, root.StructPlan, "Maybe")
 	assert.True(t, plan.HasFatalDiagnostics(root.Diagnostics))
 	assert.True(t, plan.HasFatalDiagnostics(maybe.Mapping.Diagnostics))
 	assert.Contains(t, diagnosticsMessages(root.Diagnostics), "callable argument 1 could not map github.com/seeruk/morph/testdata/planner/from.OptionalBadThing to github.com/seeruk/morph/testdata/planner/to.OptionalBadThing; configure a compatible callable, explicit mapper, discovery package, or registered conversion")
-	assert.Contains(t, diagnosticsPaths(root.Diagnostics), plan.FieldPath(root.SourceType, root.TargetType, maybe.SourceField, maybe.TargetField)+" :: callable argument 1")
+	assert.Contains(t, diagnosticsPaths(root.Diagnostics), plan.PropertyPath(root.SourceType, root.TargetType, maybe.Source.Name, maybe.Target.Name)+" :: callable argument 1")
 }
 
 func TestPlannerPlanHigherOrderExplicitCallable(t *testing.T) {
@@ -1022,7 +1171,7 @@ func TestPlannerPlanHigherOrderExplicitCallable(t *testing.T) {
 	})
 
 	root := out.OutputGroups[0].Roots[0]
-	maybe := requirePlanField(t, root.StructPlan, "Maybe")
+	maybe := requirePlanProperty(t, root.StructPlan, "Maybe")
 
 	require.NotNil(t, maybe.Mapping.Callable)
 	assert.Equal(t, "MapOptional", maybe.Mapping.Callable.Name)
@@ -1052,13 +1201,13 @@ func TestPlannerPlanHigherOrderGenericFunctionWithErrors(t *testing.T) {
 	root := out.OutputGroups[0].Roots[0]
 	require.NotNil(t, root.StructPlan)
 
-	maybe := requirePlanField(t, root.StructPlan, "Maybe")
+	maybe := requirePlanProperty(t, root.StructPlan, "Maybe")
 	require.NotNil(t, maybe.Mapping.Callable)
 	require.Len(t, maybe.Mapping.CallableArgs, 1)
 	arg := maybe.Mapping.CallableArgs[0]
 	require.NotNil(t, arg.Mapping.Callable)
 
-	t.Run("propagates errors to the root and field mapping", func(t *testing.T) {
+	t.Run("propagates errors to the root and property mapping", func(t *testing.T) {
 		assert.True(t, root.CanError)
 		assert.True(t, maybe.Mapping.CanError)
 	})
@@ -1100,7 +1249,7 @@ func TestPlannerPlanHigherOrderGenericFunctionWithMultipleTypeArgs(t *testing.T)
 	root := out.OutputGroups[0].Roots[0]
 	require.NotNil(t, root.StructPlan)
 
-	result := requirePlanField(t, root.StructPlan, "Result")
+	result := requirePlanProperty(t, root.StructPlan, "Result")
 	require.NotNil(t, result.Mapping.Callable)
 	require.Len(t, result.Mapping.CallableArgs, 2)
 
@@ -1124,7 +1273,7 @@ func TestPlannerPlanHigherOrderGenericFunctionWithMultipleTypeArgs(t *testing.T)
 		assert.Equal(t, "EitherLeft", leftArg.Mapping.Source.Name)
 		assert.Equal(t, "EitherLeft", leftArg.Mapping.Target.Name)
 
-		leftCode := requirePlanField(t, leftArg.Mapping.Plan.StructPlan, "Code")
+		leftCode := requirePlanProperty(t, leftArg.Mapping.Plan.StructPlan, "Code")
 		assert.Equal(t, plan.OperationAssign, leftCode.Mapping.Operation)
 	})
 
@@ -1134,7 +1283,7 @@ func TestPlannerPlanHigherOrderGenericFunctionWithMultipleTypeArgs(t *testing.T)
 		assert.Equal(t, "EitherRight", rightArg.Mapping.Source.Name)
 		assert.Equal(t, "EitherRight", rightArg.Mapping.Target.Name)
 
-		rightName := requirePlanField(t, rightArg.Mapping.Plan.StructPlan, "Name")
+		rightName := requirePlanProperty(t, rightArg.Mapping.Plan.StructPlan, "Name")
 		assert.Equal(t, plan.OperationAssign, rightName.Mapping.Operation)
 	})
 }
@@ -1202,38 +1351,38 @@ func requireRootBySourcePackage(t *testing.T, roots []*plan.Type, sourcePackage 
 	return nil
 }
 
-func requirePlanField(t *testing.T, structPlan *plan.Struct, targetName string) plan.Field {
+func requirePlanProperty(t *testing.T, structPlan *plan.Struct, targetName string) plan.Property {
 	t.Helper()
 
 	require.NotNil(t, structPlan)
-	for _, field := range structPlan.Fields {
-		if field.TargetField.Name == targetName {
-			return field
+	for _, property := range structPlan.Properties {
+		if property.Target.Name == targetName {
+			return property
 		}
 	}
 
-	require.Failf(t, "field not planned", "target field %q was not planned", targetName)
-	return plan.Field{}
+	require.Failf(t, "property not planned", "target property %q was not planned", targetName)
+	return plan.Property{}
 }
 
-func planFieldTargetNames(structPlan *plan.Struct) []string {
+func planPropertyTargetNames(structPlan *plan.Struct) []string {
 	if structPlan == nil {
 		return nil
 	}
 
-	out := make([]string, 0, len(structPlan.Fields))
-	for _, field := range structPlan.Fields {
-		out = append(out, field.TargetField.Name)
+	out := make([]string, 0, len(structPlan.Properties))
+	for _, property := range structPlan.Properties {
+		out = append(out, property.Target.Name)
 	}
 	return out
 }
 
-func requireFieldPlan(t *testing.T, structPlan *plan.Struct, targetName string) *plan.Type {
+func requirePropertyPlan(t *testing.T, structPlan *plan.Struct, targetName string) *plan.Type {
 	t.Helper()
 
-	field := requirePlanField(t, structPlan, targetName)
-	require.NotNil(t, field.Mapping.Plan)
-	return field.Mapping.Plan
+	property := requirePlanProperty(t, structPlan, targetName)
+	require.NotNil(t, property.Mapping.Plan)
+	return property.Mapping.Plan
 }
 
 func requireValueElem(t *testing.T, value plan.Value) *plan.Value {

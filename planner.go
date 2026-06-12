@@ -306,9 +306,9 @@ func explicitCallableRefs(specification Spec) []spec.CallableRef {
 					add(ref)
 				}
 			}
-			for _, field := range typ.Struct.Fields {
-				if field.Callable != nil {
-					add(*field.Callable)
+			for _, property := range typ.Struct.Properties {
+				if property.Callable != nil {
+					add(*property.Callable)
 				}
 			}
 		}
@@ -556,7 +556,6 @@ func (p *attemptPlanner) shallowRootPlan(
 		Conversions:  typeSpec.Conversions,
 	}
 
-	root.Diagnostics = appendDiagnostic(root.Diagnostics, validateStructFieldMappings(root, location.ImportPath)...)
 	root.Diagnostics = appendDiagnostic(root.Diagnostics, validateGenericRoot(root)...)
 
 	return root, nil
@@ -574,133 +573,6 @@ func validateGenericRoot(typ *plan.Type) []plan.Diagnostic {
 	}}
 }
 
-func invertStructSpec(in *spec.Struct) *spec.Struct {
-	if in == nil {
-		return nil
-	}
-
-	out := *in
-	out.Fields = make(map[string]spec.Field, len(in.Fields))
-	out.Omit = spec.StructOmissions{
-		Source: slices.Clone(in.Omit.Target),
-		Target: slices.Clone(in.Omit.Source),
-	}
-	for sourceName, field := range in.Fields {
-		targetName := structFieldTarget(sourceName, field)
-		field.Target = sourceName
-		out.Fields[targetName] = field
-	}
-	return &out
-}
-
-func validateStructFieldMappings(typ *plan.Type, outputImportPath string) []plan.Diagnostic {
-	if len(typ.StructSpec.Fields) == 0 && structOmissionsEmpty(typ.StructSpec.Omit) {
-		return nil
-	}
-
-	var out []plan.Diagnostic
-
-	sourceFields := plannableFieldsByName(typ.SourceDecl, outputImportPath)
-	targetFields := plannableFieldsByName(typ.TargetDecl, outputImportPath)
-
-	// Collect and sort source field names so the output of this is stable.
-	sourceFieldNames := slices.Collect(maps.Keys(typ.StructSpec.Fields))
-	slices.Sort(sourceFieldNames)
-
-	sourcesByTarget := make(map[string][]string)
-	targetFieldNames := make([]string, 0, len(sourceFieldNames))
-
-	for _, sourceName := range sourceFieldNames {
-		fieldSpec := typ.StructSpec.Fields[sourceName]
-		targetName := structFieldTarget(sourceName, fieldSpec)
-
-		if _, ok := sourceFields[sourceName]; !ok {
-			out = append(out, configuredFieldDiagnostic(
-				"source",
-				typ.SourceDecl,
-				typ.SourceType,
-				typ.TargetType,
-				sourceName,
-				outputImportPath,
-			))
-		}
-
-		if _, ok := targetFields[targetName]; !ok {
-			out = append(out, configuredFieldDiagnostic(
-				"target",
-				typ.TargetDecl,
-				typ.SourceType,
-				typ.TargetType,
-				targetName,
-				outputImportPath,
-			))
-		}
-
-		if _, ok := sourcesByTarget[targetName]; !ok {
-			targetFieldNames = append(targetFieldNames, targetName)
-		}
-
-		sourcesByTarget[targetName] = append(sourcesByTarget[targetName], sourceName)
-	}
-
-	slices.Sort(targetFieldNames)
-
-	for _, targetName := range targetFieldNames {
-		sourceNames := sourcesByTarget[targetName]
-		if len(sourceNames) > 1 {
-			out = append(out, plan.Diagnostic{
-				Level:   plan.DiagnosticLevelFatal,
-				Path:    plan.TargetFieldPath(typ.SourceType, typ.TargetType, targetName),
-				Message: fmt.Sprintf("target field %q is mapped from multiple source fields %q", targetName, sourceNames),
-			})
-		}
-	}
-
-	omittedSourceFields := sortedUniqueStrings(typ.StructSpec.Omit.Source)
-	for _, sourceName := range omittedSourceFields {
-		if _, ok := sourceFields[sourceName]; !ok {
-			out = append(out, configuredFieldDiagnostic(
-				"source",
-				typ.SourceDecl,
-				typ.SourceType,
-				typ.TargetType,
-				sourceName,
-				outputImportPath,
-			))
-		}
-		if _, ok := typ.StructSpec.Fields[sourceName]; ok {
-			out = append(out, plan.Diagnostic{
-				Level:   plan.DiagnosticLevelFatal,
-				Path:    plan.SourceFieldPath(typ.SourceType, typ.TargetType, sourceName),
-				Message: fmt.Sprintf("source field %q cannot be both omitted and explicitly mapped", sourceName),
-			})
-		}
-	}
-
-	omittedTargetFields := sortedUniqueStrings(typ.StructSpec.Omit.Target)
-	for _, targetName := range omittedTargetFields {
-		if _, ok := targetFields[targetName]; !ok {
-			out = append(out, configuredFieldDiagnostic(
-				"target",
-				typ.TargetDecl,
-				typ.SourceType,
-				typ.TargetType,
-				targetName,
-				outputImportPath,
-			))
-		}
-		if len(sourcesByTarget[targetName]) > 0 {
-			out = append(out, plan.Diagnostic{
-				Level:   plan.DiagnosticLevelFatal,
-				Path:    plan.TargetFieldPath(typ.SourceType, typ.TargetType, targetName),
-				Message: fmt.Sprintf("target field %q cannot be both omitted and explicitly mapped", targetName),
-			})
-		}
-	}
-
-	return out
-}
-
 func sortedUniqueStrings(values []string) []string {
 	if len(values) == 0 {
 		return nil
@@ -712,54 +584,6 @@ func sortedUniqueStrings(values []string) []string {
 
 func structOmissionsEmpty(omit spec.StructOmissions) bool {
 	return len(omit.Source) == 0 && len(omit.Target) == 0
-}
-
-func configuredFieldDiagnostic(
-	side string,
-	typeDecl types.TypeDecl,
-	sourceType types.Type,
-	targetType types.Type,
-	fieldName string,
-	outputImportPath string,
-) plan.Diagnostic {
-	path := plan.SourceFieldPath(sourceType, targetType, fieldName)
-	if side == "target" {
-		path = plan.TargetFieldPath(sourceType, targetType, fieldName)
-	}
-
-	field, ok := typeDecl.Fields[fieldName]
-	switch {
-	case !ok:
-		return plan.Diagnostic{
-			Level:   plan.DiagnosticLevelFatal,
-			Path:    path,
-			Message: fmt.Sprintf("%s field %q does not exist", side, fieldName),
-		}
-	case field.IsEmbedded:
-		return plan.Diagnostic{
-			Level:   plan.DiagnosticLevelFatal,
-			Path:    path,
-			Message: fmt.Sprintf("%s field %q is embedded; embedded fields are not supported", side, fieldName),
-		}
-	case !fieldAccessibleFrom(typeDecl, field, outputImportPath):
-		return plan.Diagnostic{
-			Level: plan.DiagnosticLevelFatal,
-			Path:  path,
-			Message: fmt.Sprintf(
-				"%s field %q is not accessible from generated package %q; unexported fields can only be mapped from their declaring package %q",
-				side,
-				fieldName,
-				outputImportPath,
-				typeDecl.Package.ImportPath,
-			),
-		}
-	default:
-		return plan.Diagnostic{
-			Level:   plan.DiagnosticLevelFatal,
-			Path:    path,
-			Message: fmt.Sprintf("%s field %q is not plannable", side, fieldName),
-		}
-	}
 }
 
 type rootVariant struct {
@@ -919,12 +743,15 @@ func sameEnumSpec(a, b spec.Enum) bool {
 }
 
 func sameStructSpec(a, b spec.Struct) bool {
-	return maps.EqualFunc(a.Fields, b.Fields, sameFieldSpec) &&
+	return a.InferMethods == b.InferMethods &&
+		slices.EqualFunc(a.Properties, b.Properties, samePropertySpec) &&
 		sameStructOmissions(a.Omit, b.Omit)
 }
 
-func sameFieldSpec(a, b spec.Field) bool {
-	return a.Target == b.Target &&
+func samePropertySpec(a, b spec.Property) bool {
+	return a.Source == b.Source &&
+		a.Target == b.Target &&
+		a.Accessors == b.Accessors &&
 		a.Optionality == b.Optionality &&
 		a.Conversions == b.Conversions &&
 		sameCallableRefPtr(a.Callable, b.Callable)

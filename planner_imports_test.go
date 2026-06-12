@@ -180,10 +180,10 @@ func TestGeneratedImportValidationForValues(t *testing.T) {
 		TargetType:   targetRoot,
 		FunctionName: "MapRoot",
 		Location:     location,
-		StructPlan: &plan.Struct{Fields: []plan.Field{{
-			SourceField: testField("Value", basicTestType("string")),
-			TargetField: testField("Value", basicTestType("string")),
-			Mapping:     value,
+		StructPlan: &plan.Struct{Properties: []plan.Property{{
+			Source:  testFieldMember("Value", basicTestType("string")),
+			Target:  testFieldMember("Value", basicTestType("string")),
+			Mapping: value,
 		}}},
 	}
 	planner := newPlannerWithImportCycle("module.test/argsource", "module.test/out")

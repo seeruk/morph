@@ -120,23 +120,32 @@ type EnumPatterns struct {
 
 // Struct holds configuration for how a struct should be mapped.
 type Struct struct {
-	// Fields is a map from source field name to target field config. Only explicit mappings need to
-	// be placed in this map, the planner will attempt to infer mappings for similarly named fields.
-	Fields map[string]Field
-	// Omit contains source and target fields intentionally left unmapped.
+	// InferMethods controls whether Morph may infer getter/setter-shaped method accessors.
+	InferMethods bool
+	// Properties contains explicit logical property mappings. Morph still infers same-name
+	// properties when this is empty or incomplete.
+	Properties []Property
+	// Omit contains source and target properties intentionally left unmapped.
 	Omit StructOmissions
 }
 
-// Field holds configuration for how a specific field should be mapped, allowing more explicit
-// control over mapping behaviour.
-type Field struct {
+// Property holds configuration for how a specific logical property should be mapped.
+type Property struct {
+	Source      string
 	Target      string
+	Accessors   PropertyAccessors
 	Callable    *CallableRef
 	Optionality Optionality
 	Conversions ConversionsPolicy
 }
 
-// StructOmissions contains source and target fields intentionally left unmapped.
+// PropertyAccessors configures exact accessors for one directional mapping.
+type PropertyAccessors struct {
+	Read  string
+	Write string
+}
+
+// StructOmissions contains source and target properties intentionally left unmapped.
 type StructOmissions struct {
 	Source []string
 	Target []string

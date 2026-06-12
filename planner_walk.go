@@ -68,10 +68,10 @@ func walkType(
 	}
 
 	if typ.StructPlan != nil {
-		for i := range typ.StructPlan.Fields {
-			field := &typ.StructPlan.Fields[i]
-			fieldPath := plan.FieldPath(typ.SourceType, typ.TargetType, field.SourceField, field.TargetField)
-			walkValue(&field.Mapping, typ, fieldPath, location, seen, callbacks)
+		for i := range typ.StructPlan.Properties {
+			property := &typ.StructPlan.Properties[i]
+			propertyPath := plan.PropertyPath(typ.SourceType, typ.TargetType, property.Source.Name, property.Target.Name)
+			walkValue(&property.Mapping, typ, propertyPath, location, seen, callbacks)
 		}
 	}
 

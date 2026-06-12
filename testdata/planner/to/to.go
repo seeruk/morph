@@ -75,6 +75,69 @@ type StructConversionContainer struct {
 	Code StructCode
 }
 
+type StructCode struct {
+	Value string
+}
+
+type FieldToSetterContainer struct {
+	name string
+}
+
+func (f *FieldToSetterContainer) SetName(name string) {
+	f.name = name
+}
+
+type GetterToFieldContainer struct {
+	Name string
+}
+
+type GetterToSetterContainer struct {
+	name string
+}
+
+func (g *GetterToSetterContainer) SetName(name string) {
+	g.name = name
+}
+
+type ReadMethodOnlyContainer struct{}
+
+func (r ReadMethodOnlyContainer) Name() string {
+	return "name"
+}
+
+type ExplicitAccessorContainer struct {
+	email string
+}
+
+func (e *ExplicitAccessorContainer) StoreEmail(email string) {
+	e.email = email
+}
+
+type BidirectionalAccessorContainer struct {
+	email string
+}
+
+func (b BidirectionalAccessorContainer) GetEmail() string {
+	return b.email
+}
+
+func (b *BidirectionalAccessorContainer) SetEmail(email string) {
+	b.email = email
+}
+
+type ErrorAccessorContainer struct {
+	name string
+}
+
+func (e *ErrorAccessorContainer) SetName(name string) error {
+	e.name = name
+	return nil
+}
+
+type CaseInsensitivePropertyContainer struct {
+	RecipeId string
+}
+
 type ScopedStringBoxA struct {
 	Box Box[int]
 }
@@ -147,8 +210,4 @@ type Either[L, R any] struct {
 	Left    L
 	Right   R
 	IsRight bool
-}
-
-type StructCode struct {
-	Value string
 }

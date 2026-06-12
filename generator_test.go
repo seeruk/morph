@@ -168,9 +168,9 @@ func TestGeneratorGenerate_OutputCompilesWithSamePackageUnexportedFields(t *test
 		ImportPath:  "module.test/out",
 		PackageName: "out",
 	}
-	root.StructPlan = &plan.Struct{Fields: []plan.Field{{
-		SourceField: sourceDecl.Fields["secret"],
-		TargetField: targetDecl.Fields["secret"],
+	root.StructPlan = &plan.Struct{Properties: []plan.Property{{
+		Source: generatorFieldMember(sourceDecl.Fields["secret"]),
+		Target: generatorFieldMember(targetDecl.Fields["secret"]),
 		Mapping: plan.Value{
 			Operation: plan.OperationAssign,
 			Source:    basicTestType("string"),
@@ -201,6 +201,79 @@ type Target struct {
 	})
 }
 
+func TestGeneratorGenerate_OutputCompilesWithMethodAccessors(t *testing.T) {
+	sourceDecl := generatorStructDecl("module.test/from", "Source", nil)
+	targetDecl := generatorStructDecl("module.test/to", "Target", nil)
+	root := generatorRoot("MapSourceToTarget", sourceDecl, targetDecl)
+	root.StructPlan = &plan.Struct{Properties: []plan.Property{{
+		Source: generatorMethodMember("Name", "Name", basicTestType("string"), false),
+		Target: generatorMethodMember("Name", "SetName", basicTestType("string"), false),
+		Mapping: plan.Value{
+			Operation: plan.OperationAssign,
+			Source:    basicTestType("string"),
+			Target:    basicTestType("string"),
+		},
+	}}}
+
+	files, err := NewGenerator().Generate(generatorPlan(root))
+
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	assert.Contains(t, string(files[0].Source), "target.SetName(source.Name())")
+	compileGeneratedPackage(t, files[0], map[string]string{
+		"from/from.go": `package from
+
+type Source struct{}
+
+func (Source) Name() string { return "" }
+`,
+		"to/to.go": `package to
+
+type Target struct{}
+
+func (*Target) SetName(string) {}
+`,
+	})
+}
+
+func TestGeneratorGenerate_OutputCompilesWithErroringMethodAccessors(t *testing.T) {
+	sourceDecl := generatorStructDecl("module.test/from", "Source", nil)
+	targetDecl := generatorStructDecl("module.test/to", "Target", nil)
+	root := generatorRoot("MapSourceToTarget", sourceDecl, targetDecl)
+	root.CanError = true
+	root.StructPlan = &plan.Struct{Properties: []plan.Property{{
+		Source: generatorMethodMember("Name", "GetName", basicTestType("string"), true),
+		Target: generatorMethodMember("Name", "SetName", basicTestType("string"), true),
+		Mapping: plan.Value{
+			Operation: plan.OperationAssign,
+			Source:    basicTestType("string"),
+			Target:    basicTestType("string"),
+			CanError:  true,
+		},
+	}}}
+
+	files, err := NewGenerator().Generate(generatorPlan(root))
+
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	assert.Contains(t, string(files[0].Source), "nameValue, err := source.GetName()")
+	assert.Contains(t, string(files[0].Source), "if err2 := target.SetName(nameValue); err2 != nil {")
+	compileGeneratedPackage(t, files[0], map[string]string{
+		"from/from.go": `package from
+
+type Source struct{}
+
+func (Source) GetName() (string, error) { return "", nil }
+`,
+		"to/to.go": `package to
+
+type Target struct{}
+
+func (*Target) SetName(string) error { return nil }
+`,
+	})
+}
+
 func TestGeneratorGenerate_WithFatalDiagnostics(t *testing.T) {
 	_, err := NewGenerator().Generate(Plan{Diagnostics: []plan.Diagnostic{{
 		Level:   plan.DiagnosticLevelFatal,
@@ -213,7 +286,7 @@ func TestGeneratorGenerate_WithFatalDiagnostics(t *testing.T) {
 
 func TestGeneratorGenerate_WithUnsupportedMapping(t *testing.T) {
 	root := generatorSimpleStructRoot()
-	root.StructPlan.Fields[0].Mapping = plan.Value{
+	root.StructPlan.Properties[0].Mapping = plan.Value{
 		Operation: plan.OperationUnsupported,
 		Source:    basicTestType("string"),
 		Target:    basicTestType("string"),
@@ -351,7 +424,7 @@ func generatorSimpleStructRoot() *plan.Type {
 	})
 
 	root := generatorRoot("MapUser", sourceDecl, targetDecl)
-	root.StructPlan = &plan.Struct{Fields: []plan.Field{
+	root.StructPlan = &plan.Struct{Properties: []plan.Property{
 		generatorPlanField(sourceDecl, targetDecl, "Name", plan.Value{
 			Operation: plan.OperationAssign,
 			Source:    basicTestType("string"),
@@ -407,7 +480,7 @@ func generatorContainerRoot() *plan.Type {
 	})
 
 	root := generatorRoot("MapContainers", sourceDecl, targetDecl)
-	root.StructPlan = &plan.Struct{Fields: []plan.Field{
+	root.StructPlan = &plan.Struct{Properties: []plan.Property{
 		generatorPlanField(sourceDecl, targetDecl, "IDs", plan.Value{
 			Operation: plan.OperationSlice,
 			Source:    sliceTestType(sourceID),
@@ -484,7 +557,7 @@ func generatorCallableRoot() *plan.Type {
 		OnNilSourcePointer: spec.PointerOptionalityError,
 		OnZeroSourceValue:  spec.ValueOptionalityNil,
 	}
-	root.StructPlan = &plan.Struct{Fields: []plan.Field{
+	root.StructPlan = &plan.Struct{Properties: []plan.Property{
 		generatorPlanField(sourceDecl, targetDecl, "Count", plan.Value{
 			Operation:   plan.OperationFunction,
 			Source:      basicTestType("string"),
@@ -553,7 +626,7 @@ func generatorHigherOrderRoot() (*plan.Type, *plan.Type) {
 		"Name": generatorField("Name", basicTestType("string")),
 	})
 	nested := generatorRoot("mapNestedOptionalThing", sourceThingDecl, targetThingDecl)
-	nested.StructPlan = &plan.Struct{Fields: []plan.Field{
+	nested.StructPlan = &plan.Struct{Properties: []plan.Property{
 		generatorPlanField(sourceThingDecl, targetThingDecl, "Name", plan.Value{
 			Operation: plan.OperationAssign,
 			Source:    basicTestType("string"),
@@ -571,7 +644,7 @@ func generatorHigherOrderRoot() (*plan.Type, *plan.Type) {
 		"Maybe": generatorField("Maybe", targetOptional),
 	})
 	root := generatorRoot("MapOptionalContainer", sourceDecl, targetDecl)
-	root.StructPlan = &plan.Struct{Fields: []plan.Field{
+	root.StructPlan = &plan.Struct{Properties: []plan.Property{
 		generatorPlanField(sourceDecl, targetDecl, "Maybe", plan.Value{
 			Operation: plan.OperationFunction,
 			Source:    sourceOptional,
@@ -609,7 +682,7 @@ func generatorReflectFallbackRoot() *plan.Type {
 	})
 
 	root := generatorRoot("MapReflectFallback", sourceDecl, targetDecl)
-	root.StructPlan = &plan.Struct{Fields: []plan.Field{
+	root.StructPlan = &plan.Struct{Properties: []plan.Property{
 		generatorPlanField(sourceDecl, targetDecl, "Value", plan.Value{
 			Operation:         plan.OperationAssign,
 			Source:            valueType,
@@ -631,7 +704,7 @@ func generatorComparableZeroRoot() *plan.Type {
 	})
 
 	root := generatorRoot("MapComparableZero", sourceDecl, targetDecl)
-	root.StructPlan = &plan.Struct{Fields: []plan.Field{
+	root.StructPlan = &plan.Struct{Properties: []plan.Property{
 		generatorPlanField(sourceDecl, targetDecl, "Value", plan.Value{
 			Operation:         plan.OperationAssign,
 			Source:            valueType,
@@ -659,11 +732,30 @@ func generatorRoot(functionName string, sourceDecl, targetDecl types.TypeDecl) *
 	}
 }
 
-func generatorPlanField(sourceDecl, targetDecl types.TypeDecl, name string, mapping plan.Value) plan.Field {
-	return plan.Field{
-		SourceField: sourceDecl.Fields[name],
-		TargetField: targetDecl.Fields[name],
-		Mapping:     mapping,
+func generatorPlanField(sourceDecl, targetDecl types.TypeDecl, name string, mapping plan.Value) plan.Property {
+	return plan.Property{
+		Source:  generatorFieldMember(sourceDecl.Fields[name]),
+		Target:  generatorFieldMember(targetDecl.Fields[name]),
+		Mapping: mapping,
+	}
+}
+
+func generatorFieldMember(field types.Field) plan.Member {
+	return plan.Member{
+		Name:     field.Name,
+		Accessor: field.Name,
+		Kind:     plan.MemberKindField,
+		Type:     field.Type,
+	}
+}
+
+func generatorMethodMember(name, accessor string, typ types.Type, canError bool) plan.Member {
+	return plan.Member{
+		Name:     name,
+		Accessor: accessor,
+		Kind:     plan.MemberKindMethod,
+		Type:     typ,
+		CanError: canError,
 	}
 }
 

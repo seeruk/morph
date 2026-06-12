@@ -134,25 +134,41 @@ type EnumPatterns struct {
 
 // Struct holds configuration for how a struct should be mapped.
 type Struct struct {
-	Fields map[string]Field `json:"fields"`
-	Omit   StructOmissions  `json:"omit"`
+	InferMethods *bool           `json:"inferMethods"`
+	Properties   []Property      `json:"properties"`
+	Omit         StructOmissions `json:"omit"`
 }
 
-// Field holds configuration for how a specific field should be mapped.
-type Field struct {
+// Property holds configuration for how a specific logical property should be mapped.
+type Property struct {
+	Name        string               `json:"name"`
+	Source      string               `json:"source"`
 	Target      string               `json:"target"`
-	Callable    *FieldCallable       `json:"callable"`
+	Accessors   PropertyAccessors    `json:"accessors"`
+	Callable    *PropertyCallable    `json:"callable"`
 	Conversions *ConversionsDefaults `json:"conversions"`
 	Optionality *OptionalityDefaults `json:"optionality"`
 }
 
-// FieldCallable configures the explicit callable to use for a specific field direction.
-type FieldCallable struct {
+// PropertyAccessors configures exact accessors for each generated mapping direction.
+type PropertyAccessors struct {
+	Forward PropertyDirectionAccessors `json:"forward"`
+	Inverse PropertyDirectionAccessors `json:"inverse"`
+}
+
+// PropertyDirectionAccessors configures exact read and write accessor names.
+type PropertyDirectionAccessors struct {
+	Read  string `json:"read"`
+	Write string `json:"write"`
+}
+
+// PropertyCallable configures the explicit callable to use for a specific property direction.
+type PropertyCallable struct {
 	Forward *spec.CallableRef `json:"forward"`
 	Inverse *spec.CallableRef `json:"inverse"`
 }
 
-// StructOmissions configures source or target fields intentionally omitted from a mapping.
+// StructOmissions configures source or target properties intentionally omitted from a mapping.
 type StructOmissions struct {
 	Source []string `json:"source"`
 	Target []string `json:"target"`
