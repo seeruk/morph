@@ -26,3 +26,13 @@ func MapStatusOrZero(source from.Status) to.Status {
 	}
 	return to.Status(0)
 }
+
+func MapStatusOrFallback(source from.Status) to.Status {
+	switch source {
+	case from.StatusReady:
+		return to.StatusReady
+	case from.StatusDone:
+		return to.StatusDone
+	}
+	return to.StatusReady
+}

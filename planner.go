@@ -738,6 +738,7 @@ func sameRootPlanningConfig(a, b *plan.Type) bool {
 
 func sameEnumSpec(a, b spec.Enum) bool {
 	return a.FailureMode == b.FailureMode &&
+		a.FallbackValue == b.FallbackValue &&
 		a.Patterns == b.Patterns &&
 		maps.Equal(a.Values, b.Values)
 }

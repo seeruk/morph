@@ -49,6 +49,10 @@ packages:
   - source: Difficulty
     target: RecipeDifficulty
     enum:
+      failureMode: fallback
+      fallback:
+        forward: RecipeDifficultyUnknown
+        inverse: DifficultyUnknown
       values:
         DifficultyUltra: RecipeDifficultyInsane
 

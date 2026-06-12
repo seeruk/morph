@@ -18,14 +18,48 @@ import (
 
 func (p *attemptPlanner) planEnum(typ *plan.Type) {
 	values, diagnostics := p.planEnumValues(typ)
+	fallbackValue, fallbackDiagnostics := p.planEnumFallbackValue(typ)
+	diagnostics = appendDiagnostic(diagnostics, fallbackDiagnostics...)
 
 	typ.EnumPlan = &plan.Enum{
-		FailureMode: typ.EnumSpec.FailureMode,
-		Values:      values,
+		FailureMode:   typ.EnumSpec.FailureMode,
+		FallbackValue: fallbackValue,
+		Values:        values,
 	}
 
 	typ.CanError = typ.EnumPlan.FailureMode == spec.EnumFailureModeError
 	typ.Diagnostics = appendDiagnostic(typ.Diagnostics, diagnostics...)
+}
+
+func (p *attemptPlanner) planEnumFallbackValue(typ *plan.Type) (types.ConstantDecl, []plan.Diagnostic) {
+	if typ.EnumSpec.FailureMode != spec.EnumFailureModeFallback {
+		return types.ConstantDecl{}, nil
+	}
+
+	if typ.EnumSpec.FallbackValue == "" {
+		return types.ConstantDecl{}, []plan.Diagnostic{{
+			Level: plan.DiagnosticLevelFatal,
+			Path:  plan.TypesPath(typ.SourceType, typ.TargetType),
+			Message: `enum fallback value is required when enum.failureMode is "fallback"; ` +
+				`configure enum.fallback.forward or enum.fallback.inverse for this direction`,
+		}}
+	}
+
+	targetConstants := collectExportedConstants(typ.TargetDecl.Constants)
+	fallbackValue, ok := targetConstants[typ.EnumSpec.FallbackValue]
+	if !ok {
+		return types.ConstantDecl{}, []plan.Diagnostic{{
+			Level: plan.DiagnosticLevelFatal,
+			Path:  plan.TargetEnumValuePath(typ.SourceType, typ.TargetType, typ.EnumSpec.FallbackValue),
+			Message: fmt.Sprintf(
+				"enum fallback value %q does not exist or is not exported on target enum %q",
+				typ.EnumSpec.FallbackValue,
+				typ.TargetType.Name,
+			),
+		}}
+	}
+
+	return fallbackValue, nil
 }
 
 func (p *attemptPlanner) planEnumValues(typ *plan.Type) ([]plan.EnumValue, []plan.Diagnostic) {
@@ -116,6 +150,10 @@ func (p *attemptPlanner) planEnumValues(typ *plan.Type) ([]plan.EnumValue, []pla
 
 		targetConstant, ok := targetsByNormalizedName[normalizedSourceName]
 		if !ok {
+			if typ.EnumSpec.FailureMode == spec.EnumFailureModeFallback {
+				continue
+			}
+
 			diagnostics = appendDiagnostic(diagnostics, plan.Diagnostic{
 				Level: plan.DiagnosticLevelFatal,
 				Path:  plan.SourceEnumValuePath(typ.SourceType, typ.TargetType, sourceConstant.Name),

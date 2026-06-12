@@ -32,6 +32,7 @@ func TestGeneratorGenerate(t *testing.T) {
 		files, err := NewGenerator().Generate(generatorPlan(
 			generatorEnumRoot("MapStatus", spec.EnumFailureModeError),
 			generatorEnumRoot("MapStatusOrZero", spec.EnumFailureModeZero),
+			generatorEnumRoot("MapStatusOrFallback", spec.EnumFailureModeFallback),
 		))
 
 		require.NoError(t, err)
@@ -459,6 +460,9 @@ func generatorEnumRoot(functionName string, failureMode spec.EnumFailureMode) *p
 			{Source: sourceDecl.Constants["StatusReady"], Target: targetDecl.Constants["StatusReady"]},
 			{Source: sourceDecl.Constants["StatusDone"], Target: targetDecl.Constants["StatusDone"]},
 		},
+	}
+	if failureMode == spec.EnumFailureModeFallback {
+		root.EnumPlan.FallbackValue = targetDecl.Constants["StatusReady"]
 	}
 	return root
 }

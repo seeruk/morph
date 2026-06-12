@@ -181,7 +181,7 @@ func resolveType(
 		return spec.Type{}, nil, fmt.Errorf("packages[%d].types[%d]: %w", packageIndex, typeIndex, err)
 	}
 
-	enum := resolveEnum(typ.Enum, typeDefaults.Enum)
+	enum := resolveEnum(typ.Enum, typeDefaults.Enum, true)
 	mappers := resolveMappers(mergeMappersDefaults(typ.Mappers, typeDefaults.Mappers))
 	optionality := optionalityFromDefaults(mergeOptionalityDefaults(typ.Optionality, typeDefaults.Optionality))
 	conversion := conversionsFromDefaults(mergeConversionsDefaults(typ.Conversions, typeDefaults.Conversions))
@@ -214,7 +214,7 @@ func resolveType(
 	inverse := spec.Type{
 		Source:      target,
 		Target:      source,
-		Enum:        invertEnum(enum),
+		Enum:        invertEnum(resolveEnum(typ.Enum, typeDefaults.Enum, false)),
 		Callables:   callables.Ordered(),
 		Struct:      inverseStructure,
 		Mapper:      mappers.Inverse,
@@ -296,7 +296,7 @@ func resolveOutput(output Output) spec.Output {
 
 func resolvedTypeDefaults(defaults TypesDefaults) spec.TypeDefaults {
 	return spec.TypeDefaults{
-		Enum:        resolveEnum(nil, defaults.Enum),
+		Enum:        resolveEnum(nil, defaults.Enum, true),
 		Callables:   slices.Clone(defaults.Callables),
 		Mappers:     resolveMappers(defaults.Mappers),
 		Optionality: optionalityFromDefaults(defaults.Optionality),
@@ -304,7 +304,7 @@ func resolvedTypeDefaults(defaults TypesDefaults) spec.TypeDefaults {
 	}
 }
 
-func resolveEnum(enum *Enum, defaults *EnumDefaults) spec.Enum {
+func resolveEnum(enum *Enum, defaults *EnumDefaults, forward bool) spec.Enum {
 	out := spec.Enum{}
 	if defaults != nil {
 		if defaults.FailureMode != nil {
@@ -316,10 +316,21 @@ func resolveEnum(enum *Enum, defaults *EnumDefaults) spec.Enum {
 		if enum.FailureMode != nil {
 			out.FailureMode = *enum.FailureMode
 		}
+		out.FallbackValue = resolveEnumFallback(enum.Fallback, forward)
 		out.Patterns = enumPatternsFromOverrides(enum.Patterns, out.Patterns)
 		out.Values = maps.Clone(enum.Values)
 	}
 	return out
+}
+
+func resolveEnumFallback(fallback *EnumFallback, forward bool) string {
+	if fallback == nil {
+		return ""
+	}
+	if forward {
+		return fallback.Forward
+	}
+	return fallback.Inverse
 }
 
 func mergeEnumDefaults(overrides *EnumDefaults, fallback *EnumDefaults) *EnumDefaults {

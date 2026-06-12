@@ -303,6 +303,10 @@
           "$ref": "#/$defs/enumFailureMode",
           "description": "Behavior when an enum source value has no target match."
         },
+        "fallback": {
+          "$ref": "#/$defs/enumFallback",
+          "description": "Directional target constants returned by fallback enum mappings."
+        },
         "patterns": {
           "$ref": "#/$defs/enumPatterns",
           "description": "Templates used to normalize source and target enum value names before matching."
@@ -313,6 +317,20 @@
           "additionalProperties": {
             "$ref": "#/$defs/enumValueName"
           }
+        }
+      }
+    },
+    "enumFallback": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "forward": {
+          "$ref": "#/$defs/enumValueName",
+          "description": "Target enum constant returned by the forward mapper when no enum value matches."
+        },
+        "inverse": {
+          "$ref": "#/$defs/enumValueName",
+          "description": "Target enum constant returned by the inverse mapper when no enum value matches."
         }
       }
     },
@@ -573,8 +591,8 @@
     },
     "enumFailureMode": {
       "type": "string",
-      "enum": ["error", "zero"],
-      "description": "error returns an error for unmapped enum values; zero returns the target type's zero value.",
+      "enum": ["error", "zero", "fallback"],
+      "description": "error returns an error for unmapped enum values; zero returns the target type's zero value; fallback returns a configured target constant.",
       "default": "error"
     },
     "parameterKind": {

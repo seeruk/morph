@@ -229,6 +229,8 @@ func (g *fileGenerator) renderEnumMapper(typ *plan.Type) error {
 		switch typ.EnumPlan.FailureMode {
 		case spec.EnumFailureModeZero:
 			g.renderReturn(scope, scope.ZeroValue)
+		case spec.EnumFailureModeFallback:
+			g.renderReturnMappedValue(scope, typ, g.renderConstant(typ.EnumPlan.FallbackValue))
 		case spec.EnumFailureModeError:
 			g.renderReturnError(scope, g.errorf("no enum mapping for %v", source))
 		default:

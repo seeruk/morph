@@ -375,6 +375,154 @@ func TestPlannerPlanEnumsFromConfig(t *testing.T) {
 		assert.False(t, root.CanError)
 		assert.Equal(t, spec.EnumFailureModeZero, root.EnumPlan.FailureMode)
 	})
+
+	t.Run("uses fallback failure mode for unmatched inferred values", func(t *testing.T) {
+		fallback := spec.EnumFailureModeFallback
+		out := planWithConfig(t, "lab/planner", config.Config{
+			Packages: []config.Package{{
+				Source: "github.com/seeruk/morph/lab/planner/from",
+				Target: "github.com/seeruk/morph/lab/planner/to",
+				Types: []config.Type{{
+					Source: "Difficulty",
+					Target: "RecipeDifficulty",
+					Enum: &config.Enum{
+						FailureMode: &fallback,
+						Fallback: &config.EnumFallback{
+							Forward: "RecipeDifficultyInsane",
+						},
+					},
+				}},
+			}},
+		})
+
+		root := requireSingleRoot(t, out)
+		require.NotNil(t, root.EnumPlan)
+
+		assert.False(t, plan.HasFatalDiagnostics(root.Diagnostics))
+		assert.False(t, root.CanError)
+		assert.Equal(t, spec.EnumFailureModeFallback, root.EnumPlan.FailureMode)
+		assert.Equal(t, "RecipeDifficultyInsane", root.EnumPlan.FallbackValue.Name)
+		assert.Equal(t, []string{"DifficultyEasy", "DifficultyHard", "DifficultyMedium"}, enumSourceNames(root.EnumPlan.Values))
+		assert.Equal(t, []string{"RecipeDifficultyEasy", "RecipeDifficultyHard", "RecipeDifficultyMedium"}, enumTargetNames(root.EnumPlan.Values))
+	})
+
+	t.Run("reports missing fallback value", func(t *testing.T) {
+		fallback := spec.EnumFailureModeFallback
+		out := planWithConfig(t, "lab/planner", config.Config{
+			Packages: []config.Package{{
+				Source: "github.com/seeruk/morph/lab/planner/from",
+				Target: "github.com/seeruk/morph/lab/planner/to",
+				Types: []config.Type{{
+					Source: "Difficulty",
+					Target: "RecipeDifficulty",
+					Enum: &config.Enum{
+						FailureMode: &fallback,
+					},
+				}},
+			}},
+		})
+
+		root := requireSingleRoot(t, out)
+
+		assertFatalDiagnosticMessages(
+			t,
+			root.Diagnostics,
+			`enum fallback value is required when enum.failureMode is "fallback"; configure enum.fallback.forward or enum.fallback.inverse for this direction`,
+		)
+	})
+
+	t.Run("reports missing fallback target constant", func(t *testing.T) {
+		fallback := spec.EnumFailureModeFallback
+		out := planWithConfig(t, "lab/planner", config.Config{
+			Packages: []config.Package{{
+				Source: "github.com/seeruk/morph/lab/planner/from",
+				Target: "github.com/seeruk/morph/lab/planner/to",
+				Types: []config.Type{{
+					Source: "Difficulty",
+					Target: "RecipeDifficulty",
+					Enum: &config.Enum{
+						FailureMode: &fallback,
+						Fallback: &config.EnumFallback{
+							Forward: "RecipeDifficultyMissing",
+						},
+					},
+				}},
+			}},
+		})
+
+		root := requireSingleRoot(t, out)
+
+		assertFatalDiagnosticMessages(
+			t,
+			root.Diagnostics,
+			`enum fallback value "RecipeDifficultyMissing" does not exist or is not exported on target enum "RecipeDifficulty"`,
+		)
+	})
+
+	t.Run("reports invalid explicit value mappings in fallback mode", func(t *testing.T) {
+		fallback := spec.EnumFailureModeFallback
+		out := planWithConfig(t, "lab/planner", config.Config{
+			Packages: []config.Package{{
+				Source: "github.com/seeruk/morph/lab/planner/from",
+				Target: "github.com/seeruk/morph/lab/planner/to",
+				Types: []config.Type{{
+					Source: "Difficulty",
+					Target: "RecipeDifficulty",
+					Enum: &config.Enum{
+						FailureMode: &fallback,
+						Fallback: &config.EnumFallback{
+							Forward: "RecipeDifficultyInsane",
+						},
+						Values: map[string]string{
+							"DifficultyUltra": "RecipeDifficultyMissing",
+						},
+					},
+				}},
+			}},
+		})
+
+		root := requireSingleRoot(t, out)
+
+		assertFatalDiagnosticMessages(
+			t,
+			root.Diagnostics,
+			`target enum value "RecipeDifficultyMissing" configured for source enum value "DifficultyUltra" does not exist or is not exported`,
+		)
+	})
+
+	t.Run("uses forward and inverse fallback values directionally", func(t *testing.T) {
+		fallback := spec.EnumFailureModeFallback
+		out := planWithConfig(t, "lab/planner", config.Config{
+			Packages: []config.Package{{
+				Source:        "github.com/seeruk/morph/lab/planner/from",
+				Target:        "github.com/seeruk/morph/lab/planner/to",
+				Bidirectional: new(true),
+				Types: []config.Type{{
+					Source: "Difficulty",
+					Target: "RecipeDifficulty",
+					Enum: &config.Enum{
+						FailureMode: &fallback,
+						Fallback: &config.EnumFallback{
+							Forward: "RecipeDifficultyInsane",
+							Inverse: "DifficultyUltra",
+						},
+					},
+				}},
+			}},
+		})
+
+		require.Len(t, out.OutputGroups, 1)
+		require.Len(t, out.OutputGroups[0].Roots, 2)
+		forward := requireRootByTargetName(t, out.OutputGroups[0].Roots, "RecipeDifficulty")
+		inverse := requireRootByTargetName(t, out.OutputGroups[0].Roots, "Difficulty")
+
+		require.NotNil(t, forward.EnumPlan)
+		require.NotNil(t, inverse.EnumPlan)
+		assert.False(t, plan.HasFatalDiagnostics(forward.Diagnostics))
+		assert.False(t, plan.HasFatalDiagnostics(inverse.Diagnostics))
+		assert.Equal(t, "RecipeDifficultyInsane", forward.EnumPlan.FallbackValue.Name)
+		assert.Equal(t, "DifficultyUltra", inverse.EnumPlan.FallbackValue.Name)
+	})
 }
 
 func TestSortedOutputGroups(t *testing.T) {

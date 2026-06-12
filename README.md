@@ -485,6 +485,26 @@ packages:
         Difficulty_DIFFICULTY_UNSPECIFIED: RecipeDifficultyUnknown
 ```
 
+By default, enum mappers return an error when the source value falls through the generated switch.
+Set `failureMode: zero` to return the target enum's zero value instead, or `failureMode: fallback`
+to return a configured target enum constant. Fallback mode also allows inferred source constants
+with no target match; those constants are omitted from the switch and use the fallback at runtime.
+Explicit `values` entries are still validated.
+
+```yaml
+packages:
+- source: example.com/foodplanner/foodpb
+  target: example.com/foodplanner/food
+  types:
+  - source: Difficulty
+    target: RecipeDifficulty
+    enum:
+      failureMode: fallback
+      fallback:
+        forward: RecipeDifficultyUnknown
+        inverse: Difficulty_UNSPECIFIED
+```
+
 For enums with regular generated naming patterns, you can also configure patterns instead of
 listing every value:
 
@@ -556,7 +576,8 @@ packages:
 ```
 
 This will generate both `foodpb -> food` and `food -> foodpb` mappings. Struct property mappings and
-enum value mappings are inverted automatically for the inverse mapper.
+enum value mappings are inverted automatically for the inverse mapper. Enum fallback values are
+configured directionally because each generated mapper returns a different target enum type.
 
 If only one type should be bidirectional, configure it at the type level:
 
@@ -589,7 +610,6 @@ packages:
 
 ## Future Enhancements
 
-* Unknown enum value assignment to default? Like, `enum.fallbackValue` or something?
 * Assignment of literal / constant values for unmapped fields (i.e. while mapping set field x to y)
 * CLI improvements:
   * A dry-run flag?

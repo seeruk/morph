@@ -55,8 +55,9 @@ type Type struct {
 }
 
 type Enum struct {
-	FailureMode spec.EnumFailureMode
-	Values      []EnumValue
+	FailureMode   spec.EnumFailureMode
+	FallbackValue types.ConstantDecl
+	Values        []EnumValue
 }
 
 // EnumValue describes the plan for mapping a single enum value.

@@ -122,8 +122,15 @@ type Type struct {
 // Enum represents defaultable enum mapping configuration.
 type Enum struct {
 	FailureMode *spec.EnumFailureMode `json:"failureMode"`
+	Fallback    *EnumFallback         `json:"fallback"`
 	Patterns    *EnumPatterns         `json:"patterns"`
 	Values      map[string]string     `json:"values"`
+}
+
+// EnumFallback configures directional fallback target constants for fallback enum mappings.
+type EnumFallback struct {
+	Forward string `json:"forward"`
+	Inverse string `json:"inverse"`
 }
 
 // EnumPatterns allows patterns to be configured for matching enums.

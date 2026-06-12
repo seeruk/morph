@@ -70,8 +70,9 @@ func CallablePriorityCount() int {
 // allowing customization of generated output and explicit clarification of ambiguities that the
 // planner may not be able to resolve on its own.
 type Enum struct {
-	FailureMode EnumFailureMode
-	Patterns    EnumPatterns
+	FailureMode   EnumFailureMode
+	FallbackValue string
+	Patterns      EnumPatterns
 	// Values is an explicit mapping from source enum value name to target enum value name. Only
 	// explicit mappings need be placed in this map, as the planner will attempt to infer mappings
 	// for values with similar names.
@@ -83,13 +84,15 @@ type EnumFailureMode uint
 
 const (
 	EnumFailureModeError EnumFailureMode = iota
+	EnumFailureModeFallback
 	EnumFailureModeZero
 	enumFailureModeMax
 )
 
 var enumFailureModeNames = map[EnumFailureMode]string{
-	EnumFailureModeError: "error",
-	EnumFailureModeZero:  "zero",
+	EnumFailureModeError:    "error",
+	EnumFailureModeFallback: "fallback",
+	EnumFailureModeZero:     "zero",
 }
 
 var enumFailureModesByName = mapsx.Invert(enumFailureModeNames)

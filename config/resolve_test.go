@@ -209,6 +209,60 @@ func TestResolve_EnumPatternDefaults(t *testing.T) {
 	})
 }
 
+func TestResolve_EnumFallback(t *testing.T) {
+	t.Run("resolves forward and inverse fallback values directionally", func(t *testing.T) {
+		fallback := spec.EnumFailureModeFallback
+		cfg := bidirectionalConfig()
+		cfg.Packages[0].Types[0].Enum.FailureMode = &fallback
+		cfg.Packages[0].Types[0].Enum.Fallback = &config.EnumFallback{
+			Forward: "TargetUnknown",
+			Inverse: "SourceUnknown",
+		}
+
+		types := resolvedBidirectionalTypes(t, cfg)
+		require.Len(t, types, 2)
+
+		assert.Equal(t, spec.EnumFailureModeFallback, types[0].Enum.FailureMode)
+		assert.Equal(t, "TargetUnknown", types[0].Enum.FallbackValue)
+		assert.Equal(t, map[string]string{"SourceReady": "TargetReady"}, types[0].Enum.Values)
+
+		assert.Equal(t, spec.EnumFailureModeFallback, types[1].Enum.FailureMode)
+		assert.Equal(t, "SourceUnknown", types[1].Enum.FallbackValue)
+		assert.Equal(t, map[string]string{"TargetReady": "SourceReady"}, types[1].Enum.Values)
+	})
+
+	t.Run("inherits fallback failure mode from defaults while type supplies fallback value", func(t *testing.T) {
+		fallback := spec.EnumFailureModeFallback
+		cfg := minimalConfig()
+		cfg.Defaults.Packages.Types.Enum = &config.EnumDefaults{FailureMode: &fallback}
+		cfg.Packages[0].Types[0].Enum = &config.Enum{
+			Fallback: &config.EnumFallback{Forward: "TargetUnknown"},
+		}
+
+		typ := singleResolvedType(t, cfg)
+
+		assert.Equal(t, spec.EnumFailureModeFallback, typ.Enum.FailureMode)
+		assert.Equal(t, "TargetUnknown", typ.Enum.FallbackValue)
+	})
+
+	t.Run("inherits fallback failure mode from presets while type supplies fallback value", func(t *testing.T) {
+		fallback := spec.EnumFailureModeFallback
+		cfg := minimalConfig()
+		cfg.Presets = map[string]config.Preset{
+			"api": {Enum: &config.EnumDefaults{FailureMode: &fallback}},
+		}
+		cfg.Packages[0].Preset = "api"
+		cfg.Packages[0].Types[0].Enum = &config.Enum{
+			Fallback: &config.EnumFallback{Forward: "TargetUnknown"},
+		}
+
+		typ := singleResolvedType(t, cfg)
+
+		assert.Equal(t, spec.EnumFailureModeFallback, typ.Enum.FailureMode)
+		assert.Equal(t, "TargetUnknown", typ.Enum.FallbackValue)
+	})
+}
+
 func TestResolve_BidirectionalExpansion(t *testing.T) {
 	t.Run("expands one config type into forward and inverse resolved types", func(t *testing.T) {
 		types := resolvedBidirectionalTypes(t)

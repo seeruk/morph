@@ -151,6 +151,7 @@
           "callables": null,
           "enum": {
             "failureMode": "zero",
+            "fallback": null,
             "patterns": {
               "source": "SourceStatus_\u003cSCREAMING_VALUE\u003e",
               "target": "TargetStatus\u003cPascalValue\u003e"
@@ -206,6 +207,7 @@
           "callables": null,
           "enum": {
             "failureMode": "error",
+            "fallback": null,
             "patterns": null,
             "values": {
               "DBRoleAdmin": "RoleAdmin"
