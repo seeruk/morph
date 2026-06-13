@@ -637,8 +637,6 @@ packages:
     creates or updates config to include pairs of types found? `morph scan` or something?
 * Package-local helpers could support cross-package mappings involving unexported fields.
 * Built-in helpers which can be used for discovery en masse
-* Built-in presets?
-  * This might just be a list of examples? I don't want built-in ones to be hard-coded.
 
 ## License
 
