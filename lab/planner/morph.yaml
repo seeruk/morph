@@ -31,14 +31,6 @@ packages:
   target: github.com/seeruk/morph/lab/planner/to
   bidirectional: true
   types:
-  - name: Monster
-    struct:
-      omit:
-        both:
-        - Name
-        - Health
-        source:
-        - Table
   - name: Recipe
     mappers:
       forward:

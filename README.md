@@ -53,10 +53,23 @@ If you have a `morph.yaml` in the same folder:
 $ morph
 ```
 
+This is equivalent to the explicit generate command:
+
+```bash
+$ morph generate
+```
+
 If you want to point Morph at a specific configuration file:
 
 ```bash
 $ morph -config path/to/config.yml
+```
+
+You can preview what Morph would write without changing files:
+
+```bash
+$ morph --dry-run
+$ morph generate --dry-run
 ```
 
 Morph plans and generates code based on where the config file is. The configuration file must be
