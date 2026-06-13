@@ -102,6 +102,7 @@ type FieldToSetterContainer struct {
 
 type GetterToFieldContainer struct {
 	name string
+	Kept string
 }
 
 func (g GetterToFieldContainer) GetName() string {
@@ -110,13 +111,16 @@ func (g GetterToFieldContainer) GetName() string {
 
 type GetterToSetterContainer struct {
 	name string
+	Kept string
 }
 
 func (g GetterToSetterContainer) GetName() string {
 	return g.name
 }
 
-type ReadMethodOnlyContainer struct{}
+type ReadMethodOnlyContainer struct {
+	Kept string
+}
 
 func (r ReadMethodOnlyContainer) Name() string {
 	return "name"
@@ -124,6 +128,7 @@ func (r ReadMethodOnlyContainer) Name() string {
 
 type ExplicitAccessorContainer struct {
 	email string
+	Kept  string
 }
 
 func (e ExplicitAccessorContainer) FetchEmail() string {
@@ -169,6 +174,7 @@ type WarningSliceContainer struct {
 type OmissionContainer struct {
 	Shared     string
 	SourceOnly string
+	Mapped     string
 }
 
 type AmbiguousOmissionContainer struct {

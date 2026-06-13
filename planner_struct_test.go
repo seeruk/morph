@@ -86,7 +86,26 @@ func TestPlannerPlanStructOmissions(t *testing.T) {
 		})
 
 		assert.Empty(t, root.Diagnostics)
+		assert.Contains(t, planPropertyTargetNames(root.StructPlan), "Mapped")
 		assert.NotContains(t, planPropertyTargetNames(root.StructPlan), "Shared")
+	})
+
+	t.Run("rejects mappings with no planned properties", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{
+			Name: "OmissionContainer",
+			Struct: &config.Struct{Omit: config.StructOmissions{
+				Both:   []string{"Mapped", "Shared"},
+				Source: []string{"SourceOnly"},
+				Target: []string{"TargetOnly"},
+			}},
+		})
+
+		assert.Empty(t, root.StructPlan.Properties)
+		assertFatalDiagnosticMessages(
+			t,
+			root.Diagnostics,
+			"no properties could be mapped between source and target types",
+		)
 	})
 
 	t.Run("warns with both hint for source omissions that match target properties", func(t *testing.T) {
@@ -162,6 +181,8 @@ func TestPlannerPlanStructOmissions(t *testing.T) {
 
 		assert.Empty(t, forward.Diagnostics)
 		assert.Empty(t, inverse.Diagnostics)
+		assert.Contains(t, planPropertyTargetNames(forward.StructPlan), "Mapped")
+		assert.Contains(t, planPropertyTargetNames(inverse.StructPlan), "Mapped")
 		assert.NotContains(t, planPropertyTargetNames(forward.StructPlan), "Shared")
 		assert.NotContains(t, planPropertyTargetNames(inverse.StructPlan), "Shared")
 	})
@@ -175,7 +196,8 @@ func TestPlannerPlanStructOmissions(t *testing.T) {
 		})
 
 		assert.Empty(t, root.Diagnostics)
-		assert.Empty(t, root.StructPlan.Properties)
+		assert.Contains(t, planPropertyTargetNames(root.StructPlan), "Kept")
+		assert.NotContains(t, planPropertyTargetNames(root.StructPlan), "Name")
 	})
 
 	t.Run("allows inverted source omissions for read-only inverse target members", func(t *testing.T) {
@@ -199,6 +221,7 @@ func TestPlannerPlanStructOmissions(t *testing.T) {
 		inverse := requireRootBySourcePackage(t, out.OutputGroups[0].Roots, plannerToPackage)
 
 		assert.False(t, plan.HasFatalDiagnostics(inverse.Diagnostics))
+		assert.Contains(t, planPropertyTargetNames(inverse.StructPlan), "Kept")
 		assert.NotContains(t, diagnosticsMessages(inverse.Diagnostics), `target property "Name" does not exist`)
 	})
 
@@ -493,7 +516,8 @@ func TestPlannerPlanFieldVisibility(t *testing.T) {
 		root := requireSingleRoot(t, out)
 
 		assert.False(t, plan.HasFatalDiagnostics(root.Diagnostics))
-		assert.Empty(t, root.StructPlan.Properties)
+		assert.Contains(t, planPropertyTargetNames(root.StructPlan), "Visible")
+		assert.NotContains(t, planPropertyTargetNames(root.StructPlan), "secret")
 	})
 
 	t.Run("rejects explicit unexported source fields from another generated package", func(t *testing.T) {
@@ -613,14 +637,18 @@ func TestPlannerPlanStructMethodAccessors(t *testing.T) {
 		root := planPlannerRoot(t, config.Type{Name: "ReadMethodOnlyContainer"})
 
 		require.NotNil(t, root.StructPlan)
-		assert.Empty(t, root.StructPlan.Properties)
+		assert.False(t, plan.HasFatalDiagnostics(root.Diagnostics))
+		assert.Contains(t, planPropertyTargetNames(root.StructPlan), "Kept")
+		assert.NotContains(t, planPropertyTargetNames(root.StructPlan), "Name")
 		assert.Contains(t, diagnosticsMessages(root.Diagnostics), `no target property found for source property "Name"; configure struct.properties to map it explicitly or struct.omit.source to omit it`)
 	})
 
 	t.Run("requires configured properties for accessor-only mappings", func(t *testing.T) {
 		automatic := planPlannerRoot(t, config.Type{Name: "ExplicitAccessorContainer"})
 		require.NotNil(t, automatic.StructPlan)
-		assert.Empty(t, automatic.StructPlan.Properties)
+		assert.False(t, plan.HasFatalDiagnostics(automatic.Diagnostics))
+		assert.Contains(t, planPropertyTargetNames(automatic.StructPlan), "Kept")
+		assert.NotContains(t, planPropertyTargetNames(automatic.StructPlan), "Email")
 
 		configured := planPlannerRoot(t, config.Type{
 			Name: "ExplicitAccessorContainer",
@@ -652,7 +680,9 @@ func TestPlannerPlanStructMethodAccessors(t *testing.T) {
 			Struct: &config.Struct{InferMethods: &inferMethods},
 		})
 		require.NotNil(t, automatic.StructPlan)
-		assert.Empty(t, automatic.StructPlan.Properties)
+		assert.False(t, plan.HasFatalDiagnostics(automatic.Diagnostics))
+		assert.Contains(t, planPropertyTargetNames(automatic.StructPlan), "Kept")
+		assert.NotContains(t, planPropertyTargetNames(automatic.StructPlan), "Name")
 		assert.Contains(t, diagnosticsMessages(automatic.Diagnostics), `no source property found for target property "Name"; configure struct.properties to map it explicitly or struct.omit.target to omit it`)
 
 		configured := planPlannerRoot(t, config.Type{
@@ -1589,13 +1619,5 @@ func pointerErrorOptionalityDefaults() *config.OptionalityDefaults {
 	return &config.OptionalityDefaults{
 		OnNilSourcePointer: &pointerError,
 		OnZeroSourceValue:  &valueNil,
-	}
-}
-
-func testField(name string, typ types.Type) types.Field {
-	return types.Field{
-		Name:       name,
-		Type:       typ,
-		IsExported: true,
 	}
 }

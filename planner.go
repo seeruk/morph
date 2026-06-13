@@ -582,10 +582,6 @@ func sortedUniqueStrings(values []string) []string {
 	return slices.Compact(out)
 }
 
-func structOmissionsEmpty(omit spec.StructOmissions) bool {
-	return len(omit.Both) == 0 && len(omit.Source) == 0 && len(omit.Target) == 0
-}
-
 type rootVariant struct {
 	Key      string
 	Location plan.OutputLocation

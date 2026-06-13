@@ -581,10 +581,6 @@ func cloneCallableRef(ref *spec.CallableRef) *spec.CallableRef {
 	return &out
 }
 
-func structOmissionsEmpty(omit spec.StructOmissions) bool {
-	return len(omit.Both) == 0 && len(omit.Source) == 0 && len(omit.Target) == 0
-}
-
 func invertStructOmissions(in spec.StructOmissions) spec.StructOmissions {
 	return spec.StructOmissions{
 		Both:   slices.Clone(in.Both),

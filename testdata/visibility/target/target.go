@@ -5,7 +5,8 @@ type LowerSourceFieldContainer struct {
 }
 
 type LowerTargetFieldContainer struct {
-	secret string
+	secret  string
+	Visible string
 }
 
 type EmbeddedFieldContainer struct {

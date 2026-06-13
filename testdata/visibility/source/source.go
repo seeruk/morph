@@ -5,7 +5,8 @@ type LowerSourceFieldContainer struct {
 }
 
 type LowerTargetFieldContainer struct {
-	Secret string
+	Secret  string
+	Visible string
 }
 
 type SamePackageSecretSource struct {
