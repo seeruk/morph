@@ -85,6 +85,43 @@ func TestCallableRef_UnmarshalText(t *testing.T) {
 	}
 }
 
+func TestCallableRef_String(t *testing.T) {
+	tests := []struct {
+		name string
+		ref  CallableRef
+		want string
+	}{
+		{
+			name: "zero",
+			ref:  CallableRef{},
+			want: "",
+		},
+		{
+			name: "function",
+			ref: CallableRef{
+				ImportPath: "module.test/example",
+				Name:       "Function",
+			},
+			want: "module.test/example.Function",
+		},
+		{
+			name: "method",
+			ref: CallableRef{
+				ImportPath: "module.test/example",
+				TypeName:   "Type",
+				Name:       "Method",
+			},
+			want: "module.test/example.Type.Method",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.ref.String())
+		})
+	}
+}
+
 func TestTypeRef_UnmarshalText(t *testing.T) {
 	tests := []struct {
 		name string

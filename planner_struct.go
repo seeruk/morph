@@ -12,48 +12,30 @@ import (
 	"github.com/seeruk/morph/types"
 )
 
+type structMemberSets struct {
+	SourceReadable  map[string]plan.Member
+	TargetWritable  map[string]plan.Member
+	SourceOmittable map[string]plan.Member
+	TargetOmittable map[string]plan.Member
+}
+
 func (p *attemptPlanner) planStruct(typ *plan.Type) {
 	outputImportPath := ""
 	if p.currentOutputLocation != nil {
 		outputImportPath = p.currentOutputLocation.ImportPath
 	}
-	sourceMembers := readableMembersForType(
-		typ.SourceDecl,
-		typ.SourceType,
-		outputImportPath,
-		typ.StructSpec.InferMethods,
-	)
-	targetMembers := writableMembersForType(
-		typ.TargetDecl,
-		typ.TargetType,
-		outputImportPath,
-		typ.StructSpec.InferMethods,
-	)
-	sourceOmittableMembers := maps.Clone(sourceMembers)
-	for name, member := range writableMembersForType(
-		typ.SourceDecl,
-		typ.SourceType,
-		outputImportPath,
-		typ.StructSpec.InferMethods,
-	) {
-		sourceOmittableMembers[name] = member
-	}
-	targetOmittableMembers := maps.Clone(targetMembers)
-	for name, member := range readableMembersForType(
-		typ.TargetDecl,
-		typ.TargetType,
-		outputImportPath,
-		typ.StructSpec.InferMethods,
-	) {
-		targetOmittableMembers[name] = member
-	}
+
+	members := structMembersForType(typ, outputImportPath)
+	sourceMembers := members.SourceReadable
+	targetMembers := members.TargetWritable
+
 	omissions, diagnostics := resolveStructOmissions(
 		typ.SourceType,
 		typ.TargetType,
 		sourceMembers,
 		targetMembers,
-		sourceOmittableMembers,
-		targetOmittableMembers,
+		members.SourceOmittable,
+		members.TargetOmittable,
 		typ.StructSpec,
 	)
 	typ.Diagnostics = appendDiagnostic(typ.Diagnostics, diagnostics...)
@@ -215,6 +197,48 @@ func (p *attemptPlanner) planStruct(typ *plan.Type) {
 	}
 
 	typ.StructPlan = &structPlan
+}
+
+func structMembersForType(typ *plan.Type, outputImportPath string) structMemberSets {
+	sourceReadable := readableMembersForType(
+		typ.SourceDecl,
+		typ.SourceType,
+		outputImportPath,
+		typ.StructSpec.InferMethods,
+	)
+	sourceWritable := writableMembersForType(
+		typ.SourceDecl,
+		typ.SourceType,
+		outputImportPath,
+		typ.StructSpec.InferMethods,
+	)
+	targetWritable := writableMembersForType(
+		typ.TargetDecl,
+		typ.TargetType,
+		outputImportPath,
+		typ.StructSpec.InferMethods,
+	)
+	targetReadable := readableMembersForType(
+		typ.TargetDecl,
+		typ.TargetType,
+		outputImportPath,
+		typ.StructSpec.InferMethods,
+	)
+
+	return structMemberSets{
+		SourceReadable:  sourceReadable,
+		TargetWritable:  targetWritable,
+		SourceOmittable: mergeMemberMaps(sourceReadable, sourceWritable),
+		TargetOmittable: mergeMemberMaps(targetWritable, targetReadable),
+	}
+}
+
+func mergeMemberMaps(base, overrides map[string]plan.Member) map[string]plan.Member {
+	out := maps.Clone(base)
+	for name, member := range overrides {
+		out[name] = member
+	}
+	return out
 }
 
 func (p *attemptPlanner) planValue(

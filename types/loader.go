@@ -19,7 +19,6 @@ import (
 type Loader struct {
 	dir      string
 	packages map[string]Package // import path -> Package
-	loaded   bool
 }
 
 // NewLoader returns a new Loader instance rooted at the given directory. Packages are resolved from
@@ -78,7 +77,6 @@ func (l *Loader) Load(ctx context.Context, patterns ...string) error {
 	}
 
 	l.packages = loaded
-	l.loaded = true
 
 	return nil
 }

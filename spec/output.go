@@ -32,7 +32,11 @@ var outputStrategyNames = map[OutputStrategy]string{
 var outputStrategiesByName = mapsx.Invert(outputStrategyNames)
 
 func (s OutputStrategy) MarshalText() ([]byte, error) {
-	return []byte(s.String()), nil
+	value, ok := outputStrategyNames[s]
+	if !ok {
+		return nil, fmt.Errorf("unknown output strategy: %s", s.String())
+	}
+	return []byte(value), nil
 }
 
 func (s *OutputStrategy) UnmarshalText(text []byte) error {
@@ -46,5 +50,8 @@ func (s *OutputStrategy) UnmarshalText(text []byte) error {
 }
 
 func (s OutputStrategy) String() string {
-	return outputStrategyNames[s]
+	if value, ok := outputStrategyNames[s]; ok {
+		return value
+	}
+	return fmt.Sprintf("OutputStrategy(%d)", s)
 }

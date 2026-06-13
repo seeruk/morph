@@ -140,7 +140,11 @@ func (r *CallableRef) UnmarshalText(text []byte) error {
 	return nil
 }
 
-func (r *CallableRef) String() string {
+func (r CallableRef) String() string {
+	if r.ImportPath == "" && r.TypeName == "" && r.Name == "" {
+		return ""
+	}
+
 	var sb strings.Builder
 	sb.WriteString(r.ImportPath)
 	if r.TypeName != "" {

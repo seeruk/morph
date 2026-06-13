@@ -58,7 +58,10 @@ var callablePriorityNames = map[CallablePriority]string{
 }
 
 func (p CallablePriority) String() string {
-	return callablePriorityNames[p]
+	if value, ok := callablePriorityNames[p]; ok {
+		return value
+	}
+	return fmt.Sprintf("CallablePriority(%d)", p)
 }
 
 // CallablePriorityCount returns the number of valid callable priorities.
@@ -98,7 +101,11 @@ var enumFailureModeNames = map[EnumFailureMode]string{
 var enumFailureModesByName = mapsx.Invert(enumFailureModeNames)
 
 func (e EnumFailureMode) MarshalText() ([]byte, error) {
-	return []byte(e.String()), nil
+	value, ok := enumFailureModeNames[e]
+	if !ok {
+		return nil, fmt.Errorf("unknown enum failure mode: %s", e.String())
+	}
+	return []byte(value), nil
 }
 
 func (e *EnumFailureMode) UnmarshalText(text []byte) error {
@@ -111,7 +118,10 @@ func (e *EnumFailureMode) UnmarshalText(text []byte) error {
 }
 
 func (e EnumFailureMode) String() string {
-	return enumFailureModeNames[e]
+	if value, ok := enumFailureModeNames[e]; ok {
+		return value
+	}
+	return fmt.Sprintf("EnumFailureMode(%d)", e)
 }
 
 // EnumPatterns allows patterns to be configured for matching enums, this can be used to explicitly
@@ -191,7 +201,11 @@ var parameterKindNames = map[ParameterKind]string{
 var parameterKindsByName = mapsx.Invert(parameterKindNames)
 
 func (k ParameterKind) MarshalText() ([]byte, error) {
-	return []byte(k.String()), nil
+	value, ok := parameterKindNames[k]
+	if !ok {
+		return nil, fmt.Errorf("unknown parameter kind: %s", k.String())
+	}
+	return []byte(value), nil
 }
 
 func (k *ParameterKind) UnmarshalText(data []byte) error {
@@ -205,7 +219,10 @@ func (k *ParameterKind) UnmarshalText(data []byte) error {
 }
 
 func (k ParameterKind) String() string {
-	return parameterKindNames[k]
+	if value, ok := parameterKindNames[k]; ok {
+		return value
+	}
+	return fmt.Sprintf("ParameterKind(%d)", k)
 }
 
 // Optionality configures how Morph handles pointer/value optionality boundaries after all defaults
@@ -231,7 +248,11 @@ var pointerOptionalityNames = map[PointerOptionality]string{
 var pointerOptionalitiesByName = mapsx.Invert(pointerOptionalityNames)
 
 func (p PointerOptionality) MarshalText() ([]byte, error) {
-	return []byte(p.String()), nil
+	value, ok := pointerOptionalityNames[p]
+	if !ok {
+		return nil, fmt.Errorf("unknown pointer optionality: %s", p.String())
+	}
+	return []byte(value), nil
 }
 
 func (p *PointerOptionality) UnmarshalText(data []byte) error {
@@ -245,7 +266,10 @@ func (p *PointerOptionality) UnmarshalText(data []byte) error {
 }
 
 func (p PointerOptionality) String() string {
-	return pointerOptionalityNames[p]
+	if value, ok := pointerOptionalityNames[p]; ok {
+		return value
+	}
+	return fmt.Sprintf("PointerOptionality(%d)", p)
 }
 
 type ValueOptionality uint
@@ -264,7 +288,11 @@ var valueOptionalityNames = map[ValueOptionality]string{
 var valueOptionalitiesByName = mapsx.Invert(valueOptionalityNames)
 
 func (v ValueOptionality) MarshalText() ([]byte, error) {
-	return []byte(v.String()), nil
+	value, ok := valueOptionalityNames[v]
+	if !ok {
+		return nil, fmt.Errorf("unknown value optionality: %s", v.String())
+	}
+	return []byte(value), nil
 }
 
 func (v *ValueOptionality) UnmarshalText(data []byte) error {
@@ -278,7 +306,10 @@ func (v *ValueOptionality) UnmarshalText(data []byte) error {
 }
 
 func (v ValueOptionality) String() string {
-	return valueOptionalityNames[v]
+	if value, ok := valueOptionalityNames[v]; ok {
+		return value
+	}
+	return fmt.Sprintf("ValueOptionality(%d)", v)
 }
 
 // ConversionsPolicy configures whether Morph can use registered named type conversions in a scope.

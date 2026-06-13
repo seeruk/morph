@@ -77,6 +77,11 @@ func TestOutputStrategy_String(t *testing.T) {
 			strategy: OutputStrategyTargetPackage,
 			want:     "target_package",
 		},
+		{
+			name:     "invalid",
+			strategy: OutputStrategy(99),
+			want:     "OutputStrategy(99)",
+		},
 	}
 
 	for _, tt := range tests {
@@ -84,4 +89,21 @@ func TestOutputStrategy_String(t *testing.T) {
 			assert.Equal(t, tt.want, tt.strategy.String())
 		})
 	}
+}
+
+func TestOutputStrategy_MarshalText(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		got, err := OutputStrategySinglePackage.MarshalText()
+
+		require.NoError(t, err)
+		assert.Equal(t, []byte("single_package"), got)
+	})
+
+	t.Run("invalid", func(t *testing.T) {
+		got, err := OutputStrategy(99).MarshalText()
+
+		require.Error(t, err)
+		assert.Nil(t, got)
+		assert.ErrorContains(t, err, "unknown output strategy: OutputStrategy(99)")
+	})
 }

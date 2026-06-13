@@ -5,7 +5,6 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/seeruk/morph/internal/slicesx"
 	"github.com/seeruk/morph/plan"
 	"github.com/seeruk/morph/types"
 	"github.com/stretchr/testify/assert"
@@ -103,10 +102,9 @@ func Test_normalizeEnumConstants(t *testing.T) {
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
 			input := make(map[string]types.ConstantDecl, len(tc.in))
-			input = slicesx.Reduce(tc.in, input, func(acc map[string]types.ConstantDecl, decl types.ConstantDecl) map[string]types.ConstantDecl {
-				acc[decl.Name] = decl
-				return acc
-			})
+			for _, decl := range tc.in {
+				input[decl.Name] = decl
+			}
 
 			out, ambiguous, diags := constantsByNormalizedName(input, tc.pattern, nil, "")
 			if len(tc.out) > 0 {

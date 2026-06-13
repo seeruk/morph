@@ -51,18 +51,11 @@ func packageRefFromTypesPackage(pkg *types.Package) PackageRef {
 	}
 }
 
-func packageRefFromObject(obj types.Object, fallbacks ...PackageRef) PackageRef {
-	if len(fallbacks) > 1 {
-		panic("types: too many fallback package refs for packageRefFromObject")
-	}
-	var fallback PackageRef
-	if len(fallbacks) == 1 {
-		fallback = fallbacks[0]
-	}
+func packageRefFromObject(obj types.Object) PackageRef {
 	if pkg := obj.Pkg(); pkg != nil {
 		return packageRefFromTypesPackage(pkg)
 	}
-	return fallback
+	return PackageRef{}
 }
 
 // ConstantDecl represents a constant declaration in a Go package.
