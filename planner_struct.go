@@ -29,34 +29,49 @@ func (p *attemptPlanner) planStruct(typ *plan.Type) {
 		outputImportPath,
 		typ.StructSpec.InferMethods,
 	)
-	omittedSourceProperties := propertyOmissionSet(typ.StructSpec.Omit.Source)
-	omittedTargetProperties := propertyOmissionSet(typ.StructSpec.Omit.Target)
-	usedSourceProperties := make(map[string]struct{}, len(sourceMembers))
-	usedTargetProperties := make(map[string]struct{}, len(targetMembers))
-
-	var structPlan plan.Struct
-	for _, diagnostic := range validateOmittedProperties(
+	sourceOmittableMembers := maps.Clone(sourceMembers)
+	for name, member := range writableMembersForType(
+		typ.SourceDecl,
+		typ.SourceType,
+		outputImportPath,
+		typ.StructSpec.InferMethods,
+	) {
+		sourceOmittableMembers[name] = member
+	}
+	targetOmittableMembers := maps.Clone(targetMembers)
+	for name, member := range readableMembersForType(
+		typ.TargetDecl,
+		typ.TargetType,
+		outputImportPath,
+		typ.StructSpec.InferMethods,
+	) {
+		targetOmittableMembers[name] = member
+	}
+	omissions, diagnostics := resolveStructOmissions(
 		typ.SourceType,
 		typ.TargetType,
 		sourceMembers,
 		targetMembers,
+		sourceOmittableMembers,
+		targetOmittableMembers,
 		typ.StructSpec,
-	) {
-		typ.Diagnostics = appendDiagnostic(typ.Diagnostics, diagnostic)
-	}
+	)
+	typ.Diagnostics = appendDiagnostic(typ.Diagnostics, diagnostics...)
+	usedSourceProperties := make(map[string]struct{}, len(sourceMembers))
+	usedTargetProperties := make(map[string]struct{}, len(targetMembers))
 
+	var structPlan plan.Struct
 	candidates := propertyCandidates(
 		typ.StructSpec.Properties,
 		sourceMembers,
 		targetMembers,
-		omittedSourceProperties,
-		omittedTargetProperties,
+		omissions,
 	)
 	for _, candidate := range candidates {
 		usedSourceProperties[candidate.Source] = struct{}{}
 		usedTargetProperties[candidate.Target] = struct{}{}
 
-		if _, omitted := omittedSourceProperties[candidate.Source]; omitted {
+		if _, omitted := omissions.Source[candidate.Source]; omitted {
 			typ.Diagnostics = appendDiagnostic(typ.Diagnostics, plan.Diagnostic{
 				Level:   plan.DiagnosticLevelFatal,
 				Path:    plan.SourcePropertyPath(typ.SourceType, typ.TargetType, candidate.Source),
@@ -64,11 +79,19 @@ func (p *attemptPlanner) planStruct(typ *plan.Type) {
 			})
 			continue
 		}
-		if _, omitted := omittedTargetProperties[candidate.Target]; omitted {
+		if _, omitted := omissions.Target[candidate.Target]; omitted {
 			typ.Diagnostics = appendDiagnostic(typ.Diagnostics, plan.Diagnostic{
 				Level:   plan.DiagnosticLevelFatal,
 				Path:    plan.TargetPropertyPath(typ.SourceType, typ.TargetType, candidate.Target),
 				Message: fmt.Sprintf("target property %q cannot be both omitted and explicitly mapped", candidate.Target),
+			})
+			continue
+		}
+		if propertyName, omitted := omissions.bothPropertyName(candidate.Source, candidate.Target); omitted {
+			typ.Diagnostics = appendDiagnostic(typ.Diagnostics, plan.Diagnostic{
+				Level:   plan.DiagnosticLevelFatal,
+				Path:    plan.PropertyPath(typ.SourceType, typ.TargetType, candidate.Source, candidate.Target),
+				Message: fmt.Sprintf("property %q cannot be both omitted via struct.omit.both and explicitly mapped", propertyName),
 			})
 			continue
 		}
@@ -157,14 +180,14 @@ func (p *attemptPlanner) planStruct(typ *plan.Type) {
 		if _, used := usedTargetProperties[targetName]; used {
 			continue
 		}
-		if _, omitted := omittedTargetProperties[targetName]; omitted {
+		if omissions.omitsTarget(targetName) {
 			continue
 		}
 
 		typ.Diagnostics = appendDiagnostic(typ.Diagnostics, plan.Diagnostic{
 			Level:   plan.DiagnosticLevelWarning,
 			Path:    plan.TargetPropertyPath(typ.SourceType, typ.TargetType, targetName),
-			Message: fmt.Sprintf("no source property found for target property %q; configure struct.properties to map it explicitly or struct.omit.target to omit it", targetName),
+			Message: missingSourcePropertyMessage(targetName, omissions.sourceOmissionMatchesTarget(targetName)),
 		})
 	}
 
@@ -172,14 +195,22 @@ func (p *attemptPlanner) planStruct(typ *plan.Type) {
 		if _, used := usedSourceProperties[sourceName]; used {
 			continue
 		}
-		if _, omitted := omittedSourceProperties[sourceName]; omitted {
+		if omissions.omitsSource(sourceName) {
 			continue
 		}
 
 		typ.Diagnostics = appendDiagnostic(typ.Diagnostics, plan.Diagnostic{
 			Level:   plan.DiagnosticLevelWarning,
 			Path:    plan.SourcePropertyPath(typ.SourceType, typ.TargetType, sourceName),
-			Message: fmt.Sprintf("no target property found for source property %q; configure struct.properties to map it explicitly or struct.omit.source to omit it", sourceName),
+			Message: missingTargetPropertyMessage(sourceName, omissions.targetOmissionMatchesSource(sourceName)),
+		})
+	}
+
+	if len(structPlan.Properties) == 0 {
+		typ.Diagnostics = appendDiagnostic(typ.Diagnostics, plan.Diagnostic{
+			Level:   plan.DiagnosticLevelFatal,
+			Path:    plan.TypesPath(typ.SourceType, typ.TargetType),
+			Message: "no properties could be mapped between source and target types",
 		})
 	}
 
@@ -2035,12 +2066,59 @@ type propertyCandidate struct {
 	Configured bool
 }
 
+type structOmissions struct {
+	Source map[string]struct{}
+	Target map[string]struct{}
+	Both   map[string]struct{}
+
+	BothSources map[string]string
+	BothTargets map[string]string
+
+	TargetsMatchedBySource map[string]struct{}
+	SourcesMatchedByTarget map[string]struct{}
+}
+
+func (o structOmissions) omitsSource(name string) bool {
+	if _, ok := o.Source[name]; ok {
+		return true
+	}
+	_, ok := o.BothSources[name]
+	return ok
+}
+
+func (o structOmissions) omitsTarget(name string) bool {
+	if _, ok := o.Target[name]; ok {
+		return true
+	}
+	_, ok := o.BothTargets[name]
+	return ok
+}
+
+func (o structOmissions) sourceOmissionMatchesTarget(name string) bool {
+	_, ok := o.TargetsMatchedBySource[name]
+	return ok
+}
+
+func (o structOmissions) targetOmissionMatchesSource(name string) bool {
+	_, ok := o.SourcesMatchedByTarget[name]
+	return ok
+}
+
+func (o structOmissions) bothPropertyName(sourceName, targetName string) (string, bool) {
+	if propertyName, ok := o.BothSources[sourceName]; ok {
+		return propertyName, true
+	}
+	if propertyName, ok := o.BothTargets[targetName]; ok {
+		return propertyName, true
+	}
+	return "", false
+}
+
 func propertyCandidates(
 	configured []spec.Property,
 	sourceMembers map[string]plan.Member,
 	targetMembers map[string]plan.Member,
-	omittedSourceProperties map[string]struct{},
-	omittedTargetProperties map[string]struct{},
+	omissions structOmissions,
 ) []propertyCandidate {
 	out := make([]propertyCandidate, 0, len(configured)+len(sourceMembers))
 	usedSources := make(map[string]struct{}, len(configured))
@@ -2061,14 +2139,20 @@ func propertyCandidates(
 		if _, used := usedSources[sourceName]; used {
 			continue
 		}
-		if _, omitted := omittedSourceProperties[sourceName]; omitted {
+		if _, omitted := omissions.Source[sourceName]; omitted {
 			continue
 		}
-		if _, omitted := omittedTargetProperties[sourceName]; omitted {
+		if _, omitted := omissions.BothSources[sourceName]; omitted {
 			continue
 		}
 		targetName, ok := matchingTargetProperty(sourceName, targetMembers, usedTargets)
 		if !ok {
+			continue
+		}
+		if _, omitted := omissions.Target[targetName]; omitted {
+			continue
+		}
+		if _, omitted := omissions.BothTargets[targetName]; omitted {
 			continue
 		}
 		out = append(out, propertyCandidate{
@@ -2108,12 +2192,23 @@ func matchingTargetProperty(
 	return matches[0], true
 }
 
-func validateOmittedProperties(
+func resolveStructOmissions(
 	sourceType, targetType types.Type,
 	sourceMembers map[string]plan.Member,
 	targetMembers map[string]plan.Member,
+	sourceOmittableMembers map[string]plan.Member,
+	targetOmittableMembers map[string]plan.Member,
 	structure spec.Struct,
-) []plan.Diagnostic {
+) (structOmissions, []plan.Diagnostic) {
+	omissions := structOmissions{
+		Source:                 propertyOmissionSet(structure.Omit.Source),
+		Target:                 propertyOmissionSet(structure.Omit.Target),
+		Both:                   propertyOmissionSet(structure.Omit.Both),
+		BothSources:            make(map[string]string, len(structure.Omit.Both)),
+		BothTargets:            make(map[string]string, len(structure.Omit.Both)),
+		TargetsMatchedBySource: make(map[string]struct{}, len(structure.Omit.Source)),
+		SourcesMatchedByTarget: make(map[string]struct{}, len(structure.Omit.Target)),
+	}
 	var out []plan.Diagnostic
 	configuredSources := make(map[string]struct{}, len(structure.Properties))
 	configuredTargets := make(map[string]struct{}, len(structure.Properties))
@@ -2123,7 +2218,7 @@ func validateOmittedProperties(
 	}
 
 	for _, sourceName := range sortedUniqueStrings(structure.Omit.Source) {
-		if _, ok := sourceMembers[sourceName]; !ok {
+		if _, ok := sourceOmittableMembers[sourceName]; !ok {
 			out = append(out, plan.Diagnostic{
 				Level:   plan.DiagnosticLevelFatal,
 				Path:    plan.SourcePropertyPath(sourceType, targetType, sourceName),
@@ -2137,10 +2232,13 @@ func validateOmittedProperties(
 				Message: fmt.Sprintf("source property %q cannot be both omitted and explicitly mapped", sourceName),
 			})
 		}
+		if targetName, ok := matchingTargetProperty(sourceName, targetMembers, nil); ok {
+			omissions.TargetsMatchedBySource[targetName] = struct{}{}
+		}
 	}
 
 	for _, targetName := range sortedUniqueStrings(structure.Omit.Target) {
-		if _, ok := targetMembers[targetName]; !ok {
+		if _, ok := targetOmittableMembers[targetName]; !ok {
 			out = append(out, plan.Diagnostic{
 				Level:   plan.DiagnosticLevelFatal,
 				Path:    plan.TargetPropertyPath(sourceType, targetType, targetName),
@@ -2154,9 +2252,154 @@ func validateOmittedProperties(
 				Message: fmt.Sprintf("target property %q cannot be both omitted and explicitly mapped", targetName),
 			})
 		}
+		if sourceName, ok := matchingTargetProperty(targetName, sourceMembers, nil); ok {
+			omissions.SourcesMatchedByTarget[sourceName] = struct{}{}
+		}
 	}
 
-	return out
+	warnedPairs := make(map[propertyPair]struct{})
+	for _, sourceName := range sortedUniqueStrings(structure.Omit.Source) {
+		targetName, ok := matchingTargetProperty(sourceName, targetOmittableMembers, nil)
+		if !ok {
+			continue
+		}
+		if _, omitted := omissions.Target[targetName]; !omitted {
+			continue
+		}
+		pair := propertyPair{Source: sourceName, Target: targetName}
+		if _, warned := warnedPairs[pair]; warned {
+			continue
+		}
+		warnedPairs[pair] = struct{}{}
+		out = append(out, plan.Diagnostic{
+			Level:   plan.DiagnosticLevelWarning,
+			Path:    plan.PropertyPath(sourceType, targetType, sourceName, targetName),
+			Message: fmt.Sprintf("property %q is omitted as both source and target; configure struct.omit.both to omit a property that exists on both sides", sourceName),
+		})
+	}
+
+	for _, propertyName := range sortedUniqueStrings(structure.Omit.Both) {
+		pair, diagnostic, ok := resolveBothOmittedProperty(
+			sourceType,
+			targetType,
+			sourceOmittableMembers,
+			targetOmittableMembers,
+			propertyName,
+		)
+		if !ok {
+			out = append(out, diagnostic)
+			continue
+		}
+		omissions.BothSources[pair.Source] = propertyName
+		omissions.BothTargets[pair.Target] = propertyName
+
+		if _, configured := configuredSources[pair.Source]; configured {
+			out = append(out, bothOmittedExplicitMappingDiagnostic(sourceType, targetType, pair, propertyName))
+			continue
+		}
+		if _, configured := configuredTargets[pair.Target]; configured {
+			out = append(out, bothOmittedExplicitMappingDiagnostic(sourceType, targetType, pair, propertyName))
+		}
+	}
+
+	return omissions, out
+}
+
+type propertyPair struct {
+	Source string
+	Target string
+}
+
+func resolveBothOmittedProperty(
+	sourceType, targetType types.Type,
+	sourceMembers map[string]plan.Member,
+	targetMembers map[string]plan.Member,
+	propertyName string,
+) (propertyPair, plan.Diagnostic, bool) {
+	_, sourceExists := sourceMembers[propertyName]
+	_, targetExists := targetMembers[propertyName]
+	sourceMatches := matchingMemberNames(propertyName, sourceMembers)
+	targetMatches := matchingMemberNames(propertyName, targetMembers)
+	pairs := make(map[propertyPair]struct{})
+	if sourceExists && len(targetMatches) == 1 {
+		pairs[propertyPair{Source: propertyName, Target: targetMatches[0]}] = struct{}{}
+	}
+	if targetExists && len(sourceMatches) == 1 {
+		pairs[propertyPair{Source: sourceMatches[0], Target: propertyName}] = struct{}{}
+	}
+	if len(pairs) == 1 {
+		for pair := range pairs {
+			return pair, plan.Diagnostic{}, true
+		}
+	}
+
+	path := plan.TypesPath(sourceType, targetType)
+	switch {
+	case !sourceExists && !targetExists:
+		return propertyPair{}, plan.Diagnostic{
+			Level:   plan.DiagnosticLevelFatal,
+			Path:    path,
+			Message: fmt.Sprintf("property %q in struct.omit.both does not exist on source or target", propertyName),
+		}, false
+	case sourceExists && len(targetMatches) == 0:
+		return propertyPair{}, plan.Diagnostic{
+			Level:   plan.DiagnosticLevelFatal,
+			Path:    plan.SourcePropertyPath(sourceType, targetType, propertyName),
+			Message: fmt.Sprintf("property %q in struct.omit.both does not have a matching target property; use struct.omit.source for source-only properties", propertyName),
+		}, false
+	case targetExists && len(sourceMatches) == 0:
+		return propertyPair{}, plan.Diagnostic{
+			Level:   plan.DiagnosticLevelFatal,
+			Path:    plan.TargetPropertyPath(sourceType, targetType, propertyName),
+			Message: fmt.Sprintf("property %q in struct.omit.both does not have a matching source property; use struct.omit.target for target-only properties", propertyName),
+		}, false
+	default:
+		return propertyPair{}, plan.Diagnostic{
+			Level:   plan.DiagnosticLevelFatal,
+			Path:    path,
+			Message: fmt.Sprintf("property %q in struct.omit.both does not have a unique source and target match; configure struct.properties for ambiguous matches or use struct.omit.source/target for one-sided properties", propertyName),
+		}, false
+	}
+}
+
+func bothOmittedExplicitMappingDiagnostic(
+	sourceType, targetType types.Type,
+	pair propertyPair,
+	propertyName string,
+) plan.Diagnostic {
+	return plan.Diagnostic{
+		Level:   plan.DiagnosticLevelFatal,
+		Path:    plan.PropertyPath(sourceType, targetType, pair.Source, pair.Target),
+		Message: fmt.Sprintf("property %q cannot be both omitted via struct.omit.both and explicitly mapped", propertyName),
+	}
+}
+
+func matchingMemberNames(name string, members map[string]plan.Member) []string {
+	if _, ok := members[name]; ok {
+		return []string{name}
+	}
+
+	var matches []string
+	for _, memberName := range sortedMemberNames(members) {
+		if strings.EqualFold(name, memberName) {
+			matches = append(matches, memberName)
+		}
+	}
+	return matches
+}
+
+func missingSourcePropertyMessage(targetName string, matchedSourceOmission bool) string {
+	if matchedSourceOmission {
+		return fmt.Sprintf("no source property found for target property %q; configure struct.properties to map it explicitly or struct.omit.both to omit a property that exists on both sides", targetName)
+	}
+	return fmt.Sprintf("no source property found for target property %q; configure struct.properties to map it explicitly or struct.omit.target to omit it", targetName)
+}
+
+func missingTargetPropertyMessage(sourceName string, matchedTargetOmission bool) string {
+	if matchedTargetOmission {
+		return fmt.Sprintf("no target property found for source property %q; configure struct.properties to map it explicitly or struct.omit.both to omit a property that exists on both sides", sourceName)
+	}
+	return fmt.Sprintf("no target property found for source property %q; configure struct.properties to map it explicitly or struct.omit.source to omit it", sourceName)
 }
 
 func resolveReadableMember(

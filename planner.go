@@ -583,7 +583,7 @@ func sortedUniqueStrings(values []string) []string {
 }
 
 func structOmissionsEmpty(omit spec.StructOmissions) bool {
-	return len(omit.Source) == 0 && len(omit.Target) == 0
+	return len(omit.Both) == 0 && len(omit.Source) == 0 && len(omit.Target) == 0
 }
 
 type rootVariant struct {
@@ -759,7 +759,8 @@ func samePropertySpec(a, b spec.Property) bool {
 }
 
 func sameStructOmissions(a, b spec.StructOmissions) bool {
-	return slices.Equal(a.Source, b.Source) &&
+	return slices.Equal(a.Both, b.Both) &&
+		slices.Equal(a.Source, b.Source) &&
 		slices.Equal(a.Target, b.Target)
 }
 

@@ -1,3 +1,4 @@
+//go:generate flatc --gen-onefile --go-namespace from --filename-suffix .fb --go ./schema.fbs
 package from
 
 import (
@@ -93,4 +94,12 @@ func (o Optional[T]) AsOptionalString() to.Optional[string] {
 		Value: fmt.Sprintf("%v", o.Value),
 		Valid: o.Valid,
 	}
+}
+
+func BsToS(bs []byte) string {
+	return string(bs)
+}
+
+func SToBs(s string) []byte {
+	return []byte(s)
 }

@@ -366,7 +366,7 @@
         },
         "omit": {
           "$ref": "#/$defs/structOmissions",
-          "description": "Source and target properties intentionally omitted from struct mapping coverage."
+          "description": "Matched, source-only, and target-only properties intentionally omitted from struct mapping coverage."
         }
       }
     },
@@ -471,16 +471,23 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "both": {
+          "type": "array",
+          "description": "Matched source/target properties intentionally excluded from mapping.",
+          "items": {
+            "$ref": "#/$defs/propertyName"
+          }
+        },
         "source": {
           "type": "array",
-          "description": "Source properties intentionally not mapped to target properties.",
+          "description": "Source-only properties intentionally not mapped to target properties.",
           "items": {
             "$ref": "#/$defs/propertyName"
           }
         },
         "target": {
           "type": "array",
-          "description": "Target properties intentionally left at their zero value.",
+          "description": "Target-only properties intentionally left at their zero value.",
           "items": {
             "$ref": "#/$defs/propertyName"
           }

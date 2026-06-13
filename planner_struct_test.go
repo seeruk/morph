@@ -75,7 +75,69 @@ func TestPlannerPlanStructOmissions(t *testing.T) {
 		assert.Contains(t, diagnosticsMessages(root.Diagnostics), `no source property found for target property "TargetOnly"; configure struct.properties to map it explicitly or struct.omit.target to omit it`)
 	})
 
-	t.Run("inverts omissions for bidirectional mappings", func(t *testing.T) {
+	t.Run("omits both matched properties from matching and coverage warnings", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{
+			Name: "OmissionContainer",
+			Struct: &config.Struct{Omit: config.StructOmissions{
+				Both:   []string{"Shared"},
+				Source: []string{"SourceOnly"},
+				Target: []string{"TargetOnly"},
+			}},
+		})
+
+		assert.Empty(t, root.Diagnostics)
+		assert.NotContains(t, planPropertyTargetNames(root.StructPlan), "Shared")
+	})
+
+	t.Run("warns with both hint for source omissions that match target properties", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{
+			Name: "OmissionContainer",
+			Struct: &config.Struct{Omit: config.StructOmissions{
+				Source: []string{"Shared", "SourceOnly"},
+				Target: []string{"TargetOnly"},
+			}},
+		})
+
+		assert.Equal(t, []string{
+			`no source property found for target property "Shared"; configure struct.properties to map it explicitly or struct.omit.both to omit a property that exists on both sides`,
+		}, diagnosticsMessages(root.Diagnostics))
+		assert.False(t, plan.HasFatalDiagnostics(root.Diagnostics))
+		assert.NotContains(t, planPropertyTargetNames(root.StructPlan), "Shared")
+	})
+
+	t.Run("warns with both hint for target omissions that match source properties", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{
+			Name: "OmissionContainer",
+			Struct: &config.Struct{Omit: config.StructOmissions{
+				Source: []string{"SourceOnly"},
+				Target: []string{"Shared", "TargetOnly"},
+			}},
+		})
+
+		assert.Equal(t, []string{
+			`no target property found for source property "Shared"; configure struct.properties to map it explicitly or struct.omit.both to omit a property that exists on both sides`,
+		}, diagnosticsMessages(root.Diagnostics))
+		assert.False(t, plan.HasFatalDiagnostics(root.Diagnostics))
+		assert.NotContains(t, planPropertyTargetNames(root.StructPlan), "Shared")
+	})
+
+	t.Run("warns when matched properties are omitted as both source and target", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{
+			Name: "OmissionContainer",
+			Struct: &config.Struct{Omit: config.StructOmissions{
+				Source: []string{"Shared", "SourceOnly"},
+				Target: []string{"Shared", "TargetOnly"},
+			}},
+		})
+
+		assert.Equal(t, []string{
+			`property "Shared" is omitted as both source and target; configure struct.omit.both to omit a property that exists on both sides`,
+		}, diagnosticsMessages(root.Diagnostics))
+		assert.False(t, plan.HasFatalDiagnostics(root.Diagnostics))
+		assert.NotContains(t, planPropertyTargetNames(root.StructPlan), "Shared")
+	})
+
+	t.Run("inverts source and target omissions while preserving both omissions", func(t *testing.T) {
 		out := planWithConfig(t, ".", config.Config{
 			Packages: []config.Package{{
 				Source:        plannerFromPackage,
@@ -84,6 +146,7 @@ func TestPlannerPlanStructOmissions(t *testing.T) {
 				Types: []config.Type{{
 					Name: "OmissionContainer",
 					Struct: &config.Struct{Omit: config.StructOmissions{
+						Both:   []string{"Shared"},
 						Source: []string{"SourceOnly"},
 						Target: []string{"TargetOnly"},
 					}},
@@ -99,6 +162,44 @@ func TestPlannerPlanStructOmissions(t *testing.T) {
 
 		assert.Empty(t, forward.Diagnostics)
 		assert.Empty(t, inverse.Diagnostics)
+		assert.NotContains(t, planPropertyTargetNames(forward.StructPlan), "Shared")
+		assert.NotContains(t, planPropertyTargetNames(inverse.StructPlan), "Shared")
+	})
+
+	t.Run("omits both properties discovered through methods", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{
+			Name: "GetterToSetterContainer",
+			Struct: &config.Struct{Omit: config.StructOmissions{
+				Both: []string{"Name"},
+			}},
+		})
+
+		assert.Empty(t, root.Diagnostics)
+		assert.Empty(t, root.StructPlan.Properties)
+	})
+
+	t.Run("allows inverted source omissions for read-only inverse target members", func(t *testing.T) {
+		out := planWithConfig(t, ".", config.Config{
+			Packages: []config.Package{{
+				Source:        plannerFromPackage,
+				Target:        plannerToPackage,
+				Bidirectional: new(true),
+				Types: []config.Type{{
+					Name: "ReadMethodOnlyContainer",
+					Struct: &config.Struct{Omit: config.StructOmissions{
+						Source: []string{"Name"},
+					}},
+				}},
+			}},
+		})
+
+		require.Len(t, out.OutputGroups, 1)
+		require.Len(t, out.OutputGroups[0].Roots, 2)
+
+		inverse := requireRootBySourcePackage(t, out.OutputGroups[0].Roots, plannerToPackage)
+
+		assert.False(t, plan.HasFatalDiagnostics(inverse.Diagnostics))
+		assert.NotContains(t, diagnosticsMessages(inverse.Diagnostics), `target property "Name" does not exist`)
 	})
 
 	t.Run("rejects invalid omitted properties", func(t *testing.T) {
@@ -115,6 +216,66 @@ func TestPlannerPlanStructOmissions(t *testing.T) {
 			root.Diagnostics,
 			`source property "MissingSource" does not exist`,
 			`target property "MissingTarget" does not exist`,
+		)
+	})
+
+	t.Run("rejects both omissions that do not exist", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{
+			Name: "OmissionContainer",
+			Struct: &config.Struct{Omit: config.StructOmissions{
+				Both: []string{"Missing"},
+			}},
+		})
+
+		assertFatalDiagnosticMessages(
+			t,
+			root.Diagnostics,
+			`property "Missing" in struct.omit.both does not exist on source or target`,
+		)
+	})
+
+	t.Run("rejects source-only properties in both omissions", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{
+			Name: "OmissionContainer",
+			Struct: &config.Struct{Omit: config.StructOmissions{
+				Both: []string{"SourceOnly"},
+			}},
+		})
+
+		assertFatalDiagnosticMessages(
+			t,
+			root.Diagnostics,
+			`property "SourceOnly" in struct.omit.both does not have a matching target property; use struct.omit.source for source-only properties`,
+		)
+	})
+
+	t.Run("rejects target-only properties in both omissions", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{
+			Name: "OmissionContainer",
+			Struct: &config.Struct{Omit: config.StructOmissions{
+				Both: []string{"TargetOnly"},
+			}},
+		})
+
+		assertFatalDiagnosticMessages(
+			t,
+			root.Diagnostics,
+			`property "TargetOnly" in struct.omit.both does not have a matching source property; use struct.omit.target for target-only properties`,
+		)
+	})
+
+	t.Run("rejects ambiguous both omissions", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{
+			Name: "AmbiguousOmissionContainer",
+			Struct: &config.Struct{Omit: config.StructOmissions{
+				Both: []string{"APIID"},
+			}},
+		})
+
+		assertFatalDiagnosticMessages(
+			t,
+			root.Diagnostics,
+			`property "APIID" in struct.omit.both does not have a unique source and target match; configure struct.properties for ambiguous matches or use struct.omit.source/target for one-sided properties`,
 		)
 	})
 
@@ -137,6 +298,28 @@ func TestPlannerPlanStructOmissions(t *testing.T) {
 			root.Diagnostics,
 			`source property "SourceOnly" cannot be both omitted and explicitly mapped`,
 			`target property "TargetOnly" cannot be both omitted and explicitly mapped`,
+		)
+	})
+
+	t.Run("rejects both omissions that are explicitly mapped", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{
+			Name: "OmissionContainer",
+			Struct: &config.Struct{
+				Properties: []config.Property{
+					{Name: "Shared"},
+				},
+				Omit: config.StructOmissions{
+					Both:   []string{"Shared"},
+					Source: []string{"SourceOnly"},
+					Target: []string{"TargetOnly"},
+				},
+			},
+		})
+
+		assertFatalDiagnosticMessages(
+			t,
+			root.Diagnostics,
+			`property "Shared" cannot be both omitted via struct.omit.both and explicitly mapped`,
 		)
 	})
 }

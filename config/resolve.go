@@ -547,6 +547,7 @@ func formatPropertyIndexes(indexes []int) string {
 
 func resolveStructOmissions(omit StructOmissions) spec.StructOmissions {
 	return spec.StructOmissions{
+		Both:   dedupeStrings(omit.Both),
 		Source: dedupeStrings(omit.Source),
 		Target: dedupeStrings(omit.Target),
 	}
@@ -581,11 +582,12 @@ func cloneCallableRef(ref *spec.CallableRef) *spec.CallableRef {
 }
 
 func structOmissionsEmpty(omit spec.StructOmissions) bool {
-	return len(omit.Source) == 0 && len(omit.Target) == 0
+	return len(omit.Both) == 0 && len(omit.Source) == 0 && len(omit.Target) == 0
 }
 
 func invertStructOmissions(in spec.StructOmissions) spec.StructOmissions {
 	return spec.StructOmissions{
+		Both:   slices.Clone(in.Both),
 		Source: slices.Clone(in.Target),
 		Target: slices.Clone(in.Source),
 	}

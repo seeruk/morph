@@ -1,5 +1,10 @@
 package to
 
+type Monster struct {
+	Name   string
+	Health int32
+}
+
 type RecipeID string
 
 type Recipe struct {

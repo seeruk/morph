@@ -2,11 +2,20 @@
 package mapping
 
 import (
-	"fmt"
 	"github.com/seeruk/morph/lab/planner/from"
 	"github.com/seeruk/morph/lab/planner/to"
 	"github.com/seeruk/morph/runtime/value"
 )
+
+func MapFromMonsterToToMonster(source from.Monster) to.Monster {
+	var target to.Monster
+	return target
+}
+
+func MapToMonsterFromFromMonster(source to.Monster) from.Monster {
+	var target from.Monster
+	return target
+}
 
 func MapFromRecipeToToRecipe(source *from.Recipe) to.Recipe {
 	if source == nil {
@@ -56,19 +65,19 @@ func MapFromSingleToToSingle(source from.Single) to.Single {
 	target.Baz = baz
 	target.Bla = to.Stringy(source.Bla)
 	target.Foo = source.Foo
-	target.Nested = mapNestedFromNestedToToNested_r7kclcg54f_hk7klegxn7(source.Nested)
+	target.Nested = mapNestedFromNestedToToNested_r7kclcg54f_ab5wu4ld4l(source.Nested)
 	return target
 }
 
 func MapToSingleFromFromSingle(source to.Single) from.Single {
 	var target from.Single
-	target.Bar = mapNestedToOptionalToFromOptional_r7kclcg54f_34cbwczf3y(source.Bar)
+	target.Bar = mapNestedToOptionalToFromOptional_r7kclcg54f_isqkzqr4wk(source.Bar)
 	bazValues := source.Baz
 	var baz []from.Optional[string]
 	if bazValues != nil {
 		baz = make([]from.Optional[string], len(bazValues))
 		for i, bazValue := range bazValues {
-			baz[i] = mapNestedToOptionalToFromOptional_r7kclcg54f_bvp2wedpul(bazValue)
+			baz[i] = mapNestedToOptionalToFromOptional_r7kclcg54f_zwm3ycgumm(bazValue)
 		}
 	}
 	bazValue2 := baz
@@ -79,39 +88,39 @@ func MapToSingleFromFromSingle(source to.Single) from.Single {
 	target.Baz = baz2
 	target.Bla = string(source.Bla)
 	target.Foo = source.Foo
-	target.Nested = mapNestedToNestedToFromNested_r7kclcg54f_3nru7fic2f(source.Nested)
+	target.Nested = mapNestedToNestedToFromNested_r7kclcg54f_e7fsmjayhc(source.Nested)
 	return target
 }
 
-func MapFromDifficultyToToRecipeDifficulty(source from.Difficulty) (to.RecipeDifficulty, error) {
+func MapFromDifficultyToToRecipeDifficulty(source from.Difficulty) to.RecipeDifficulty {
 	switch source {
 	case from.DifficultyEasy:
-		return to.RecipeDifficultyEasy, nil
+		return to.RecipeDifficultyEasy
 	case from.DifficultyHard:
-		return to.RecipeDifficultyHard, nil
+		return to.RecipeDifficultyHard
 	case from.DifficultyMedium:
-		return to.RecipeDifficultyMedium, nil
+		return to.RecipeDifficultyMedium
 	case from.DifficultyUltra:
-		return to.RecipeDifficultyInsane, nil
+		return to.RecipeDifficultyInsane
 	}
-	return to.RecipeDifficulty(0), fmt.Errorf("morph: no enum mapping for %v", source)
+	return to.RecipeDifficulty(0)
 }
 
-func MapToRecipeDifficultyFromFromDifficulty(source to.RecipeDifficulty) (from.Difficulty, error) {
+func MapToRecipeDifficultyFromFromDifficulty(source to.RecipeDifficulty) from.Difficulty {
 	switch source {
 	case to.RecipeDifficultyEasy:
-		return from.DifficultyEasy, nil
+		return from.DifficultyEasy
 	case to.RecipeDifficultyHard:
-		return from.DifficultyHard, nil
+		return from.DifficultyHard
 	case to.RecipeDifficultyInsane:
-		return from.DifficultyUltra, nil
+		return from.DifficultyUltra
 	case to.RecipeDifficultyMedium:
-		return from.DifficultyMedium, nil
+		return from.DifficultyMedium
 	}
-	return from.Difficulty(0), fmt.Errorf("morph: no enum mapping for %v", source)
+	return from.Difficulty(0)
 }
 
-func mapNestedFromNestedToToNested_r7kclcg54f_hk7klegxn7(source from.Nested) to.Nested {
+func mapNestedFromNestedToToNested_r7kclcg54f_ab5wu4ld4l(source from.Nested) to.Nested {
 	var target to.Nested
 	target.Bar = int(source.Bar)
 	var baz to.Optional[to.Stringy]
@@ -126,14 +135,14 @@ func mapNestedFromNestedToToNested_r7kclcg54f_hk7klegxn7(source from.Nested) to.
 	return target
 }
 
-func mapNestedToOptionalToFromOptional_r7kclcg54f_34cbwczf3y(source to.Optional[to.Stringy]) from.Optional[string] {
+func mapNestedToOptionalToFromOptional_r7kclcg54f_isqkzqr4wk(source to.Optional[to.Stringy]) from.Optional[string] {
 	var target from.Optional[string]
 	target.Valid = source.Valid
 	target.Value = string(source.Value)
 	return target
 }
 
-func mapNestedToOptionalToFromOptional_r7kclcg54f_bvp2wedpul(source to.Optional[*to.Stringy]) from.Optional[string] {
+func mapNestedToOptionalToFromOptional_r7kclcg54f_zwm3ycgumm(source to.Optional[*to.Stringy]) from.Optional[string] {
 	var target from.Optional[string]
 	target.Valid = source.Valid
 	var value2 string
@@ -144,10 +153,10 @@ func mapNestedToOptionalToFromOptional_r7kclcg54f_bvp2wedpul(source to.Optional[
 	return target
 }
 
-func mapNestedToNestedToFromNested_r7kclcg54f_3nru7fic2f(source to.Nested) from.Nested {
+func mapNestedToNestedToFromNested_r7kclcg54f_e7fsmjayhc(source to.Nested) from.Nested {
 	var target from.Nested
 	target.Bar = int64(source.Bar)
-	bazValue := mapNestedToOptionalToFromOptional_r7kclcg54f_34cbwczf3y(source.Baz)
+	bazValue := mapNestedToOptionalToFromOptional_r7kclcg54f_isqkzqr4wk(source.Baz)
 	var baz *from.Optional[string]
 	if !value.IsComparableZero(bazValue) {
 		baz = &bazValue

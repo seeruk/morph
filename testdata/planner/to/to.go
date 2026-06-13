@@ -155,6 +155,11 @@ type OmissionContainer struct {
 	TargetOnly string
 }
 
+type AmbiguousOmissionContainer struct {
+	ApiID string
+	APIId string
+}
+
 type OptionalThing struct {
 	Name string
 }

@@ -35,19 +35,19 @@ func MapFromSingleToToSingle(source Single) to.Single {
 	target.Baz = baz
 	target.Bla = to.Stringy(source.Bla)
 	target.Foo = source.Foo
-	target.Nested = mapNestedFromNestedToToNested_r7kclcg54f_hk7klegxn7(source.Nested)
+	target.Nested = mapNestedFromNestedToToNested_r7kclcg54f_ab5wu4ld4l(source.Nested)
 	return target
 }
 
 func MapToSingleFromFromSingle(source to.Single) Single {
 	var target Single
-	target.Bar = mapNestedToOptionalToFromOptional_r7kclcg54f_34cbwczf3y(source.Bar)
+	target.Bar = mapNestedToOptionalToFromOptional_r7kclcg54f_isqkzqr4wk(source.Bar)
 	bazValues := source.Baz
 	var baz []Optional[string]
 	if bazValues != nil {
 		baz = make([]Optional[string], len(bazValues))
 		for i, bazValue := range bazValues {
-			baz[i] = mapNestedToOptionalToFromOptional_r7kclcg54f_bvp2wedpul(bazValue)
+			baz[i] = mapNestedToOptionalToFromOptional_r7kclcg54f_zwm3ycgumm(bazValue)
 		}
 	}
 	bazValue2 := baz
@@ -58,7 +58,7 @@ func MapToSingleFromFromSingle(source to.Single) Single {
 	target.Baz = baz2
 	target.Bla = string(source.Bla)
 	target.Foo = source.Foo
-	target.Nested = mapNestedToNestedToFromNested_r7kclcg54f_3nru7fic2f(source.Nested)
+	target.Nested = mapNestedToNestedToFromNested_r7kclcg54f_e7fsmjayhc(source.Nested)
 	return target
 }
 
@@ -75,7 +75,7 @@ func MapToExplicitFromFromExplicit(source to.Explicit) Explicit {
 	return target
 }
 
-func mapNestedFromNestedToToNested_r7kclcg54f_hk7klegxn7(source Nested) to.Nested {
+func mapNestedFromNestedToToNested_r7kclcg54f_ab5wu4ld4l(source Nested) to.Nested {
 	var target to.Nested
 	target.Bar = int(source.Bar)
 	var baz to.Optional[to.Stringy]
@@ -90,14 +90,14 @@ func mapNestedFromNestedToToNested_r7kclcg54f_hk7klegxn7(source Nested) to.Neste
 	return target
 }
 
-func mapNestedToOptionalToFromOptional_r7kclcg54f_34cbwczf3y(source to.Optional[to.Stringy]) Optional[string] {
+func mapNestedToOptionalToFromOptional_r7kclcg54f_isqkzqr4wk(source to.Optional[to.Stringy]) Optional[string] {
 	var target Optional[string]
 	target.Valid = source.Valid
 	target.Value = string(source.Value)
 	return target
 }
 
-func mapNestedToOptionalToFromOptional_r7kclcg54f_bvp2wedpul(source to.Optional[*to.Stringy]) Optional[string] {
+func mapNestedToOptionalToFromOptional_r7kclcg54f_zwm3ycgumm(source to.Optional[*to.Stringy]) Optional[string] {
 	var target Optional[string]
 	target.Valid = source.Valid
 	var value2 string
@@ -108,10 +108,10 @@ func mapNestedToOptionalToFromOptional_r7kclcg54f_bvp2wedpul(source to.Optional[
 	return target
 }
 
-func mapNestedToNestedToFromNested_r7kclcg54f_3nru7fic2f(source to.Nested) Nested {
+func mapNestedToNestedToFromNested_r7kclcg54f_e7fsmjayhc(source to.Nested) Nested {
 	var target Nested
 	target.Bar = int64(source.Bar)
-	bazValue := mapNestedToOptionalToFromOptional_r7kclcg54f_34cbwczf3y(source.Baz)
+	bazValue := mapNestedToOptionalToFromOptional_r7kclcg54f_isqkzqr4wk(source.Baz)
 	var baz *Optional[string]
 	if !value.IsComparableZero(bazValue) {
 		baz = &bazValue

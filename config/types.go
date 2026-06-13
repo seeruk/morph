@@ -175,8 +175,9 @@ type PropertyCallable struct {
 	Inverse *spec.CallableRef `json:"inverse"`
 }
 
-// StructOmissions configures source or target properties intentionally omitted from a mapping.
+// StructOmissions configures properties intentionally omitted from a mapping.
 type StructOmissions struct {
+	Both   []string `json:"both"`
 	Source []string `json:"source"`
 	Target []string `json:"target"`
 }

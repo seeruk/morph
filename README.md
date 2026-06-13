@@ -543,6 +543,8 @@ packages:
   - name: Recipe
     struct:
       omit:
+        both:
+        - Name
         source:
         - InternalState
         target:
@@ -550,9 +552,14 @@ packages:
         - UpdatedAt
 ```
 
-For bidirectional mappings, omissions are inverted automatically. Properties listed under `source` are
-treated as target omissions on the inverse mapper, and properties listed under `target` are treated as
-source omissions on the inverse mapper.
+Use `both` when the same logical property exists on both sides but should not be mapped. Use `source`
+for source-only properties that should be ignored, and `target` for target-only properties that should
+be left unset.
+
+For bidirectional mappings, source and target omissions are inverted automatically. Properties listed
+under `source` are treated as target omissions on the inverse mapper, and properties listed under
+`target` are treated as source omissions on the inverse mapper. Properties listed under `both` remain
+matched omissions in both directions.
 
 </details>
 

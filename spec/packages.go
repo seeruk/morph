@@ -148,8 +148,9 @@ type PropertyAccessors struct {
 	Write string
 }
 
-// StructOmissions contains source and target properties intentionally left unmapped.
+// StructOmissions contains properties intentionally left unmapped.
 type StructOmissions struct {
+	Both   []string
 	Source []string
 	Target []string
 }

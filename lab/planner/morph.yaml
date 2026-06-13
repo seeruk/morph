@@ -5,6 +5,8 @@ defaults:
       strategy: single_package
     types:
       callables:
+      - github.com/seeruk/morph/lab/planner/from.BsToS
+      - github.com/seeruk/morph/lab/planner/from.SToBs
       - github.com/seeruk/morph/lab/planner/from.OtoO
       - github.com/seeruk/morph/lab/planner/from.OptionalOfString
       - github.com/seeruk/morph/lab/planner/from.Optional.Unwrap
@@ -29,6 +31,14 @@ packages:
   target: github.com/seeruk/morph/lab/planner/to
   bidirectional: true
   types:
+  - name: Monster
+    struct:
+      omit:
+        both:
+        - Name
+        - Health
+        source:
+        - Table
   - name: Recipe
     mappers:
       forward:
@@ -49,10 +59,7 @@ packages:
   - source: Difficulty
     target: RecipeDifficulty
     enum:
-      failureMode: fallback
-      fallback:
-        forward: RecipeDifficultyUnknown
-        inverse: DifficultyUnknown
+      failureMode: zero
       values:
         DifficultyUltra: RecipeDifficultyInsane
 
