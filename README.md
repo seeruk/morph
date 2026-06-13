@@ -632,7 +632,6 @@ packages:
 
 * Assignment of literal / constant values for unmapped fields (i.e. while mapping set field x to y)
 * CLI improvements:
-  * A dry-run flag?
   * `morph plan` / `morph explain`, some sort of human-readable and/or machine-readable plan view
   * `morph init`, maybe point it at packages or something? Or maybe a different command which
     creates or updates config to include pairs of types found? `morph scan` or something?
