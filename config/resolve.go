@@ -481,11 +481,16 @@ func resolveStructProperty(
 		accessors = property.Accessors.Inverse
 	}
 
+	callable, err := resolvePropertyCallable(property.Callable, forward)
+	if err != nil {
+		return spec.Property{}, err
+	}
+
 	return spec.Property{
 		Source:      source,
 		Target:      target,
 		Accessors:   spec.PropertyAccessors{Read: accessors.Read, Write: accessors.Write},
-		Callable:    resolvePropertyCallable(property.Callable, forward),
+		Callable:    callable,
 		Optionality: optionalityFromOverrides(property.Optionality, optionality),
 		Conversions: conversionsFromOverrides(property.Conversions, conversion),
 	}, nil
@@ -563,22 +568,32 @@ func dedupeStrings(values []string) []string {
 	return slices.Compact(out)
 }
 
-func resolvePropertyCallable(callable *PropertyCallable, forward bool) *spec.CallableRef {
+func resolvePropertyCallable(callable *PropertyCallable, forward bool) (*spec.PropertyCallable, error) {
 	if callable == nil {
-		return nil
+		return nil, nil
 	}
+	var invocation *PropertyCallableInvocation
 	if forward {
-		return cloneCallableRef(callable.Forward)
+		invocation = callable.Forward
+	} else {
+		invocation = callable.Inverse
 	}
-	return cloneCallableRef(callable.Inverse)
-}
+	if invocation == nil {
+		return nil, nil
+	}
 
-func cloneCallableRef(ref *spec.CallableRef) *spec.CallableRef {
-	if ref == nil {
-		return nil
+	args := make([]spec.PropertyCallableArg, 0, len(invocation.Args))
+	for i, arg := range invocation.Args {
+		if arg.Source == "" {
+			return nil, fmt.Errorf("callable args[%d].source is required", i)
+		}
+		args = append(args, spec.PropertyCallableArg{Source: arg.Source})
 	}
-	out := *ref
-	return &out
+
+	return &spec.PropertyCallable{
+		Ref:  invocation.Ref,
+		Args: args,
+	}, nil
 }
 
 func invertStructOmissions(in spec.StructOmissions) spec.StructOmissions {

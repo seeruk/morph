@@ -308,7 +308,7 @@ func explicitCallableRefs(specification Spec) []spec.CallableRef {
 			}
 			for _, property := range typ.Struct.Properties {
 				if property.Callable != nil {
-					add(*property.Callable)
+					add(property.Callable.Ref)
 				}
 			}
 		}
@@ -751,7 +751,7 @@ func samePropertySpec(a, b spec.Property) bool {
 		a.Accessors == b.Accessors &&
 		a.Optionality == b.Optionality &&
 		a.Conversions == b.Conversions &&
-		sameCallableRefPtr(a.Callable, b.Callable)
+		samePropertyCallablePtr(a.Callable, b.Callable)
 }
 
 func sameStructOmissions(a, b spec.StructOmissions) bool {
@@ -760,11 +760,11 @@ func sameStructOmissions(a, b spec.StructOmissions) bool {
 		slices.Equal(a.Target, b.Target)
 }
 
-func sameCallableRefPtr(a, b *spec.CallableRef) bool {
+func samePropertyCallablePtr(a, b *spec.PropertyCallable) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
-	return *a == *b
+	return a.Ref == b.Ref && slices.Equal(a.Args, b.Args)
 }
 
 func samePrioritizedCallables(a, b []spec.PrioritizedCallables) bool {

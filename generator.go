@@ -521,10 +521,16 @@ func (g *fileGenerator) renderCallable(scope *renderScope, source string, value 
 		return "", fmt.Errorf("cannot generate callable operation without a callable")
 	}
 
+	extraArgs, err := g.renderCallableExtraArgs(scope, value.CallableExtraArgs)
+	if err != nil {
+		return "", err
+	}
+
 	args, err := g.renderCallableArgs(scope, value.CallableArgs)
 	if err != nil {
 		return "", err
 	}
+	args = append(extraArgs, args...)
 
 	var call string
 	switch value.Operation {
@@ -542,6 +548,21 @@ func (g *fileGenerator) renderCallable(scope *renderScope, source string, value 
 	}
 
 	return g.renderErroringCall(scope, name, call), nil
+}
+
+func (g *fileGenerator) renderCallableExtraArgs(scope *renderScope, args []plan.CallableExtraArg) ([]string, error) {
+	out := make([]string, 0, len(args))
+	for _, arg := range args {
+		name := renderName(localNameBase(arg.Source.Name))
+		valueName := scope.Names.Next(name.Base("arg"))
+		expr, err := g.renderMemberRead(scope, "source", arg.Source, name)
+		if err != nil {
+			return nil, err
+		}
+		g.writer.Line("%s := %s", valueName, expr)
+		out = append(out, valueName)
+	}
+	return out, nil
 }
 
 func (g *fileGenerator) renderCallableArgs(scope *renderScope, args []plan.CallableArg) ([]string, error) {

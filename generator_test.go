@@ -77,6 +77,19 @@ func TestGeneratorGenerate(t *testing.T) {
 		golden.Assert(t, "generated_mappers_and_higher_order_arguments", files[0].Source)
 	})
 
+	t.Run("generates callable extra args", func(t *testing.T) {
+		root, nested := generatorCallableExtraArgsRoot()
+		files, err := NewGenerator().Generate(Plan{OutputGroups: []plan.OutputGroup{{
+			Location: generatorLocation(),
+			Roots:    []*plan.Type{root},
+			Nested:   []*plan.Type{nested},
+		}}})
+
+		require.NoError(t, err)
+		require.Len(t, files, 1)
+		golden.Assert(t, "callable_extra_args", files[0].Source)
+	})
+
 	t.Run("generates import aliases", func(t *testing.T) {
 		files, err := NewGenerator().Generate(generatorPlan(generatorImportAliasRoot()))
 
@@ -654,6 +667,70 @@ func generatorHigherOrderRoot() (*plan.Type, *plan.Type) {
 			Source:    sourceOptional,
 			Target:    targetOptional,
 			Callable:  generatorCallable("module.test/from", "MapOptional", false),
+			CallableArgs: []plan.CallableArg{{
+				Mapping: plan.Value{
+					Operation: plan.OperationStruct,
+					Source:    sourceThingDecl.Type,
+					Target:    targetThingDecl.Type,
+					Plan:      nested,
+				},
+			}},
+			Optionality: defaultOptionality(),
+		}),
+	}}
+	return root, nested
+}
+
+func generatorCallableExtraArgsRoot() (*plan.Type, *plan.Type) {
+	sourceThingDecl := generatorStructDecl("module.test/from", "OptionalThing", map[string]types.Field{
+		"Name": generatorField("Name", basicTestType("string")),
+	})
+	targetThingDecl := generatorStructDecl("module.test/to", "OptionalThing", map[string]types.Field{
+		"Name": generatorField("Name", basicTestType("string")),
+	})
+	nested := generatorRoot("mapNestedOptionalThing", sourceThingDecl, targetThingDecl)
+	nested.StructPlan = &plan.Struct{Properties: []plan.Property{
+		generatorPlanField(sourceThingDecl, targetThingDecl, "Name", plan.Value{
+			Operation: plan.OperationAssign,
+			Source:    basicTestType("string"),
+			Target:    basicTestType("string"),
+		}),
+	}}
+	nested.Location = generatorLocation()
+
+	sourceOptional := generatorNamedType("module.test/from", "Optional", sourceThingDecl.Type)
+	targetContextualOptional := generatorNamedType("module.test/to", "Contextual", targetThingDecl.Type)
+	targetContextualInt := generatorNamedType("module.test/to", "Contextual", basicTestType("int"))
+	sourceDecl := generatorStructDecl("module.test/from", "ContextualSource", map[string]types.Field{
+		"Count":        generatorField("Count", basicTestType("string")),
+		"CountPresent": generatorField("CountPresent", basicTestType("bool")),
+		"Maybe":        generatorField("Maybe", sourceOptional),
+		"MaybePresent": generatorField("MaybePresent", basicTestType("bool")),
+	})
+	targetDecl := generatorStructDecl("module.test/to", "ContextualTarget", map[string]types.Field{
+		"Count": generatorField("Count", targetContextualInt),
+		"Maybe": generatorField("Maybe", targetContextualOptional),
+	})
+	root := generatorRoot("MapContextual", sourceDecl, targetDecl)
+	root.StructPlan = &plan.Struct{Properties: []plan.Property{
+		generatorPlanField(sourceDecl, targetDecl, "Count", plan.Value{
+			Operation: plan.OperationFunction,
+			Source:    basicTestType("string"),
+			Target:    targetContextualInt,
+			Callable:  generatorCallable("module.test/from", "StringToContextualInt", false),
+			CallableExtraArgs: []plan.CallableExtraArg{
+				{Source: generatorFieldMember(sourceDecl.Fields["CountPresent"])},
+			},
+			Optionality: defaultOptionality(),
+		}),
+		generatorPlanField(sourceDecl, targetDecl, "Maybe", plan.Value{
+			Operation: plan.OperationFunction,
+			Source:    sourceOptional,
+			Target:    targetContextualOptional,
+			Callable:  generatorCallable("module.test/from", "MapOptionalContext", false),
+			CallableExtraArgs: []plan.CallableExtraArg{
+				{Source: generatorFieldMember(sourceDecl.Fields["MaybePresent"])},
+			},
 			CallableArgs: []plan.CallableArg{{
 				Mapping: plan.Value{
 					Operation: plan.OperationStruct,

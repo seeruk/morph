@@ -496,8 +496,30 @@ func TestResolve_Callables(t *testing.T) {
 		require.Len(t, types[0].Struct.Properties, 1)
 		require.Len(t, types[1].Struct.Properties, 1)
 
-		assert.Equal(t, callableRef("field_forward"), *types[0].Struct.Properties[0].Callable)
-		assert.Equal(t, callableRef("field_inverse"), *types[1].Struct.Properties[0].Callable)
+		assert.Equal(t, callableRef("field_forward"), types[0].Struct.Properties[0].Callable.Ref)
+		assert.Equal(t, callableRef("field_inverse"), types[1].Struct.Properties[0].Callable.Ref)
+	})
+
+	t.Run("resolves property callable args directionally", func(t *testing.T) {
+		cfg := callableFieldConfig()
+		cfg.Packages[0].Types[0].Struct.Properties[0].Callable.Forward.Args = []config.PropertyCallableArg{
+			{Source: "ForwardPresent"},
+			{Source: "ForwardOther"},
+		}
+		cfg.Packages[0].Types[0].Struct.Properties[0].Callable.Inverse.Args = []config.PropertyCallableArg{
+			{Source: "InversePresent"},
+		}
+
+		types := resolvedBidirectionalTypes(t, cfg)
+		require.Len(t, types, 2)
+
+		assert.Equal(t, []spec.PropertyCallableArg{
+			{Source: "ForwardPresent"},
+			{Source: "ForwardOther"},
+		}, types[0].Struct.Properties[0].Callable.Args)
+		assert.Equal(t, []spec.PropertyCallableArg{
+			{Source: "InversePresent"},
+		}, types[1].Struct.Properties[0].Callable.Args)
 	})
 }
 
@@ -833,8 +855,8 @@ func callableFieldConfig() config.Config {
 		Source: "RecipeId",
 		Target: "ID",
 		Callable: &config.PropertyCallable{
-			Forward: &forward,
-			Inverse: &inverse,
+			Forward: &config.PropertyCallableInvocation{Ref: forward},
+			Inverse: &config.PropertyCallableInvocation{Ref: inverse},
 		},
 	}
 	return cfg

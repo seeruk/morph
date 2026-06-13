@@ -774,6 +774,113 @@ func TestPlannerPlanStructMethodAccessors(t *testing.T) {
 	})
 }
 
+func TestPlannerPlanPropertyCallableExtraArgs(t *testing.T) {
+	contextualCallable := func(args ...config.PropertyCallableArg) *config.PropertyCallable {
+		return &config.PropertyCallable{Forward: &config.PropertyCallableInvocation{
+			Ref: spec.CallableRef{
+				ImportPath: plannerFromPackage,
+				Name:       "StringToContextualInt",
+			},
+			Args: args,
+		}}
+	}
+
+	t.Run("plans exact field args", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{
+			Name: "ContextualCallableContainer",
+			Struct: &config.Struct{Properties: []config.Property{{
+				Name:     "Value",
+				Callable: contextualCallable(config.PropertyCallableArg{Source: "Present"}),
+			}}},
+		})
+
+		value := requirePlanProperty(t, root.StructPlan, "Value")
+		require.Len(t, value.Mapping.CallableExtraArgs, 1)
+		assert.Equal(t, plan.MemberKindField, value.Mapping.CallableExtraArgs[0].Source.Kind)
+		assert.Equal(t, "Present", value.Mapping.CallableExtraArgs[0].Source.Accessor)
+		assert.Equal(t, plan.OperationFunction, value.Mapping.Operation)
+		assert.NotContains(t, diagnosticsMessages(root.Diagnostics), `no target property found for source property "Present"; configure struct.properties to map it explicitly or struct.omit.source to omit it`)
+	})
+
+	t.Run("plans exact method args without inference", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{
+			Name: "ContextualCallableContainer",
+			Struct: &config.Struct{Properties: []config.Property{{
+				Name:     "Value",
+				Callable: contextualCallable(config.PropertyCallableArg{Source: "HasValue"}),
+			}}},
+		})
+
+		value := requirePlanProperty(t, root.StructPlan, "Value")
+		require.Len(t, value.Mapping.CallableExtraArgs, 1)
+		assert.Equal(t, plan.MemberKindMethod, value.Mapping.CallableExtraArgs[0].Source.Kind)
+		assert.Equal(t, "HasValue", value.Mapping.CallableExtraArgs[0].Source.Accessor)
+	})
+
+	t.Run("does not infer get prefix for args", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{
+			Name: "ContextualCallableContainer",
+			Struct: &config.Struct{Properties: []config.Property{{
+				Name:     "Value",
+				Callable: contextualCallable(config.PropertyCallableArg{Source: "ValuePresent"}),
+			}}},
+		})
+
+		assertFatalDiagnosticMessages(t, root.Diagnostics, `source accessor "ValuePresent" does not exist`)
+	})
+
+	t.Run("rejects erroring method args", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{
+			Name: "ContextualCallableContainer",
+			Struct: &config.Struct{Properties: []config.Property{{
+				Name:     "Value",
+				Callable: contextualCallable(config.PropertyCallableArg{Source: "HasValueError"}),
+			}}},
+		})
+
+		assertFatalDiagnosticMessages(t, root.Diagnostics, `source callable argument "HasValueError" returns an error; extra argument accessors must return exactly one value`)
+	})
+
+	t.Run("rejects incompatible arg types", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{
+			Name: "ContextualCallableContainer",
+			Struct: &config.Struct{Properties: []config.Property{{
+				Name: "Value",
+				Callable: &config.PropertyCallable{Forward: &config.PropertyCallableInvocation{
+					Ref: spec.CallableRef{
+						ImportPath: plannerFromPackage,
+						Name:       "StringToContextualIntWithStringPresence",
+					},
+					Args: []config.PropertyCallableArg{{Source: "Present"}},
+				}},
+			}}},
+		})
+
+		assertFatalDiagnosticMessages(t, root.Diagnostics, `cannot map string to github.com/seeruk/morph/testdata/planner/to.Contextual[int]: configured property callable "github.com/seeruk/morph/testdata/planner/from.StringToContextualIntWithStringPresence" is not compatible; expected callable to accept string, 1 extra source argument(s), optional mapper function arguments, and return github.com/seeruk/morph/testdata/planner/to.Contextual[int]`)
+	})
+
+	t.Run("plans higher order callables after extra args", func(t *testing.T) {
+		root := planPlannerRoot(t, config.Type{
+			Name: "ContextualHigherOrderContainer",
+			Struct: &config.Struct{Properties: []config.Property{{
+				Name: "Maybe",
+				Callable: &config.PropertyCallable{Forward: &config.PropertyCallableInvocation{
+					Ref: spec.CallableRef{
+						ImportPath: plannerFromPackage,
+						Name:       "MapOptionalContext",
+					},
+					Args: []config.PropertyCallableArg{{Source: "Present"}},
+				}},
+			}}},
+		})
+
+		maybe := requirePlanProperty(t, root.StructPlan, "Maybe")
+		require.Len(t, maybe.Mapping.CallableExtraArgs, 1)
+		require.Len(t, maybe.Mapping.CallableArgs, 1)
+		assert.Equal(t, plan.OperationStruct, maybe.Mapping.CallableArgs[0].Mapping.Operation)
+	})
+}
+
 func TestPlannerPlanOutputScopedVariants(t *testing.T) {
 	out := planWithConfig(t, "lab/planner", config.Config{
 		Packages: []config.Package{

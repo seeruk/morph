@@ -1,6 +1,10 @@
 package config
 
-import "github.com/seeruk/morph/spec"
+import (
+	"encoding/json"
+
+	"github.com/seeruk/morph/spec"
+)
 
 // Config is Morph's user-written configuration model. Pointer fields distinguish omitted values
 // from explicit zero values so resolution can apply defaults and presets correctly.
@@ -171,8 +175,45 @@ type PropertyDirectionAccessors struct {
 
 // PropertyCallable configures the explicit callable to use for a specific property direction.
 type PropertyCallable struct {
-	Forward *spec.CallableRef `json:"forward"`
-	Inverse *spec.CallableRef `json:"inverse"`
+	Forward *PropertyCallableInvocation `json:"forward"`
+	Inverse *PropertyCallableInvocation `json:"inverse"`
+}
+
+// PropertyCallableInvocation configures a callable reference and the extra source arguments to pass
+// to it. It supports the legacy string form, which is equivalent to setting Ref with no Args.
+type PropertyCallableInvocation struct {
+	Ref  spec.CallableRef      `json:"ref"`
+	Args []PropertyCallableArg `json:"args"`
+}
+
+func (i *PropertyCallableInvocation) UnmarshalJSON(data []byte) error {
+	var ref spec.CallableRef
+	if err := json.Unmarshal(data, &ref); err == nil {
+		*i = PropertyCallableInvocation{Ref: ref}
+		return nil
+	}
+
+	type propertyCallableInvocation PropertyCallableInvocation
+	var out propertyCallableInvocation
+	if err := json.Unmarshal(data, &out); err != nil {
+		return err
+	}
+	*i = PropertyCallableInvocation(out)
+	return nil
+}
+
+func (i PropertyCallableInvocation) MarshalJSON() ([]byte, error) {
+	if len(i.Args) == 0 {
+		return json.Marshal(i.Ref)
+	}
+
+	type propertyCallableInvocation PropertyCallableInvocation
+	return json.Marshal(propertyCallableInvocation(i))
+}
+
+// PropertyCallableArg configures one exact source property to pass as an extra callable argument.
+type PropertyCallableArg struct {
+	Source string `json:"source"`
 }
 
 // StructOmissions configures properties intentionally omitted from a mapping.

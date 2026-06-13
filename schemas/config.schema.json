@@ -458,12 +458,48 @@
       "additionalProperties": false,
       "properties": {
         "forward": {
-          "$ref": "#/$defs/callableRef",
+          "$ref": "#/$defs/propertyCallableInvocation",
           "description": "Callable to use for the forward property mapping."
         },
         "inverse": {
-          "$ref": "#/$defs/callableRef",
+          "$ref": "#/$defs/propertyCallableInvocation",
           "description": "Callable to use for the inverse property mapping."
+        }
+      }
+    },
+    "propertyCallableInvocation": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/callableRef"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ref"],
+          "properties": {
+            "ref": {
+              "$ref": "#/$defs/callableRef",
+              "description": "Callable to use for this property mapping."
+            },
+            "args": {
+              "type": "array",
+              "description": "Exact source fields or zero-arg methods to pass after the primary source value.",
+              "items": {
+                "$ref": "#/$defs/propertyCallableArg"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "propertyCallableArg": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/propertyName",
+          "description": "Exact source field or zero-arg method name to pass as an extra callable argument."
         }
       }
     },

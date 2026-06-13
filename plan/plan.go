@@ -103,6 +103,7 @@ type Value struct {
 	Source            types.Type
 	Target            types.Type
 	Callable          *CallableRef
+	CallableExtraArgs []CallableExtraArg
 	CallableArgs      []CallableArg
 	SourceAdaptations []ValueAdaptation
 	TargetAdaptations []ValueAdaptation
@@ -113,6 +114,12 @@ type Value struct {
 	Optionality       spec.Optionality
 	CanError          bool
 	Diagnostics       []Diagnostic
+}
+
+// CallableExtraArg describes an extra source member passed alongside a source value when invoking a
+// callable.
+type CallableExtraArg struct {
+	Source Member
 }
 
 // CallableArg describes an argument passed alongside a source value when invoking a callable.
