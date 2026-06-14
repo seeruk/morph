@@ -991,7 +991,7 @@ func localNameBase(name string) string {
 	if out == "" {
 		return "value"
 	}
-	if startsWithDigit(out) {
+	if hasLeadingDigit(out) {
 		out = "value" + uppercaseFirst(out)
 	}
 	if token.Lookup(out).IsKeyword() {
@@ -1051,7 +1051,7 @@ func isCommonInitialism(part string) bool {
 	return casing.Initialism(part) == strings.ToUpper(part)
 }
 
-func startsWithDigit(value string) bool {
+func hasLeadingDigit(value string) bool {
 	for _, r := range value {
 		return unicode.IsDigit(r)
 	}
@@ -1127,7 +1127,7 @@ func renderNonZeroCheck(imports *importNamer, expr string, typ types.Type) strin
 		types.TypeKindSignature, types.TypeKindInterface, types.TypeKindChan:
 		return expr + " != nil"
 	case types.TypeKindArray, types.TypeKindStruct:
-		if typeSupportsComparableZero(typ) {
+		if canUseComparableZero(typ) {
 			return renderComparableNonZeroCheck(imports, expr)
 		}
 	}
@@ -1155,7 +1155,7 @@ func renderNamedNonZeroCheck(imports *importNamer, expr string, typ types.Type) 
 		types.TypeKindSignature, types.TypeKindInterface, types.TypeKindChan:
 		return expr + " != nil"
 	case types.TypeKindArray, types.TypeKindStruct:
-		if typeSupportsComparableZero(underlying) {
+		if canUseComparableZero(underlying) {
 			return renderComparableNonZeroCheck(imports, expr)
 		}
 	}
@@ -1178,19 +1178,19 @@ func renderRuntimeValuePackage(imports *importNamer) string {
 	})
 }
 
-func typeSupportsComparableZero(typ types.Type) bool {
+func canUseComparableZero(typ types.Type) bool {
 	typ = types.UnwrapAlias(typ)
 
 	switch typ.Kind {
 	case types.TypeKindBasic, types.TypeKindPointer, types.TypeKindChan:
 		return true
 	case types.TypeKindNamed:
-		return typ.Elem != nil && typeSupportsComparableZero(*typ.Elem)
+		return typ.Elem != nil && canUseComparableZero(*typ.Elem)
 	case types.TypeKindArray:
-		return typ.Elem != nil && typeSupportsComparableZero(*typ.Elem)
+		return typ.Elem != nil && canUseComparableZero(*typ.Elem)
 	case types.TypeKindStruct:
 		for _, field := range typ.Fields {
-			if !typeSupportsComparableZero(field.Type) {
+			if !canUseComparableZero(field.Type) {
 				return false
 			}
 		}

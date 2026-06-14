@@ -95,8 +95,8 @@ func finalizeValueErrability(value *plan.Value) bool {
 		return false
 	}
 
-	canError := adaptationsCanError(value.SourceAdaptations, value.Optionality) ||
-		adaptationsCanError(value.TargetAdaptations, value.Optionality)
+	canError := canAdaptationsError(value.SourceAdaptations, value.Optionality) ||
+		canAdaptationsError(value.TargetAdaptations, value.Optionality)
 
 	switch value.Operation {
 	case plan.OperationFunction, plan.OperationMethod:
@@ -104,7 +104,7 @@ func finalizeValueErrability(value *plan.Value) bool {
 	case plan.OperationStruct, plan.OperationEnum:
 		canError = canError || value.Plan != nil && value.Plan.CanError
 	case plan.OperationSlice, plan.OperationArray, plan.OperationMap, plan.OperationUnsupported:
-		canError = canError || valueChildrenCanError(value)
+		canError = canError || canAnyValueChildError(value)
 	}
 
 	if value.CanError != canError {
@@ -115,7 +115,7 @@ func finalizeValueErrability(value *plan.Value) bool {
 	return false
 }
 
-func valueChildrenCanError(value *plan.Value) bool {
+func canAnyValueChildError(value *plan.Value) bool {
 	return value.Elem != nil && value.Elem.CanError ||
 		value.Key != nil && value.Key.CanError ||
 		value.Value != nil && value.Value.CanError
