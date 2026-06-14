@@ -289,6 +289,25 @@ same priority, Morph uses callable compatibility rank to choose the best candida
 Specifying callables in the `defaults` section will make the callables available to any mapper at
 the lowest priority.
 
+Property callables can also receive ordered context source arguments. Context arguments must be exact
+source fields or zero-argument methods; Morph does not infer or strip accessor prefixes for them.
+
+```yaml
+packages:
+- source: example.com/foodplanner/foodpb
+  target: example.com/foodplanner/food
+  types:
+  - name: Recipe
+    struct:
+      properties:
+      - name: Title
+        callable:
+          forward:
+            ref: example.com/foodplanner/food.OmittableFromPresence
+            args:
+            - source: MorphHasTitle
+```
+
 </details>
 
 <details>

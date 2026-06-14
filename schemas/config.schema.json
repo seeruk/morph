@@ -76,7 +76,7 @@
           "description": "Lowest-priority callable references available to every type mapping."
         },
         "mappers": {
-          "$ref": "#/$defs/mappersDefaults",
+          "$ref": "#/$defs/directionalMapperDefaults",
           "description": "Defaults for generated mapper function names and signatures."
         },
         "optionality": {
@@ -170,7 +170,7 @@
           "description": "Enum defaults for type mappings in this package pair."
         },
         "mappers": {
-          "$ref": "#/$defs/mappersDefaults",
+          "$ref": "#/$defs/directionalMapperDefaults",
           "description": "Mapper defaults for type mappings in this package pair."
         },
         "optionality": {
@@ -237,7 +237,7 @@
           "description": "Explicit property mappings, accessor policy, and property-level policies for this type mapping."
         },
         "mappers": {
-          "$ref": "#/$defs/mappersDefaults",
+          "$ref": "#/$defs/directionalMapperDefaults",
           "description": "Generated mapper function names and signatures for this type mapping."
         },
         "optionality": {
@@ -263,7 +263,7 @@
           "description": "Callable references supplied by this preset; priority depends on whether the preset is applied to a package or type."
         },
         "mappers": {
-          "$ref": "#/$defs/mappersDefaults",
+          "$ref": "#/$defs/directionalMapperDefaults",
           "description": "Mapper defaults supplied by this preset."
         },
         "optionality": {
@@ -408,11 +408,11 @@
           "description": "Target logical property name."
         },
         "accessors": {
-          "$ref": "#/$defs/propertyAccessors",
+          "$ref": "#/$defs/directionalPropertyAccessors",
           "description": "Exact source read and target write accessors for each mapping direction."
         },
         "callable": {
-          "$ref": "#/$defs/propertyCallable",
+          "$ref": "#/$defs/directionalPropertyCallables",
           "description": "Explicit callable to use for this property."
         },
         "conversions": {
@@ -425,21 +425,21 @@
         }
       }
     },
-    "propertyAccessors": {
+    "directionalPropertyAccessors": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "forward": {
-          "$ref": "#/$defs/propertyDirectionAccessors",
+          "$ref": "#/$defs/propertyAccessors",
           "description": "Exact accessors used by the forward mapper."
         },
         "inverse": {
-          "$ref": "#/$defs/propertyDirectionAccessors",
+          "$ref": "#/$defs/propertyAccessors",
           "description": "Exact accessors used by the inverse mapper."
         }
       }
     },
-    "propertyDirectionAccessors": {
+    "propertyAccessors": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -453,17 +453,53 @@
         }
       }
     },
-    "propertyCallable": {
+    "directionalPropertyCallables": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "forward": {
-          "$ref": "#/$defs/callableRef",
+          "$ref": "#/$defs/propertyCallableInvocation",
           "description": "Callable to use for the forward property mapping."
         },
         "inverse": {
-          "$ref": "#/$defs/callableRef",
+          "$ref": "#/$defs/propertyCallableInvocation",
           "description": "Callable to use for the inverse property mapping."
+        }
+      }
+    },
+    "propertyCallableInvocation": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/callableRef"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ref"],
+          "properties": {
+            "ref": {
+              "$ref": "#/$defs/callableRef",
+              "description": "Callable to use for this property mapping."
+            },
+            "args": {
+              "type": "array",
+              "description": "Exact source fields or zero-arg methods to pass after the primary source value.",
+              "items": {
+                "$ref": "#/$defs/propertyCallableContextArg"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "propertyCallableContextArg": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/propertyName",
+          "description": "Exact source field or zero-arg method name to pass as a callable context argument."
         }
       }
     },
@@ -494,7 +530,7 @@
         }
       }
     },
-    "mappersDefaults": {
+    "directionalMapperDefaults": {
       "type": "object",
       "additionalProperties": false,
       "properties": {

@@ -46,7 +46,7 @@ func TestWalkOutputGroups(t *testing.T) {
 			Target: targetMember,
 			Mapping: plan.Value{
 				Operation: plan.OperationMap,
-				CallableArgs: []plan.CallableArg{{
+				CallableMapperArgs: []plan.CallableMapperArg{{
 					Mapping: plan.Value{Operation: plan.OperationAssign},
 				}},
 				Key:   &plan.Value{Operation: plan.OperationAssign},
@@ -67,7 +67,7 @@ func TestWalkOutputGroups(t *testing.T) {
 
 		assert.Equal(t, []string{
 			propertyPath,
-			callableArgPath(propertyPath, 0),
+			callableMapperArgPath(propertyPath, 0),
 			propertyPath + "[key]",
 			propertyPath + "[value]",
 		}, paths)

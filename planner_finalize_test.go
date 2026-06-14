@@ -74,7 +74,7 @@ func TestPlannerRetriesHigherOrderFunctionWhenRecursiveArgCanError(t *testing.T)
 
 	root := requireSingleRoot(t, out)
 	maybe := requirePlanProperty(t, root.StructPlan, "Maybe")
-	arg := requireCallableArg(t, maybe.Mapping, 0)
+	arg := requireCallableMapperArg(t, maybe.Mapping, 0)
 	elem := requireValueElem(t, arg.Mapping)
 
 	t.Run("selects the erroring higher-order callable", func(t *testing.T) {

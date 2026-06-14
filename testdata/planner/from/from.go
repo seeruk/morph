@@ -55,6 +55,28 @@ type MethodCallableContainer struct {
 	ID MethodID
 }
 
+type ContextualCallableContainer struct {
+	Value   string
+	Present bool
+}
+
+func (c ContextualCallableContainer) HasValue() bool {
+	return c.Present
+}
+
+func (c ContextualCallableContainer) GetValuePresent() bool {
+	return c.Present
+}
+
+func (c ContextualCallableContainer) HasValueError() (bool, error) {
+	return c.Present, nil
+}
+
+type ContextualHigherOrderContainer struct {
+	Maybe   Optional[OptionalThing]
+	Present bool
+}
+
 type MethodID struct {
 	Value string
 }
@@ -265,6 +287,20 @@ func StringToIntWithBadMapperArg(in string, mapBad func(OptionalBadThing) to.Opt
 	return len(in)
 }
 
+func StringToContextualInt(in string, present bool) to.Contextual[int] {
+	return to.Contextual[int]{
+		Value:   len(in),
+		Present: present,
+	}
+}
+
+func StringToContextualIntWithStringPresence(in string, present string) to.Contextual[int] {
+	return to.Contextual[int]{
+		Value:   len(in),
+		Present: present != "",
+	}
+}
+
 func MapOptional[I, O any](in Optional[I], mapValue func(I) O) to.Optional[O] {
 	if !in.OK {
 		return to.Optional[O]{}
@@ -290,6 +326,21 @@ func MapOptionalWithError[I, O any](in Optional[I], mapValue func(I) (O, error))
 		Value: value,
 		OK:    true,
 	}, nil
+}
+
+func MapOptionalContext[I, O any](
+	in Optional[I],
+	present bool,
+	mapValue func(I) O,
+) to.Contextual[O] {
+	if !present || !in.OK {
+		return to.Contextual[O]{}
+	}
+
+	return to.Contextual[O]{
+		Value:   mapValue(in.Value),
+		Present: true,
+	}
 }
 
 func MapFallibleThing(in FallibleThing) (to.FallibleThing, error) {

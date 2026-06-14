@@ -52,6 +52,19 @@ type MethodCallableContainer struct {
 	ID string
 }
 
+type ContextualCallableContainer struct {
+	Value Contextual[int]
+}
+
+type ContextualHigherOrderContainer struct {
+	Maybe Contextual[OptionalThing]
+}
+
+type Contextual[T any] struct {
+	Value   T
+	Present bool
+}
+
 type ConversionContainer struct {
 	ID     string
 	Count  int64

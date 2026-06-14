@@ -143,8 +143,8 @@ func TestCallableRefFromFunctionDecl(t *testing.T) {
 		assert.False(t, ok)
 	})
 
-	t.Run("should reject additional non-callable parameters", func(t *testing.T) {
-		_, ok := CallableRefFromFunctionDecl(types.FunctionDecl{
+	t.Run("should allow additional non-callable parameters", func(t *testing.T) {
+		callable, ok := CallableRefFromFunctionDecl(types.FunctionDecl{
 			Name: "MapOptional",
 			Params: []types.Parameter{
 				{Type: sourceType},
@@ -153,6 +153,8 @@ func TestCallableRefFromFunctionDecl(t *testing.T) {
 			Results: []types.Parameter{{Type: targetType}},
 		}, CallableSourceUser)
 
-		assert.False(t, ok)
+		require.True(t, ok)
+		assert.Equal(t, TypeRefFromType(sourceType), callable.SourceType)
+		assert.Equal(t, TypeRefFromType(targetType), callable.TargetType)
 	})
 }

@@ -87,9 +87,9 @@ func valueVisibilitySites(ctx walkContext) []visibilityRequirementSite {
 		)...)
 	}
 
-	for i := range value.CallableArgs {
-		arg := &value.CallableArgs[i]
-		argPath := callableArgPath(ctx.Path, i)
+	for i := range value.CallableMapperArgs {
+		arg := &value.CallableMapperArgs[i]
+		argPath := callableMapperArgPath(ctx.Path, i)
 		sites = append(sites, typeVisibilityRequirementSites(
 			ctx.Location.ImportPath,
 			argPath,
@@ -137,7 +137,7 @@ func collectTypeVisibilityRequirementSites(
 
 	switch typ.Kind {
 	case types.TypeKindNamed, types.TypeKindAlias:
-		if !identifierAccessibleFrom(typ.Package, typ.Name, from) {
+		if !isIdentifierAccessibleFrom(typ.Package, typ.Name, from) {
 			*refs = append(*refs, visibilityRequirementSite{
 				From:       from,
 				Path:       path,
@@ -251,10 +251,10 @@ func visibilityRequirementDiagnostic(site visibilityRequirementSite) plan.Diagno
 	}
 }
 
-func identifierAccessibleFrom(pkg types.PackageRef, name string, from string) bool {
+func isIdentifierAccessibleFrom(pkg types.PackageRef, name string, from string) bool {
 	return pkg.ImportPath == "" || ast.IsExported(name) || pkg.ImportPath == from
 }
 
-func fieldAccessibleFrom(typeDecl types.TypeDecl, field types.Field, from string) bool {
+func isFieldAccessibleFrom(typeDecl types.TypeDecl, field types.Field, from string) bool {
 	return field.IsExported || typeDecl.Package.ImportPath == from
 }

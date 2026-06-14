@@ -308,7 +308,7 @@ func explicitCallableRefs(specification Spec) []spec.CallableRef {
 			}
 			for _, property := range typ.Struct.Properties {
 				if property.Callable != nil {
-					add(*property.Callable)
+					add(property.Callable.Ref)
 				}
 			}
 		}
@@ -616,7 +616,7 @@ func (p *attemptPlanner) addRoot(
 		if existing.Location != location {
 			return fmt.Errorf("function name %q is planned in multiple output files within package %q", root.FunctionName, location.ImportPath)
 		}
-		if !sameRootPlanningConfig(existing.Root, root) {
+		if !isSameRootPlanningConfig(existing.Root, root) {
 			return fmt.Errorf("conflicting mapper configuration for %s", mapperKey)
 		}
 		return nil
@@ -663,7 +663,7 @@ func (p *attemptPlanner) validateAliasEquivalentRootConfig(
 		if plan.TypeMapperKey(variant.Root.Source, variant.Root.Target, variant.Root.Signature) != mapperKey {
 			continue
 		}
-		if !aliasEquivalentRoot(variant.Root, root) || sameRootPlanningConfig(variant.Root, root) {
+		if !isAliasEquivalentRoot(variant.Root, root) || isSameRootPlanningConfig(variant.Root, root) {
 			continue
 		}
 		return aliasEquivalentRootConflictError(variant.Root, root, mapperKey)
@@ -692,14 +692,14 @@ func rootVariantKey(location plan.OutputLocation, root *plan.Type) string {
 	}, "|")
 }
 
-func aliasEquivalentRoot(a, b *plan.Type) bool {
+func isAliasEquivalentRoot(a, b *plan.Type) bool {
 	if plan.TypeMapperKey(a.Source, a.Target, a.Signature) != plan.TypeMapperKey(b.Source, b.Target, b.Signature) {
 		return false
 	}
-	return !sameTypeRefIdentity(a.Source, b.Source) || !sameTypeRefIdentity(a.Target, b.Target)
+	return !isSameTypeRefIdentity(a.Source, b.Source) || !isSameTypeRefIdentity(a.Target, b.Target)
 }
 
-func sameTypeRefIdentity(a, b plan.TypeRef) bool {
+func isSameTypeRefIdentity(a, b plan.TypeRef) bool {
 	return a.ImportPath == b.ImportPath && a.Name == b.Name
 }
 
@@ -724,50 +724,50 @@ func typeRefDisplay(ref plan.TypeRef) string {
 	return ref.Key
 }
 
-func sameRootPlanningConfig(a, b *plan.Type) bool {
-	return sameEnumSpec(a.EnumSpec, b.EnumSpec) &&
-		samePrioritizedCallables(a.Callables, b.Callables) &&
-		sameStructSpec(a.StructSpec, b.StructSpec) &&
+func isSameRootPlanningConfig(a, b *plan.Type) bool {
+	return isSameEnumSpec(a.EnumSpec, b.EnumSpec) &&
+		isSamePrioritizedCallables(a.Callables, b.Callables) &&
+		isSameStructSpec(a.StructSpec, b.StructSpec) &&
 		a.Optionality == b.Optionality &&
 		a.Conversions == b.Conversions
 }
 
-func sameEnumSpec(a, b spec.Enum) bool {
+func isSameEnumSpec(a, b spec.Enum) bool {
 	return a.FailureMode == b.FailureMode &&
 		a.FallbackValue == b.FallbackValue &&
 		a.Patterns == b.Patterns &&
 		maps.Equal(a.Values, b.Values)
 }
 
-func sameStructSpec(a, b spec.Struct) bool {
+func isSameStructSpec(a, b spec.Struct) bool {
 	return a.InferMethods == b.InferMethods &&
-		slices.EqualFunc(a.Properties, b.Properties, samePropertySpec) &&
-		sameStructOmissions(a.Omit, b.Omit)
+		slices.EqualFunc(a.Properties, b.Properties, isSamePropertySpec) &&
+		isSameStructOmissions(a.Omit, b.Omit)
 }
 
-func samePropertySpec(a, b spec.Property) bool {
+func isSamePropertySpec(a, b spec.Property) bool {
 	return a.Source == b.Source &&
 		a.Target == b.Target &&
 		a.Accessors == b.Accessors &&
 		a.Optionality == b.Optionality &&
 		a.Conversions == b.Conversions &&
-		sameCallableRefPtr(a.Callable, b.Callable)
+		isSamePropertyCallableInvocationPtr(a.Callable, b.Callable)
 }
 
-func sameStructOmissions(a, b spec.StructOmissions) bool {
+func isSameStructOmissions(a, b spec.StructOmissions) bool {
 	return slices.Equal(a.Both, b.Both) &&
 		slices.Equal(a.Source, b.Source) &&
 		slices.Equal(a.Target, b.Target)
 }
 
-func sameCallableRefPtr(a, b *spec.CallableRef) bool {
+func isSamePropertyCallableInvocationPtr(a, b *spec.PropertyCallableInvocation) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
-	return *a == *b
+	return a.Ref == b.Ref && slices.Equal(a.Args, b.Args)
 }
 
-func samePrioritizedCallables(a, b []spec.PrioritizedCallables) bool {
+func isSamePrioritizedCallables(a, b []spec.PrioritizedCallables) bool {
 	return slices.EqualFunc(a, b, func(a, b spec.PrioritizedCallables) bool {
 		return a.Priority == b.Priority && slices.Equal(a.Callables, b.Callables)
 	})

@@ -266,7 +266,7 @@ func normalizeEnumConstantAuto(constant types.ConstantDecl) string {
 
 	var strips int
 	for len(typeParts) > 0 && len(nameParts) >= len(typeParts) {
-		if !partsEqualFold(nameParts[:len(typeParts)], typeParts) {
+		if !arePartsEqualFold(nameParts[:len(typeParts)], typeParts) {
 			break
 		}
 
@@ -280,7 +280,7 @@ func normalizeEnumConstantAuto(constant types.ConstantDecl) string {
 	return casing.Join(nameParts, "_", strings.ToUpper)
 }
 
-func partsEqualFold(a, b []string) bool {
+func arePartsEqualFold(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -400,7 +400,7 @@ func validateEnumValueBoundaries(tokens []enumPatternValueToken) error {
 			continue
 		}
 
-		if ambiguousEnumValueBoundary(left.style, mid.text, right.style) {
+		if hasAmbiguousEnumValueBoundary(left.style, mid.text, right.style) {
 			return fmt.Errorf(
 				"ambiguous enum value boundary between %s and %s using %q",
 				left.style,
@@ -413,7 +413,7 @@ func validateEnumValueBoundaries(tokens []enumPatternValueToken) error {
 	return nil
 }
 
-func ambiguousEnumValueBoundary(left, literal, right string) bool {
+func hasAmbiguousEnumValueBoundary(left, literal, right string) bool {
 	if literal == "" {
 		return true
 	}
@@ -424,21 +424,21 @@ func ambiguousEnumValueBoundary(left, literal, right string) bool {
 
 	switch left {
 	case "Screaming":
-		return literal == "_" && casingStartsUpper(right)
+		return literal == "_" && isUpperCasing(right)
 	case "Snake":
-		return literal == "_" && casingStartsLower(right)
+		return literal == "_" && isLowerCasing(right)
 	case "Kebab":
-		return literal == "-" && casingStartsLower(right)
+		return literal == "-" && isLowerCasing(right)
 	}
 
 	return false
 }
 
-func casingStartsUpper(s string) bool {
+func isUpperCasing(s string) bool {
 	return s == "Screaming" || s == "Pascal"
 }
 
-func casingStartsLower(s string) bool {
+func isLowerCasing(s string) bool {
 	return s == "Camel" || s == "Kebab" || s == "Snake"
 }
 

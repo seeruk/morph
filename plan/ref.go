@@ -20,11 +20,6 @@ func CallableRefFromFunctionDecl(fn types.FunctionDecl, source CallableSource) (
 	if fn.IsVariadic || len(fn.Params) == 0 {
 		return CallableRef{}, false
 	}
-	for _, param := range fn.Params[1:] {
-		if !callableArg(param.Type) {
-			return CallableRef{}, false
-		}
-	}
 
 	returnsError, ok := CallableResults(fn.Results)
 	if !ok {
@@ -40,19 +35,6 @@ func CallableRefFromFunctionDecl(fn types.FunctionDecl, source CallableSource) (
 		Name:         fn.Name,
 		ReturnsError: returnsError,
 	}, true
-}
-
-// callableArg checks whether this callable type (represented as a signature) looks like something
-// Morph could place a mapper function into (i.e. does this arg look like a callable we could
-// generate or otherwise use?)
-func callableArg(typ types.Type) bool {
-	typ = types.UnwrapAlias(typ)
-	if typ.Kind != types.TypeKindSignature || typ.IsVariadic || len(typ.Params) != 1 {
-		return false
-	}
-
-	_, ok := CallableResults(typ.Results)
-	return ok
 }
 
 // CallableRefFromMethod returns a CallableRef for the given method, from the given source.

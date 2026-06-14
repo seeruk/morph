@@ -521,10 +521,16 @@ func (g *fileGenerator) renderCallable(scope *renderScope, source string, value 
 		return "", fmt.Errorf("cannot generate callable operation without a callable")
 	}
 
-	args, err := g.renderCallableArgs(scope, value.CallableArgs)
+	contextArgs, err := g.renderCallableContextArgs(scope, value.CallableContextArgs)
 	if err != nil {
 		return "", err
 	}
+
+	args, err := g.renderCallableMapperArgs(scope, value.CallableMapperArgs)
+	if err != nil {
+		return "", err
+	}
+	args = append(contextArgs, args...)
 
 	var call string
 	switch value.Operation {
@@ -544,7 +550,22 @@ func (g *fileGenerator) renderCallable(scope *renderScope, source string, value 
 	return g.renderErroringCall(scope, name, call), nil
 }
 
-func (g *fileGenerator) renderCallableArgs(scope *renderScope, args []plan.CallableArg) ([]string, error) {
+func (g *fileGenerator) renderCallableContextArgs(scope *renderScope, args []plan.CallableContextArg) ([]string, error) {
+	out := make([]string, 0, len(args))
+	for _, arg := range args {
+		name := renderName(localNameBase(arg.Source.Name))
+		valueName := scope.Names.Next(name.Base("arg"))
+		expr, err := g.renderMemberRead(scope, "source", arg.Source, name)
+		if err != nil {
+			return nil, err
+		}
+		g.writer.Line("%s := %s", valueName, expr)
+		out = append(out, valueName)
+	}
+	return out, nil
+}
+
+func (g *fileGenerator) renderCallableMapperArgs(scope *renderScope, args []plan.CallableMapperArg) ([]string, error) {
 	out := make([]string, 0, len(args))
 	for i := range args {
 		base := "mapValue"
@@ -552,7 +573,7 @@ func (g *fileGenerator) renderCallableArgs(scope *renderScope, args []plan.Calla
 			base = fmt.Sprintf("mapValue%d", i+1)
 		}
 		name := scope.Names.Next(base)
-		if err := g.renderCallableArg(scope, name, args[i]); err != nil {
+		if err := g.renderCallableMapperArg(scope, name, args[i]); err != nil {
 			return nil, err
 		}
 		out = append(out, name)
@@ -560,7 +581,7 @@ func (g *fileGenerator) renderCallableArgs(scope *renderScope, args []plan.Calla
 	return out, nil
 }
 
-func (g *fileGenerator) renderCallableArg(scope *renderScope, name string, arg plan.CallableArg) error {
+func (g *fileGenerator) renderCallableMapperArg(scope *renderScope, name string, arg plan.CallableMapperArg) error {
 	sourceType := renderType(g.imports, arg.Mapping.Source)
 	targetType := renderType(g.imports, arg.Mapping.Target)
 	shape := returnShape{
@@ -970,7 +991,7 @@ func localNameBase(name string) string {
 	if out == "" {
 		return "value"
 	}
-	if startsWithDigit(out) {
+	if hasLeadingDigit(out) {
 		out = "value" + uppercaseFirst(out)
 	}
 	if token.Lookup(out).IsKeyword() {
@@ -1030,7 +1051,7 @@ func isCommonInitialism(part string) bool {
 	return casing.Initialism(part) == strings.ToUpper(part)
 }
 
-func startsWithDigit(value string) bool {
+func hasLeadingDigit(value string) bool {
 	for _, r := range value {
 		return unicode.IsDigit(r)
 	}
@@ -1106,7 +1127,7 @@ func renderNonZeroCheck(imports *importNamer, expr string, typ types.Type) strin
 		types.TypeKindSignature, types.TypeKindInterface, types.TypeKindChan:
 		return expr + " != nil"
 	case types.TypeKindArray, types.TypeKindStruct:
-		if typeSupportsComparableZero(typ) {
+		if canUseComparableZero(typ) {
 			return renderComparableNonZeroCheck(imports, expr)
 		}
 	}
@@ -1134,7 +1155,7 @@ func renderNamedNonZeroCheck(imports *importNamer, expr string, typ types.Type) 
 		types.TypeKindSignature, types.TypeKindInterface, types.TypeKindChan:
 		return expr + " != nil"
 	case types.TypeKindArray, types.TypeKindStruct:
-		if typeSupportsComparableZero(underlying) {
+		if canUseComparableZero(underlying) {
 			return renderComparableNonZeroCheck(imports, expr)
 		}
 	}
@@ -1157,19 +1178,19 @@ func renderRuntimeValuePackage(imports *importNamer) string {
 	})
 }
 
-func typeSupportsComparableZero(typ types.Type) bool {
+func canUseComparableZero(typ types.Type) bool {
 	typ = types.UnwrapAlias(typ)
 
 	switch typ.Kind {
 	case types.TypeKindBasic, types.TypeKindPointer, types.TypeKindChan:
 		return true
 	case types.TypeKindNamed:
-		return typ.Elem != nil && typeSupportsComparableZero(*typ.Elem)
+		return typ.Elem != nil && canUseComparableZero(*typ.Elem)
 	case types.TypeKindArray:
-		return typ.Elem != nil && typeSupportsComparableZero(*typ.Elem)
+		return typ.Elem != nil && canUseComparableZero(*typ.Elem)
 	case types.TypeKindStruct:
 		for _, field := range typ.Fields {
-			if !typeSupportsComparableZero(field.Type) {
+			if !canUseComparableZero(field.Type) {
 				return false
 			}
 		}

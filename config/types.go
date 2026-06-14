@@ -1,6 +1,10 @@
 package config
 
-import "github.com/seeruk/morph/spec"
+import (
+	"encoding/json"
+
+	"github.com/seeruk/morph/spec"
+)
 
 // Config is Morph's user-written configuration model. Pointer fields distinguish omitted values
 // from explicit zero values so resolution can apply defaults and presets correctly.
@@ -25,12 +29,12 @@ type PackagesDefaults struct {
 
 // TypesDefaults represents available options for configuring type-pair-level defaults.
 type TypesDefaults struct {
-	Enum          *EnumDefaults        `json:"enum"`
-	Callables     []spec.CallableRef   `json:"callables"`
-	Mappers       *MappersDefaults     `json:"mappers"`
-	Optionality   *OptionalityDefaults `json:"optionality"`
-	Conversions   *ConversionsDefaults `json:"conversions"`
-	Bidirectional *bool                `json:"bidirectional"`
+	Enum          *EnumDefaults              `json:"enum"`
+	Callables     []spec.CallableRef         `json:"callables"`
+	Mappers       *DirectionalMapperDefaults `json:"mappers"`
+	Optionality   *OptionalityDefaults       `json:"optionality"`
+	Conversions   *ConversionsDefaults       `json:"conversions"`
+	Bidirectional *bool                      `json:"bidirectional"`
 }
 
 // EnumDefaults represents available options for configuring enum mapping defaults.
@@ -39,8 +43,8 @@ type EnumDefaults struct {
 	Patterns    *EnumPatterns         `json:"patterns"`
 }
 
-// MappersDefaults configures partial mapper defaults that can be layered with other defaults.
-type MappersDefaults struct {
+// DirectionalMapperDefaults configures partial mapper defaults that can be layered with other defaults.
+type DirectionalMapperDefaults struct {
 	Forward *MapperDefaults `json:"forward"`
 	Inverse *MapperDefaults `json:"inverse"`
 }
@@ -91,32 +95,32 @@ type Conversion struct {
 
 // Package represents the mapping configuration of a pair of packages, and types within them.
 type Package struct {
-	Source        string               `json:"source"`
-	Target        string               `json:"target"`
-	Preset        string               `json:"preset"`
-	Callables     []spec.CallableRef   `json:"callables"`
-	Types         []Type               `json:"types"`
-	Output        Output               `json:"output"`
-	Enum          *EnumDefaults        `json:"enum"`
-	Mappers       *MappersDefaults     `json:"mappers"`
-	Optionality   *OptionalityDefaults `json:"optionality"`
-	Conversions   *ConversionsDefaults `json:"conversions"`
-	Bidirectional *bool                `json:"bidirectional"`
+	Source        string                     `json:"source"`
+	Target        string                     `json:"target"`
+	Preset        string                     `json:"preset"`
+	Callables     []spec.CallableRef         `json:"callables"`
+	Types         []Type                     `json:"types"`
+	Output        Output                     `json:"output"`
+	Enum          *EnumDefaults              `json:"enum"`
+	Mappers       *DirectionalMapperDefaults `json:"mappers"`
+	Optionality   *OptionalityDefaults       `json:"optionality"`
+	Conversions   *ConversionsDefaults       `json:"conversions"`
+	Bidirectional *bool                      `json:"bidirectional"`
 }
 
 // Type represents the mapping configuration for a specific pair of types.
 type Type struct {
-	Name          string               `json:"name"`
-	Source        string               `json:"source"`
-	Target        string               `json:"target"`
-	Preset        string               `json:"preset"`
-	Callables     []spec.CallableRef   `json:"callables"`
-	Enum          *Enum                `json:"enum"`
-	Struct        *Struct              `json:"struct"`
-	Mappers       *MappersDefaults     `json:"mappers"`
-	Optionality   *OptionalityDefaults `json:"optionality"`
-	Conversions   *ConversionsDefaults `json:"conversions"`
-	Bidirectional *bool                `json:"bidirectional"`
+	Name          string                     `json:"name"`
+	Source        string                     `json:"source"`
+	Target        string                     `json:"target"`
+	Preset        string                     `json:"preset"`
+	Callables     []spec.CallableRef         `json:"callables"`
+	Enum          *Enum                      `json:"enum"`
+	Struct        *Struct                    `json:"struct"`
+	Mappers       *DirectionalMapperDefaults `json:"mappers"`
+	Optionality   *OptionalityDefaults       `json:"optionality"`
+	Conversions   *ConversionsDefaults       `json:"conversions"`
+	Bidirectional *bool                      `json:"bidirectional"`
 }
 
 // Enum represents defaultable enum mapping configuration.
@@ -148,31 +152,69 @@ type Struct struct {
 
 // Property holds configuration for how a specific logical property should be mapped.
 type Property struct {
-	Name        string               `json:"name"`
-	Source      string               `json:"source"`
-	Target      string               `json:"target"`
-	Accessors   PropertyAccessors    `json:"accessors"`
-	Callable    *PropertyCallable    `json:"callable"`
-	Conversions *ConversionsDefaults `json:"conversions"`
-	Optionality *OptionalityDefaults `json:"optionality"`
+	Name        string                        `json:"name"`
+	Source      string                        `json:"source"`
+	Target      string                        `json:"target"`
+	Accessors   DirectionalPropertyAccessors  `json:"accessors"`
+	Callable    *DirectionalPropertyCallables `json:"callable"`
+	Conversions *ConversionsDefaults          `json:"conversions"`
+	Optionality *OptionalityDefaults          `json:"optionality"`
 }
 
-// PropertyAccessors configures exact accessors for each generated mapping direction.
+// DirectionalPropertyAccessors configures exact accessors for each generated mapping direction.
+type DirectionalPropertyAccessors struct {
+	Forward PropertyAccessors `json:"forward"`
+	Inverse PropertyAccessors `json:"inverse"`
+}
+
+// PropertyAccessors configures exact read and write accessor names.
 type PropertyAccessors struct {
-	Forward PropertyDirectionAccessors `json:"forward"`
-	Inverse PropertyDirectionAccessors `json:"inverse"`
-}
-
-// PropertyDirectionAccessors configures exact read and write accessor names.
-type PropertyDirectionAccessors struct {
 	Read  string `json:"read"`
 	Write string `json:"write"`
 }
 
-// PropertyCallable configures the explicit callable to use for a specific property direction.
-type PropertyCallable struct {
-	Forward *spec.CallableRef `json:"forward"`
-	Inverse *spec.CallableRef `json:"inverse"`
+// DirectionalPropertyCallables configures the explicit callable to use for each mapping direction.
+type DirectionalPropertyCallables struct {
+	Forward *PropertyCallableInvocation `json:"forward"`
+	Inverse *PropertyCallableInvocation `json:"inverse"`
+}
+
+// PropertyCallableInvocation configures a callable reference and the context source arguments to pass
+// to it. It supports a shorthand string form, which is equivalent to setting Ref with no Args.
+type PropertyCallableInvocation struct {
+	Ref  spec.CallableRef             `json:"ref"`
+	Args []PropertyCallableContextArg `json:"args"`
+}
+
+func (i *PropertyCallableInvocation) UnmarshalJSON(data []byte) error {
+	var ref spec.CallableRef
+	if err := json.Unmarshal(data, &ref); err == nil {
+		*i = PropertyCallableInvocation{Ref: ref}
+		return nil
+	}
+
+	type propertyCallableInvocation PropertyCallableInvocation
+	var out propertyCallableInvocation
+	if err := json.Unmarshal(data, &out); err != nil {
+		return err
+	}
+	*i = PropertyCallableInvocation(out)
+	return nil
+}
+
+func (i PropertyCallableInvocation) MarshalJSON() ([]byte, error) {
+	if len(i.Args) == 0 {
+		return json.Marshal(i.Ref)
+	}
+
+	type propertyCallableInvocation PropertyCallableInvocation
+	return json.Marshal(propertyCallableInvocation(i))
+}
+
+// PropertyCallableContextArg configures one exact source field or zero-arg method to pass as
+// callable context.
+type PropertyCallableContextArg struct {
+	Source string `json:"source"`
 }
 
 // StructOmissions configures properties intentionally omitted from a mapping.
@@ -184,10 +226,10 @@ type StructOmissions struct {
 
 // Preset provides a repeatable, easily referenced set of type defaults to apply.
 type Preset struct {
-	Enum          *EnumDefaults        `json:"enum"`
-	Callables     []spec.CallableRef   `json:"callables"`
-	Mappers       *MappersDefaults     `json:"mappers"`
-	Optionality   *OptionalityDefaults `json:"optionality"`
-	Conversions   *ConversionsDefaults `json:"conversions"`
-	Bidirectional *bool                `json:"bidirectional"`
+	Enum          *EnumDefaults              `json:"enum"`
+	Callables     []spec.CallableRef         `json:"callables"`
+	Mappers       *DirectionalMapperDefaults `json:"mappers"`
+	Optionality   *OptionalityDefaults       `json:"optionality"`
+	Conversions   *ConversionsDefaults       `json:"conversions"`
+	Bidirectional *bool                      `json:"bidirectional"`
 }

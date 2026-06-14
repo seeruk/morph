@@ -95,8 +95,8 @@ func finalizeValueErrability(value *plan.Value) bool {
 		return false
 	}
 
-	canError := adaptationsCanError(value.SourceAdaptations, value.Optionality) ||
-		adaptationsCanError(value.TargetAdaptations, value.Optionality)
+	canError := canAdaptationsError(value.SourceAdaptations, value.Optionality) ||
+		canAdaptationsError(value.TargetAdaptations, value.Optionality)
 
 	switch value.Operation {
 	case plan.OperationFunction, plan.OperationMethod:
@@ -104,7 +104,7 @@ func finalizeValueErrability(value *plan.Value) bool {
 	case plan.OperationStruct, plan.OperationEnum:
 		canError = canError || value.Plan != nil && value.Plan.CanError
 	case plan.OperationSlice, plan.OperationArray, plan.OperationMap, plan.OperationUnsupported:
-		canError = canError || valueChildrenCanError(value)
+		canError = canError || canAnyValueChildError(value)
 	}
 
 	if value.CanError != canError {
@@ -115,7 +115,7 @@ func finalizeValueErrability(value *plan.Value) bool {
 	return false
 }
 
-func valueChildrenCanError(value *plan.Value) bool {
+func canAnyValueChildError(value *plan.Value) bool {
 	return value.Elem != nil && value.Elem.CanError ||
 		value.Key != nil && value.Key.CanError ||
 		value.Value != nil && value.Value.CanError
@@ -168,8 +168,8 @@ func callableErrabilityFailures(ctx walkContext) []callableErrabilityFailure {
 	}
 
 	var failures []callableErrabilityFailure
-	for i := range value.CallableArgs {
-		arg := &value.CallableArgs[i]
+	for i := range value.CallableMapperArgs {
+		arg := &value.CallableMapperArgs[i]
 		if !arg.Mapping.CanError || arg.ReturnsError {
 			continue
 		}
@@ -183,13 +183,13 @@ func callableErrabilityFailures(ctx walkContext) []callableErrabilityFailure {
 			),
 			Value:      value,
 			Type:       ctx.Owner,
-			Diagnostic: callableErrabilityDiagnostic(callableArgPath(ctx.Path, i), i, arg.Mapping),
+			Diagnostic: callableErrabilityDiagnostic(callableMapperArgPath(ctx.Path, i), i, arg.Mapping),
 		})
 	}
 	return failures
 }
 
-func callableArgPath(path string, index int) string {
+func callableMapperArgPath(path string, index int) string {
 	return fmt.Sprintf("%s :: callable argument %d", path, index+1)
 }
 
