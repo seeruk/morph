@@ -147,19 +147,20 @@ type Property struct {
 	Source      string
 	Target      string
 	Accessors   PropertyAccessors
-	Callable    *PropertyCallable
+	Callable    *PropertyCallableInvocation
 	Optionality Optionality
 	Conversions ConversionsPolicy
 }
 
-// PropertyCallable configures an explicit callable invocation for one property mapping.
-type PropertyCallable struct {
+// PropertyCallableInvocation configures an explicit callable invocation for one property mapping.
+type PropertyCallableInvocation struct {
 	Ref  CallableRef
-	Args []PropertyCallableArg
+	Args []PropertyCallableContextArg
 }
 
-// PropertyCallableArg configures one exact source property to pass as an extra callable argument.
-type PropertyCallableArg struct {
+// PropertyCallableContextArg configures one exact source field or zero-arg method to pass as
+// callable context.
+type PropertyCallableContextArg struct {
 	Source string
 }
 

@@ -751,7 +751,7 @@ func samePropertySpec(a, b spec.Property) bool {
 		a.Accessors == b.Accessors &&
 		a.Optionality == b.Optionality &&
 		a.Conversions == b.Conversions &&
-		samePropertyCallablePtr(a.Callable, b.Callable)
+		samePropertyCallableInvocationPtr(a.Callable, b.Callable)
 }
 
 func sameStructOmissions(a, b spec.StructOmissions) bool {
@@ -760,7 +760,7 @@ func sameStructOmissions(a, b spec.StructOmissions) bool {
 		slices.Equal(a.Target, b.Target)
 }
 
-func samePropertyCallablePtr(a, b *spec.PropertyCallable) bool {
+func samePropertyCallableInvocationPtr(a, b *spec.PropertyCallableInvocation) bool {
 	if a == nil || b == nil {
 		return a == b
 	}

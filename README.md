@@ -289,7 +289,7 @@ same priority, Morph uses callable compatibility rank to choose the best candida
 Specifying callables in the `defaults` section will make the callables available to any mapper at
 the lowest priority.
 
-Property callables can also receive ordered extra source arguments. Extra arguments must be exact
+Property callables can also receive ordered context source arguments. Context arguments must be exact
 source fields or zero-argument methods; Morph does not infer or strip accessor prefixes for them.
 
 ```yaml

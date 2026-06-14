@@ -168,8 +168,8 @@ func callableErrabilityFailures(ctx walkContext) []callableErrabilityFailure {
 	}
 
 	var failures []callableErrabilityFailure
-	for i := range value.CallableArgs {
-		arg := &value.CallableArgs[i]
+	for i := range value.CallableMapperArgs {
+		arg := &value.CallableMapperArgs[i]
 		if !arg.Mapping.CanError || arg.ReturnsError {
 			continue
 		}
@@ -183,13 +183,13 @@ func callableErrabilityFailures(ctx walkContext) []callableErrabilityFailure {
 			),
 			Value:      value,
 			Type:       ctx.Owner,
-			Diagnostic: callableErrabilityDiagnostic(callableArgPath(ctx.Path, i), i, arg.Mapping),
+			Diagnostic: callableErrabilityDiagnostic(callableMapperArgPath(ctx.Path, i), i, arg.Mapping),
 		})
 	}
 	return failures
 }
 
-func callableArgPath(path string, index int) string {
+func callableMapperArgPath(path string, index int) string {
 	return fmt.Sprintf("%s :: callable argument %d", path, index+1)
 }
 

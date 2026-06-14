@@ -77,8 +77,8 @@ func TestGeneratorGenerate(t *testing.T) {
 		golden.Assert(t, "generated_mappers_and_higher_order_arguments", files[0].Source)
 	})
 
-	t.Run("generates callable extra args", func(t *testing.T) {
-		root, nested := generatorCallableExtraArgsRoot()
+	t.Run("generates callable context args", func(t *testing.T) {
+		root, nested := generatorCallableContextArgsRoot()
 		files, err := NewGenerator().Generate(Plan{OutputGroups: []plan.OutputGroup{{
 			Location: generatorLocation(),
 			Roots:    []*plan.Type{root},
@@ -87,7 +87,7 @@ func TestGeneratorGenerate(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Len(t, files, 1)
-		golden.Assert(t, "callable_extra_args", files[0].Source)
+		golden.Assert(t, "callable_context_args", files[0].Source)
 	})
 
 	t.Run("generates import aliases", func(t *testing.T) {
@@ -667,7 +667,7 @@ func generatorHigherOrderRoot() (*plan.Type, *plan.Type) {
 			Source:    sourceOptional,
 			Target:    targetOptional,
 			Callable:  generatorCallable("module.test/from", "MapOptional", false),
-			CallableArgs: []plan.CallableArg{{
+			CallableMapperArgs: []plan.CallableMapperArg{{
 				Mapping: plan.Value{
 					Operation: plan.OperationStruct,
 					Source:    sourceThingDecl.Type,
@@ -681,7 +681,7 @@ func generatorHigherOrderRoot() (*plan.Type, *plan.Type) {
 	return root, nested
 }
 
-func generatorCallableExtraArgsRoot() (*plan.Type, *plan.Type) {
+func generatorCallableContextArgsRoot() (*plan.Type, *plan.Type) {
 	sourceThingDecl := generatorStructDecl("module.test/from", "OptionalThing", map[string]types.Field{
 		"Name": generatorField("Name", basicTestType("string")),
 	})
@@ -718,7 +718,7 @@ func generatorCallableExtraArgsRoot() (*plan.Type, *plan.Type) {
 			Source:    basicTestType("string"),
 			Target:    targetContextualInt,
 			Callable:  generatorCallable("module.test/from", "StringToContextualInt", false),
-			CallableExtraArgs: []plan.CallableExtraArg{
+			CallableContextArgs: []plan.CallableContextArg{
 				{Source: generatorFieldMember(sourceDecl.Fields["CountPresent"])},
 			},
 			Optionality: defaultOptionality(),
@@ -728,10 +728,10 @@ func generatorCallableExtraArgsRoot() (*plan.Type, *plan.Type) {
 			Source:    sourceOptional,
 			Target:    targetContextualOptional,
 			Callable:  generatorCallable("module.test/from", "MapOptionalContext", false),
-			CallableExtraArgs: []plan.CallableExtraArg{
+			CallableContextArgs: []plan.CallableContextArg{
 				{Source: generatorFieldMember(sourceDecl.Fields["MaybePresent"])},
 			},
-			CallableArgs: []plan.CallableArg{{
+			CallableMapperArgs: []plan.CallableMapperArg{{
 				Mapping: plan.Value{
 					Operation: plan.OperationStruct,
 					Source:    sourceThingDecl.Type,

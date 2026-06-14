@@ -20,7 +20,7 @@ var defaultTypesDefaults = TypesDefaults{
 	Enum: &EnumDefaults{
 		FailureMode: new(spec.EnumFailureModeError),
 	},
-	Mappers: &MappersDefaults{
+	Mappers: &DirectionalMapperDefaults{
 		Forward: &MapperDefaults{
 			Name: new(defaultForwardMapperName),
 			Signature: &MapperSignatureDefaults{
@@ -182,7 +182,7 @@ func resolveType(
 	}
 
 	enum := resolveEnum(typ.Enum, typeDefaults.Enum, true)
-	mappers := resolveMappers(mergeMappersDefaults(typ.Mappers, typeDefaults.Mappers))
+	mappers := resolveMappers(mergeDirectionalMapperDefaults(typ.Mappers, typeDefaults.Mappers))
 	optionality := optionalityFromDefaults(mergeOptionalityDefaults(typ.Optionality, typeDefaults.Optionality))
 	conversion := conversionsFromDefaults(mergeConversionsDefaults(typ.Conversions, typeDefaults.Conversions))
 	callables.Add(spec.CallablePriorityType, typ.Callables)
@@ -481,7 +481,7 @@ func resolveStructProperty(
 		accessors = property.Accessors.Inverse
 	}
 
-	callable, err := resolvePropertyCallable(property.Callable, forward)
+	callable, err := resolvePropertyCallableInvocation(property.Callable, forward)
 	if err != nil {
 		return spec.Property{}, err
 	}
@@ -568,7 +568,7 @@ func dedupeStrings(values []string) []string {
 	return slices.Compact(out)
 }
 
-func resolvePropertyCallable(callable *PropertyCallable, forward bool) (*spec.PropertyCallable, error) {
+func resolvePropertyCallableInvocation(callable *DirectionalPropertyCallables, forward bool) (*spec.PropertyCallableInvocation, error) {
 	if callable == nil {
 		return nil, nil
 	}
@@ -582,15 +582,15 @@ func resolvePropertyCallable(callable *PropertyCallable, forward bool) (*spec.Pr
 		return nil, nil
 	}
 
-	args := make([]spec.PropertyCallableArg, 0, len(invocation.Args))
+	args := make([]spec.PropertyCallableContextArg, 0, len(invocation.Args))
 	for i, arg := range invocation.Args {
 		if arg.Source == "" {
 			return nil, fmt.Errorf("callable args[%d].source is required", i)
 		}
-		args = append(args, spec.PropertyCallableArg{Source: arg.Source})
+		args = append(args, spec.PropertyCallableContextArg{Source: arg.Source})
 	}
 
-	return &spec.PropertyCallable{
+	return &spec.PropertyCallableInvocation{
 		Ref:  invocation.Ref,
 		Args: args,
 	}, nil
@@ -616,10 +616,10 @@ func invertStringMap(in map[string]string) map[string]string {
 	return out
 }
 
-func mergeMappersDefaults(overrides *MappersDefaults, fallback *MappersDefaults) *MappersDefaults {
-	overrides = cmp.Or(overrides, new(MappersDefaults))
-	fallback = cmp.Or(fallback, new(MappersDefaults))
-	return &MappersDefaults{
+func mergeDirectionalMapperDefaults(overrides *DirectionalMapperDefaults, fallback *DirectionalMapperDefaults) *DirectionalMapperDefaults {
+	overrides = cmp.Or(overrides, new(DirectionalMapperDefaults))
+	fallback = cmp.Or(fallback, new(DirectionalMapperDefaults))
+	return &DirectionalMapperDefaults{
 		Forward: mergeMapperDefaults(overrides.Forward, fallback.Forward),
 		Inverse: mergeMapperDefaults(overrides.Inverse, fallback.Inverse),
 	}
@@ -646,14 +646,14 @@ func mergeMapperSignatureDefaults(
 	}
 }
 
-func resolveMappers(mappers *MappersDefaults) spec.Mappers {
+func resolveMappers(mappers *DirectionalMapperDefaults) spec.Mappers {
 	return spec.Mappers{
 		Forward: resolveMapper(mapperDefaults(mappers, true), defaultMapper(defaultForwardMapperName)),
 		Inverse: resolveMapper(mapperDefaults(mappers, false), defaultMapper(defaultInverseMapperName)),
 	}
 }
 
-func mapperDefaults(mappers *MappersDefaults, forward bool) *MapperDefaults {
+func mapperDefaults(mappers *DirectionalMapperDefaults, forward bool) *MapperDefaults {
 	if mappers == nil {
 		return nil
 	}
@@ -777,7 +777,7 @@ func mergeTypeDefaults(overrides TypesDefaults, fallback TypesDefaults) TypesDef
 	return TypesDefaults{
 		Enum:          mergeEnumDefaults(overrides.Enum, fallback.Enum),
 		Callables:     append(slices.Clone(fallback.Callables), overrides.Callables...),
-		Mappers:       mergeMappersDefaults(overrides.Mappers, fallback.Mappers),
+		Mappers:       mergeDirectionalMapperDefaults(overrides.Mappers, fallback.Mappers),
 		Optionality:   mergeOptionalityDefaults(overrides.Optionality, fallback.Optionality),
 		Conversions:   mergeConversionsDefaults(overrides.Conversions, fallback.Conversions),
 		Bidirectional: cmp.Or(overrides.Bidirectional, fallback.Bidirectional),
@@ -787,7 +787,7 @@ func mergeTypeDefaults(overrides TypesDefaults, fallback TypesDefaults) TypesDef
 func applyPresetToTypeDefaults(defaults TypesDefaults, preset Preset) TypesDefaults {
 	return TypesDefaults{
 		Enum:          mergeEnumDefaults(preset.Enum, defaults.Enum),
-		Mappers:       mergeMappersDefaults(preset.Mappers, defaults.Mappers),
+		Mappers:       mergeDirectionalMapperDefaults(preset.Mappers, defaults.Mappers),
 		Optionality:   mergeOptionalityDefaults(preset.Optionality, defaults.Optionality),
 		Conversions:   mergeConversionsDefaults(preset.Conversions, defaults.Conversions),
 		Bidirectional: cmp.Or(preset.Bidirectional, defaults.Bidirectional),
@@ -797,7 +797,7 @@ func applyPresetToTypeDefaults(defaults TypesDefaults, preset Preset) TypesDefau
 func applyPackageToTypeDefaults(defaults TypesDefaults, pkg Package) TypesDefaults {
 	return TypesDefaults{
 		Enum:          mergeEnumDefaults(pkg.Enum, defaults.Enum),
-		Mappers:       mergeMappersDefaults(pkg.Mappers, defaults.Mappers),
+		Mappers:       mergeDirectionalMapperDefaults(pkg.Mappers, defaults.Mappers),
 		Optionality:   mergeOptionalityDefaults(pkg.Optionality, defaults.Optionality),
 		Conversions:   mergeConversionsDefaults(pkg.Conversions, defaults.Conversions),
 		Bidirectional: cmp.Or(pkg.Bidirectional, defaults.Bidirectional),

@@ -104,11 +104,11 @@ func walkValue(
 		callbacks.ValuePre(context)
 	}
 
-	for i := range value.CallableArgs {
+	for i := range value.CallableMapperArgs {
 		walkValue(
-			&value.CallableArgs[i].Mapping,
+			&value.CallableMapperArgs[i].Mapping,
 			owner,
-			callableArgPath(path, i),
+			callableMapperArgPath(path, i),
 			location,
 			seen,
 			callbacks,

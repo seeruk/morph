@@ -209,7 +209,7 @@ func TestPlannerPlanCallableSelectionFromConfig(t *testing.T) {
 					Struct: &config.Struct{Properties: []config.Property{
 						{
 							Name: "Foo",
-							Callable: &config.PropertyCallable{Inverse: &config.PropertyCallableInvocation{
+							Callable: &config.DirectionalPropertyCallables{Inverse: &config.PropertyCallableInvocation{
 								Ref: spec.CallableRef{
 									ImportPath: "github.com/seeruk/morph/lab/planner/from",
 									Name:       "OptionalOfString2",

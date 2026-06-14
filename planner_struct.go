@@ -120,7 +120,7 @@ func (p *attemptPlanner) planStruct(typ *plan.Type) {
 
 		var valuePlan plan.Value
 		if candidate.Configured && candidate.Spec.Callable != nil {
-			extraArgs, diagnostics, ok := resolveCallableExtraArgs(
+			contextArgs, diagnostics, ok := resolveCallableContextArgs(
 				typ.SourceDecl,
 				typ.SourceType,
 				typ.SourceType,
@@ -129,17 +129,17 @@ func (p *attemptPlanner) planStruct(typ *plan.Type) {
 				candidate.Spec.Callable.Args,
 			)
 			if ok {
-				for _, arg := range extraArgs {
+				for _, arg := range contextArgs {
 					usedSourceProperties[arg.Source.Name] = struct{}{}
 				}
-				valuePlan = p.planPropertyCallable(
+				valuePlan = p.planPropertyCallableInvocation(
 					sourceMember.Type,
 					targetMember.Type,
 					propertyPath,
 					optionality,
 					conversion,
 					*candidate.Spec.Callable,
-					extraArgs,
+					contextArgs,
 					typ.Callables,
 				)
 			} else {
@@ -148,7 +148,7 @@ func (p *attemptPlanner) planStruct(typ *plan.Type) {
 						sourceMember.Type,
 						targetMember.Type,
 						propertyPath,
-						fmt.Sprintf("configured property callable %q has invalid extra source arguments", candidate.Spec.Callable.Ref.String()),
+						fmt.Sprintf("configured property callable %q has invalid context source arguments", candidate.Spec.Callable.Ref.String()),
 					),
 					diagnostics...,
 				)
@@ -441,30 +441,30 @@ func (p *attemptPlanner) planValue(
 	), deferredDiagnostics...)
 }
 
-func (p *attemptPlanner) planPropertyCallable(
+func (p *attemptPlanner) planPropertyCallableInvocation(
 	sourceType, targetType types.Type,
 	path string,
 	optionality spec.Optionality,
 	conversion spec.ConversionsPolicy,
-	callable spec.PropertyCallable,
-	extraArgs []plan.CallableExtraArg,
+	callable spec.PropertyCallableInvocation,
+	contextArgs []plan.CallableContextArg,
 	callables []spec.PrioritizedCallables,
 ) plan.Value {
 	sourceType = types.UnwrapAlias(sourceType)
 	targetType = types.UnwrapAlias(targetType)
 
 	refs := []spec.CallableRef{callable.Ref}
-	extraArgTypes := callableExtraArgTypes(extraArgs)
-	candidates, deferredDiagnostics := p.rankedExplicitCallableCandidatesWithExtraArgs(
+	contextArgTypes := callableContextArgTypes(contextArgs)
+	candidates, deferredDiagnostics := p.rankedExplicitCallableCandidatesWithContextArgs(
 		sourceType,
 		targetType,
 		path,
 		refs,
-		extraArgTypes,
+		contextArgTypes,
 	)
 
 	for _, candidate := range candidates {
-		args, diagnostics, ok := p.planCallableArgs(
+		args, diagnostics, ok := p.planCallableMapperArgs(
 			candidate.Compatibility.MapperArgs,
 			path,
 			optionality,
@@ -486,7 +486,7 @@ func (p *attemptPlanner) planPropertyCallable(
 			args,
 			diagnostics...,
 		)
-		value.CallableExtraArgs = extraArgs
+		value.CallableContextArgs = contextArgs
 		return value
 	}
 
@@ -496,10 +496,10 @@ func (p *attemptPlanner) planPropertyCallable(
 			targetType,
 			path,
 			fmt.Sprintf(
-				"configured property callable %q is not compatible; expected callable to accept %s, %d extra source argument(s), optional mapper function arguments, and return %s",
+				"configured property callable %q is not compatible; expected callable to accept %s, %d context source argument(s), optional mapper function arguments, and return %s",
 				callable.Ref.String(),
 				types.TypeKey(sourceType),
-				len(extraArgs),
+				len(contextArgs),
 				types.TypeKey(targetType),
 			),
 		),
@@ -507,7 +507,7 @@ func (p *attemptPlanner) planPropertyCallable(
 	)
 }
 
-func callableExtraArgTypes(args []plan.CallableExtraArg) []types.Type {
+func callableContextArgTypes(args []plan.CallableContextArg) []types.Type {
 	out := make([]types.Type, 0, len(args))
 	for _, arg := range args {
 		out = append(out, arg.Source.Type)
@@ -542,7 +542,7 @@ func (p *attemptPlanner) planPrioritizedCallables(
 				return value, value.Diagnostics, true
 			}
 
-			args, diagnostics, ok := p.planCallableArgs(
+			args, diagnostics, ok := p.planCallableMapperArgs(
 				candidate.Compatibility.MapperArgs,
 				path,
 				optionality,
@@ -576,14 +576,14 @@ func (p *attemptPlanner) rankedExplicitCallableCandidates(
 	path string,
 	refs []spec.CallableRef,
 ) ([]callableCandidate, []plan.Diagnostic) {
-	return p.rankedExplicitCallableCandidatesWithExtraArgs(sourceType, targetType, path, refs, nil)
+	return p.rankedExplicitCallableCandidatesWithContextArgs(sourceType, targetType, path, refs, nil)
 }
 
-func (p *attemptPlanner) rankedExplicitCallableCandidatesWithExtraArgs(
+func (p *attemptPlanner) rankedExplicitCallableCandidatesWithContextArgs(
 	sourceType, targetType types.Type,
 	path string,
 	refs []spec.CallableRef,
-	extraArgTypes []types.Type,
+	contextArgTypes []types.Type,
 ) ([]callableCandidate, []plan.Diagnostic) {
 	candidates := make(map[plan.CallableRef]callableCompatibility)
 	var diagnostics []plan.Diagnostic
@@ -602,7 +602,7 @@ func (p *attemptPlanner) rankedExplicitCallableCandidatesWithExtraArgs(
 				continue
 			}
 
-			if compatibility := assessFunctionCompatibilityWithExtraArgs(sourceType, targetType, fn, extraArgTypes); compatibility.Compatible() {
+			if compatibility := assessFunctionCompatibilityWithContextArgs(sourceType, targetType, fn, contextArgTypes); compatibility.Compatible() {
 				if diagnostic, ok := p.callableImportDiagnostic(path, callableRef); ok {
 					diagnostics = appendDiagnostic(diagnostics, diagnostic)
 					continue
@@ -615,7 +615,7 @@ func (p *attemptPlanner) rankedExplicitCallableCandidatesWithExtraArgs(
 				continue
 			}
 
-			compatibility := assessHigherOrderFunctionCompatibilityWithExtraArgs(sourceType, targetType, fn, extraArgTypes)
+			compatibility := assessHigherOrderFunctionCompatibilityWithContextArgs(sourceType, targetType, fn, contextArgTypes)
 			if !compatibility.Compatible() {
 				continue
 			}
@@ -632,7 +632,7 @@ func (p *attemptPlanner) rankedExplicitCallableCandidatesWithExtraArgs(
 			if !ok {
 				continue
 			}
-			if len(extraArgTypes) > 0 {
+			if len(contextArgTypes) > 0 {
 				continue
 			}
 			compatibility := assessMethodCompatibility(sourceType, targetType, method)
@@ -670,11 +670,11 @@ func (p *attemptPlanner) callableValue(
 	callable plan.CallableRef,
 	compatibility callableCompatibility,
 	optionality spec.Optionality,
-	args []plan.CallableArg,
+	args []plan.CallableMapperArg,
 	diagnostics ...plan.Diagnostic,
 ) plan.Value {
 	value := planCallableValue(sourceType, targetType, callable, compatibility, optionality)
-	value.CallableArgs = args
+	value.CallableMapperArgs = args
 	value.Diagnostics = appendDiagnostic(value.Diagnostics, diagnostics...)
 	value.Diagnostics = appendDiagnostic(value.Diagnostics, p.recordCallableImport(path, callable)...)
 	return value
@@ -1159,7 +1159,7 @@ func (p *attemptPlanner) planDiscoveredHigherOrderCallable(
 
 	var deferredDiagnostics []plan.Diagnostic
 	for _, candidate := range rankedCallableCandidates(candidates) {
-		args, diagnostics, ok := p.planCallableArgs(
+		args, diagnostics, ok := p.planCallableMapperArgs(
 			candidate.Compatibility.MapperArgs,
 			path,
 			optionality,
@@ -1188,18 +1188,18 @@ func (p *attemptPlanner) planDiscoveredHigherOrderCallable(
 	return plan.Value{}, deferredDiagnostics, false
 }
 
-func (p *attemptPlanner) planCallableArgs(
+func (p *attemptPlanner) planCallableMapperArgs(
 	args []callableMapperArgCompatibility,
 	path string,
 	optionality spec.Optionality,
 	conversion spec.ConversionsPolicy,
 	callables []spec.PrioritizedCallables,
-) ([]plan.CallableArg, []plan.Diagnostic, bool) {
-	out := make([]plan.CallableArg, 0, len(args))
+) ([]plan.CallableMapperArg, []plan.Diagnostic, bool) {
+	out := make([]plan.CallableMapperArg, 0, len(args))
 	var diagnostics []plan.Diagnostic
 
 	for i, arg := range args {
-		argPath := callableArgPath(path, i)
+		argPath := callableMapperArgPath(path, i)
 		mapping := p.planValue(
 			arg.Source,
 			arg.Target,
@@ -1238,7 +1238,7 @@ func (p *attemptPlanner) planCallableArgs(
 			return nil, diagnostics, false
 		}
 
-		out = append(out, plan.CallableArg{
+		out = append(out, plan.CallableMapperArg{
 			Mapping:      mapping,
 			ReturnsError: arg.ReturnsError,
 		})
@@ -1317,16 +1317,16 @@ func assessFunctionCompatibility(
 	sourceType, targetType types.Type,
 	fn types.FunctionDecl,
 ) callableCompatibility {
-	return assessFunctionCompatibilityWithExtraArgs(sourceType, targetType, fn, nil)
+	return assessFunctionCompatibilityWithContextArgs(sourceType, targetType, fn, nil)
 }
 
-func assessFunctionCompatibilityWithExtraArgs(
+func assessFunctionCompatibilityWithContextArgs(
 	sourceType, targetType types.Type,
 	fn types.FunctionDecl,
-	extraArgTypes []types.Type,
+	contextArgTypes []types.Type,
 ) callableCompatibility {
 	returnsError, ok := plan.CallableResults(fn.Results)
-	if !ok || fn.IsVariadic || len(fn.Params) != 1+len(extraArgTypes) {
+	if !ok || fn.IsVariadic || len(fn.Params) != 1+len(contextArgTypes) {
 		return callableCompatibility{}
 	}
 
@@ -1336,7 +1336,7 @@ func assessFunctionCompatibilityWithExtraArgs(
 	}
 
 	bindings, _ := callableInputTypeBindings(sourceType, fn.Params[0].Type)
-	bindings, ok = assessCallableExtraArgBindings(extraArgTypes, fn.Params[1:], bindings)
+	bindings, ok = assessCallableContextArgBindings(contextArgTypes, fn.Params[1:], bindings)
 	if !ok {
 		return callableCompatibility{}
 	}
@@ -1358,16 +1358,16 @@ func assessHigherOrderFunctionCompatibility(
 	sourceType, targetType types.Type,
 	fn types.FunctionDecl,
 ) callableCompatibility {
-	return assessHigherOrderFunctionCompatibilityWithExtraArgs(sourceType, targetType, fn, nil)
+	return assessHigherOrderFunctionCompatibilityWithContextArgs(sourceType, targetType, fn, nil)
 }
 
-func assessHigherOrderFunctionCompatibilityWithExtraArgs(
+func assessHigherOrderFunctionCompatibilityWithContextArgs(
 	sourceType, targetType types.Type,
 	fn types.FunctionDecl,
-	extraArgTypes []types.Type,
+	contextArgTypes []types.Type,
 ) callableCompatibility {
 	returnsError, ok := plan.CallableResults(fn.Results)
-	if !ok || fn.IsVariadic || len(fn.Params) < 2+len(extraArgTypes) {
+	if !ok || fn.IsVariadic || len(fn.Params) < 2+len(contextArgTypes) {
 		return callableCompatibility{}
 	}
 
@@ -1381,8 +1381,8 @@ func assessHigherOrderFunctionCompatibilityWithExtraArgs(
 		return callableCompatibility{}
 	}
 
-	extraArgEnd := 1 + len(extraArgTypes)
-	bindings, ok = assessCallableExtraArgBindings(extraArgTypes, fn.Params[1:extraArgEnd], bindings)
+	contextArgEnd := 1 + len(contextArgTypes)
+	bindings, ok = assessCallableContextArgBindings(contextArgTypes, fn.Params[1:contextArgEnd], bindings)
 	if !ok {
 		return callableCompatibility{}
 	}
@@ -1392,7 +1392,7 @@ func assessHigherOrderFunctionCompatibilityWithExtraArgs(
 		return callableCompatibility{}
 	}
 
-	args, ok := assessCallableMapperArgs(fn.Params[extraArgEnd:], bindings)
+	args, ok := assessCallableMapperArgs(fn.Params[contextArgEnd:], bindings)
 	if !ok {
 		return callableCompatibility{}
 	}
@@ -1406,23 +1406,23 @@ func assessHigherOrderFunctionCompatibilityWithExtraArgs(
 	}
 }
 
-func assessCallableExtraArgBindings(
-	extraArgTypes []types.Type,
+func assessCallableContextArgBindings(
+	contextArgTypes []types.Type,
 	params []types.Parameter,
 	bindings map[string]types.Type,
 ) (map[string]types.Type, bool) {
-	if len(extraArgTypes) != len(params) {
+	if len(contextArgTypes) != len(params) {
 		return nil, false
 	}
 
 	out := maps.Clone(bindings)
-	for i, extraArgType := range extraArgTypes {
-		if !bindTypeParams(out, extraArgType, params[i].Type) {
+	for i, contextArgType := range contextArgTypes {
+		if !bindTypeParams(out, contextArgType, params[i].Type) {
 			return nil, false
 		}
 
 		paramType := substituteTypeParams(params[i].Type, out)
-		if !sameType(extraArgType, paramType) {
+		if !sameType(contextArgType, paramType) {
 			return nil, false
 		}
 	}
@@ -2417,15 +2417,15 @@ func missingTargetPropertyMessage(sourceName string, matchedTargetOmission bool)
 	return fmt.Sprintf("no target property found for source property %q; configure struct.properties to map it explicitly or struct.omit.source to omit it", sourceName)
 }
 
-func resolveCallableExtraArgs(
+func resolveCallableContextArgs(
 	typeDecl types.TypeDecl,
 	typ types.Type,
 	rootSourceType types.Type,
 	rootTargetType types.Type,
 	outputImportPath string,
-	args []spec.PropertyCallableArg,
-) ([]plan.CallableExtraArg, []plan.Diagnostic, bool) {
-	out := make([]plan.CallableExtraArg, 0, len(args))
+	args []spec.PropertyCallableContextArg,
+) ([]plan.CallableContextArg, []plan.Diagnostic, bool) {
+	out := make([]plan.CallableContextArg, 0, len(args))
 	var diagnostics []plan.Diagnostic
 
 	for _, arg := range args {
@@ -2447,14 +2447,14 @@ func resolveCallableExtraArgs(
 				Level: plan.DiagnosticLevelFatal,
 				Path:  plan.SourcePropertyPath(rootSourceType, rootTargetType, arg.Source),
 				Message: fmt.Sprintf(
-					"source callable argument %q returns an error; extra argument accessors must return exactly one value",
+					"source callable context argument %q returns an error; context argument accessors must return exactly one value",
 					arg.Source,
 				),
 			})
 			continue
 		}
 
-		out = append(out, plan.CallableExtraArg{Source: member})
+		out = append(out, plan.CallableContextArg{Source: member})
 	}
 
 	return out, diagnostics, len(diagnostics) == 0
@@ -2997,8 +2997,8 @@ func valueDiagnostics(value plan.Value) []plan.Diagnostic {
 	if value.Value != nil {
 		diagnostics = appendDiagnostic(diagnostics, valueDiagnostics(*value.Value)...)
 	}
-	for i := range value.CallableArgs {
-		diagnostics = appendDiagnostic(diagnostics, valueDiagnostics(value.CallableArgs[i].Mapping)...)
+	for i := range value.CallableMapperArgs {
+		diagnostics = appendDiagnostic(diagnostics, valueDiagnostics(value.CallableMapperArgs[i].Mapping)...)
 	}
 	return diagnostics
 }

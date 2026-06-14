@@ -502,22 +502,22 @@ func TestResolve_Callables(t *testing.T) {
 
 	t.Run("resolves property callable args directionally", func(t *testing.T) {
 		cfg := callableFieldConfig()
-		cfg.Packages[0].Types[0].Struct.Properties[0].Callable.Forward.Args = []config.PropertyCallableArg{
+		cfg.Packages[0].Types[0].Struct.Properties[0].Callable.Forward.Args = []config.PropertyCallableContextArg{
 			{Source: "ForwardPresent"},
 			{Source: "ForwardOther"},
 		}
-		cfg.Packages[0].Types[0].Struct.Properties[0].Callable.Inverse.Args = []config.PropertyCallableArg{
+		cfg.Packages[0].Types[0].Struct.Properties[0].Callable.Inverse.Args = []config.PropertyCallableContextArg{
 			{Source: "InversePresent"},
 		}
 
 		types := resolvedBidirectionalTypes(t, cfg)
 		require.Len(t, types, 2)
 
-		assert.Equal(t, []spec.PropertyCallableArg{
+		assert.Equal(t, []spec.PropertyCallableContextArg{
 			{Source: "ForwardPresent"},
 			{Source: "ForwardOther"},
 		}, types[0].Struct.Properties[0].Callable.Args)
-		assert.Equal(t, []spec.PropertyCallableArg{
+		assert.Equal(t, []spec.PropertyCallableContextArg{
 			{Source: "InversePresent"},
 		}, types[1].Struct.Properties[0].Callable.Args)
 	})
@@ -683,7 +683,7 @@ func precedenceConfig() config.Config {
 					Enum: &config.EnumDefaults{
 						FailureMode: new(spec.EnumFailureModeZero),
 					},
-					Mappers: &config.MappersDefaults{
+					Mappers: &config.DirectionalMapperDefaults{
 						Forward: &config.MapperDefaults{
 							Name: new("DefaultForward"),
 							Signature: &config.MapperSignatureDefaults{
@@ -715,7 +715,7 @@ func precedenceConfig() config.Config {
 			Enum: &config.EnumDefaults{
 				FailureMode: new(spec.EnumFailureModeError),
 			},
-			Mappers: &config.MappersDefaults{
+			Mappers: &config.DirectionalMapperDefaults{
 				Forward: &config.MapperDefaults{
 					Signature: &config.MapperSignatureDefaults{
 						Accepts: new(spec.ParameterKindValue),
@@ -740,7 +740,7 @@ func precedenceConfig() config.Config {
 						},
 					}},
 				},
-				Mappers: &config.MappersDefaults{
+				Mappers: &config.DirectionalMapperDefaults{
 					Forward: &config.MapperDefaults{
 						Name: new("MapUser"),
 						Signature: &config.MapperSignatureDefaults{
@@ -793,7 +793,7 @@ func presetConfig() config.Config {
 		Presets: map[string]config.Preset{
 			"api": {
 				Bidirectional: new(true),
-				Mappers: &config.MappersDefaults{
+				Mappers: &config.DirectionalMapperDefaults{
 					Forward: &config.MapperDefaults{Name: new("MapAPI")},
 					Inverse: &config.MapperDefaults{Name: new("MapAPIInverse")},
 				},
@@ -803,7 +803,7 @@ func presetConfig() config.Config {
 				Enum: &config.EnumDefaults{
 					FailureMode: new(spec.EnumFailureModeZero),
 				},
-				Mappers: &config.MappersDefaults{
+				Mappers: &config.DirectionalMapperDefaults{
 					Forward: &config.MapperDefaults{Name: new("MapDB")},
 				},
 			},
@@ -854,7 +854,7 @@ func callableFieldConfig() config.Config {
 	cfg.Packages[0].Types[0].Struct.Properties[0] = config.Property{
 		Source: "RecipeId",
 		Target: "ID",
-		Callable: &config.PropertyCallable{
+		Callable: &config.DirectionalPropertyCallables{
 			Forward: &config.PropertyCallableInvocation{Ref: forward},
 			Inverse: &config.PropertyCallableInvocation{Ref: inverse},
 		},

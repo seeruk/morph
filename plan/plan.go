@@ -99,31 +99,31 @@ const (
 // result in order. Empty adaptation slices mean no adaptation. For generated mapper calls, Plan
 // holds diagnostics for the referenced mapper; Value diagnostics describe only the call site.
 type Value struct {
-	Operation         Operation
-	Source            types.Type
-	Target            types.Type
-	Callable          *CallableRef
-	CallableExtraArgs []CallableExtraArg
-	CallableArgs      []CallableArg
-	SourceAdaptations []ValueAdaptation
-	TargetAdaptations []ValueAdaptation
-	Plan              *Type
-	Elem              *Value
-	Key               *Value
-	Value             *Value
-	Optionality       spec.Optionality
-	CanError          bool
-	Diagnostics       []Diagnostic
+	Operation           Operation
+	Source              types.Type
+	Target              types.Type
+	Callable            *CallableRef
+	CallableContextArgs []CallableContextArg
+	CallableMapperArgs  []CallableMapperArg
+	SourceAdaptations   []ValueAdaptation
+	TargetAdaptations   []ValueAdaptation
+	Plan                *Type
+	Elem                *Value
+	Key                 *Value
+	Value               *Value
+	Optionality         spec.Optionality
+	CanError            bool
+	Diagnostics         []Diagnostic
 }
 
-// CallableExtraArg describes an extra source member passed alongside a source value when invoking a
-// callable.
-type CallableExtraArg struct {
+// CallableContextArg describes an exact source field or zero-arg method passed alongside the primary
+// source value when invoking a callable.
+type CallableContextArg struct {
 	Source Member
 }
 
-// CallableArg describes an argument passed alongside a source value when invoking a callable.
-type CallableArg struct {
+// CallableMapperArg describes a mapper function argument for a higher-order callable.
+type CallableMapperArg struct {
 	Mapping      Value
 	ReturnsError bool
 }

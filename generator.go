@@ -521,16 +521,16 @@ func (g *fileGenerator) renderCallable(scope *renderScope, source string, value 
 		return "", fmt.Errorf("cannot generate callable operation without a callable")
 	}
 
-	extraArgs, err := g.renderCallableExtraArgs(scope, value.CallableExtraArgs)
+	contextArgs, err := g.renderCallableContextArgs(scope, value.CallableContextArgs)
 	if err != nil {
 		return "", err
 	}
 
-	args, err := g.renderCallableArgs(scope, value.CallableArgs)
+	args, err := g.renderCallableMapperArgs(scope, value.CallableMapperArgs)
 	if err != nil {
 		return "", err
 	}
-	args = append(extraArgs, args...)
+	args = append(contextArgs, args...)
 
 	var call string
 	switch value.Operation {
@@ -550,7 +550,7 @@ func (g *fileGenerator) renderCallable(scope *renderScope, source string, value 
 	return g.renderErroringCall(scope, name, call), nil
 }
 
-func (g *fileGenerator) renderCallableExtraArgs(scope *renderScope, args []plan.CallableExtraArg) ([]string, error) {
+func (g *fileGenerator) renderCallableContextArgs(scope *renderScope, args []plan.CallableContextArg) ([]string, error) {
 	out := make([]string, 0, len(args))
 	for _, arg := range args {
 		name := renderName(localNameBase(arg.Source.Name))
@@ -565,7 +565,7 @@ func (g *fileGenerator) renderCallableExtraArgs(scope *renderScope, args []plan.
 	return out, nil
 }
 
-func (g *fileGenerator) renderCallableArgs(scope *renderScope, args []plan.CallableArg) ([]string, error) {
+func (g *fileGenerator) renderCallableMapperArgs(scope *renderScope, args []plan.CallableMapperArg) ([]string, error) {
 	out := make([]string, 0, len(args))
 	for i := range args {
 		base := "mapValue"
@@ -573,7 +573,7 @@ func (g *fileGenerator) renderCallableArgs(scope *renderScope, args []plan.Calla
 			base = fmt.Sprintf("mapValue%d", i+1)
 		}
 		name := scope.Names.Next(base)
-		if err := g.renderCallableArg(scope, name, args[i]); err != nil {
+		if err := g.renderCallableMapperArg(scope, name, args[i]); err != nil {
 			return nil, err
 		}
 		out = append(out, name)
@@ -581,7 +581,7 @@ func (g *fileGenerator) renderCallableArgs(scope *renderScope, args []plan.Calla
 	return out, nil
 }
 
-func (g *fileGenerator) renderCallableArg(scope *renderScope, name string, arg plan.CallableArg) error {
+func (g *fileGenerator) renderCallableMapperArg(scope *renderScope, name string, arg plan.CallableMapperArg) error {
 	sourceType := renderType(g.imports, arg.Mapping.Source)
 	targetType := renderType(g.imports, arg.Mapping.Target)
 	shape := returnShape{

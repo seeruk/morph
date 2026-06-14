@@ -87,9 +87,9 @@ func valueVisibilitySites(ctx walkContext) []visibilityRequirementSite {
 		)...)
 	}
 
-	for i := range value.CallableArgs {
-		arg := &value.CallableArgs[i]
-		argPath := callableArgPath(ctx.Path, i)
+	for i := range value.CallableMapperArgs {
+		arg := &value.CallableMapperArgs[i]
+		argPath := callableMapperArgPath(ctx.Path, i)
 		sites = append(sites, typeVisibilityRequirementSites(
 			ctx.Location.ImportPath,
 			argPath,

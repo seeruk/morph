@@ -167,7 +167,7 @@ func TestGeneratedImportValidationForValues(t *testing.T) {
 		Source:    basicTestType("string"),
 		Target:    basicTestType("string"),
 		Callable:  &callable,
-		CallableArgs: []plan.CallableArg{{
+		CallableMapperArgs: []plan.CallableMapperArg{{
 			Mapping: plan.Value{
 				Operation: plan.OperationAssign,
 				Source:    argSource,

@@ -655,8 +655,8 @@ func TestPlannerPlanStructMethodAccessors(t *testing.T) {
 			Struct: &config.Struct{Properties: []config.Property{{
 				Source: "EmailAddress",
 				Target: "Email",
-				Accessors: config.PropertyAccessors{
-					Forward: config.PropertyDirectionAccessors{
+				Accessors: config.DirectionalPropertyAccessors{
+					Forward: config.PropertyAccessors{
 						Read:  "FetchEmail",
 						Write: "StoreEmail",
 					},
@@ -691,8 +691,8 @@ func TestPlannerPlanStructMethodAccessors(t *testing.T) {
 				InferMethods: &inferMethods,
 				Properties: []config.Property{{
 					Name: "Name",
-					Accessors: config.PropertyAccessors{
-						Forward: config.PropertyDirectionAccessors{Read: "GetName"},
+					Accessors: config.DirectionalPropertyAccessors{
+						Forward: config.PropertyAccessors{Read: "GetName"},
 					},
 				}},
 			},
@@ -716,12 +716,12 @@ func TestPlannerPlanStructMethodAccessors(t *testing.T) {
 					Struct: &config.Struct{Properties: []config.Property{{
 						Source: "EmailAddress",
 						Target: "Email",
-						Accessors: config.PropertyAccessors{
-							Forward: config.PropertyDirectionAccessors{
+						Accessors: config.DirectionalPropertyAccessors{
+							Forward: config.PropertyAccessors{
 								Read:  "GetEmailAddress",
 								Write: "SetEmail",
 							},
-							Inverse: config.PropertyDirectionAccessors{
+							Inverse: config.PropertyAccessors{
 								Read:  "GetEmail",
 								Write: "SetEmailAddress",
 							},
@@ -761,8 +761,8 @@ func TestPlannerPlanStructMethodAccessors(t *testing.T) {
 			Struct: &config.Struct{Properties: []config.Property{{
 				Source: "EmailAddress",
 				Target: "Email",
-				Accessors: config.PropertyAccessors{
-					Forward: config.PropertyDirectionAccessors{
+				Accessors: config.DirectionalPropertyAccessors{
+					Forward: config.PropertyAccessors{
 						Read:  "SetEmailAddress",
 						Write: "SetEmail",
 					},
@@ -774,9 +774,9 @@ func TestPlannerPlanStructMethodAccessors(t *testing.T) {
 	})
 }
 
-func TestPlannerPlanPropertyCallableExtraArgs(t *testing.T) {
-	contextualCallable := func(args ...config.PropertyCallableArg) *config.PropertyCallable {
-		return &config.PropertyCallable{Forward: &config.PropertyCallableInvocation{
+func TestPlannerPlanPropertyCallableContextArgs(t *testing.T) {
+	contextualCallable := func(args ...config.PropertyCallableContextArg) *config.DirectionalPropertyCallables {
+		return &config.DirectionalPropertyCallables{Forward: &config.PropertyCallableInvocation{
 			Ref: spec.CallableRef{
 				ImportPath: plannerFromPackage,
 				Name:       "StringToContextualInt",
@@ -790,14 +790,14 @@ func TestPlannerPlanPropertyCallableExtraArgs(t *testing.T) {
 			Name: "ContextualCallableContainer",
 			Struct: &config.Struct{Properties: []config.Property{{
 				Name:     "Value",
-				Callable: contextualCallable(config.PropertyCallableArg{Source: "Present"}),
+				Callable: contextualCallable(config.PropertyCallableContextArg{Source: "Present"}),
 			}}},
 		})
 
 		value := requirePlanProperty(t, root.StructPlan, "Value")
-		require.Len(t, value.Mapping.CallableExtraArgs, 1)
-		assert.Equal(t, plan.MemberKindField, value.Mapping.CallableExtraArgs[0].Source.Kind)
-		assert.Equal(t, "Present", value.Mapping.CallableExtraArgs[0].Source.Accessor)
+		require.Len(t, value.Mapping.CallableContextArgs, 1)
+		assert.Equal(t, plan.MemberKindField, value.Mapping.CallableContextArgs[0].Source.Kind)
+		assert.Equal(t, "Present", value.Mapping.CallableContextArgs[0].Source.Accessor)
 		assert.Equal(t, plan.OperationFunction, value.Mapping.Operation)
 		assert.NotContains(t, diagnosticsMessages(root.Diagnostics), `no target property found for source property "Present"; configure struct.properties to map it explicitly or struct.omit.source to omit it`)
 	})
@@ -807,14 +807,14 @@ func TestPlannerPlanPropertyCallableExtraArgs(t *testing.T) {
 			Name: "ContextualCallableContainer",
 			Struct: &config.Struct{Properties: []config.Property{{
 				Name:     "Value",
-				Callable: contextualCallable(config.PropertyCallableArg{Source: "HasValue"}),
+				Callable: contextualCallable(config.PropertyCallableContextArg{Source: "HasValue"}),
 			}}},
 		})
 
 		value := requirePlanProperty(t, root.StructPlan, "Value")
-		require.Len(t, value.Mapping.CallableExtraArgs, 1)
-		assert.Equal(t, plan.MemberKindMethod, value.Mapping.CallableExtraArgs[0].Source.Kind)
-		assert.Equal(t, "HasValue", value.Mapping.CallableExtraArgs[0].Source.Accessor)
+		require.Len(t, value.Mapping.CallableContextArgs, 1)
+		assert.Equal(t, plan.MemberKindMethod, value.Mapping.CallableContextArgs[0].Source.Kind)
+		assert.Equal(t, "HasValue", value.Mapping.CallableContextArgs[0].Source.Accessor)
 	})
 
 	t.Run("does not infer get prefix for args", func(t *testing.T) {
@@ -822,7 +822,7 @@ func TestPlannerPlanPropertyCallableExtraArgs(t *testing.T) {
 			Name: "ContextualCallableContainer",
 			Struct: &config.Struct{Properties: []config.Property{{
 				Name:     "Value",
-				Callable: contextualCallable(config.PropertyCallableArg{Source: "ValuePresent"}),
+				Callable: contextualCallable(config.PropertyCallableContextArg{Source: "ValuePresent"}),
 			}}},
 		})
 
@@ -834,11 +834,11 @@ func TestPlannerPlanPropertyCallableExtraArgs(t *testing.T) {
 			Name: "ContextualCallableContainer",
 			Struct: &config.Struct{Properties: []config.Property{{
 				Name:     "Value",
-				Callable: contextualCallable(config.PropertyCallableArg{Source: "HasValueError"}),
+				Callable: contextualCallable(config.PropertyCallableContextArg{Source: "HasValueError"}),
 			}}},
 		})
 
-		assertFatalDiagnosticMessages(t, root.Diagnostics, `source callable argument "HasValueError" returns an error; extra argument accessors must return exactly one value`)
+		assertFatalDiagnosticMessages(t, root.Diagnostics, `source callable context argument "HasValueError" returns an error; context argument accessors must return exactly one value`)
 	})
 
 	t.Run("rejects incompatible arg types", func(t *testing.T) {
@@ -846,38 +846,38 @@ func TestPlannerPlanPropertyCallableExtraArgs(t *testing.T) {
 			Name: "ContextualCallableContainer",
 			Struct: &config.Struct{Properties: []config.Property{{
 				Name: "Value",
-				Callable: &config.PropertyCallable{Forward: &config.PropertyCallableInvocation{
+				Callable: &config.DirectionalPropertyCallables{Forward: &config.PropertyCallableInvocation{
 					Ref: spec.CallableRef{
 						ImportPath: plannerFromPackage,
 						Name:       "StringToContextualIntWithStringPresence",
 					},
-					Args: []config.PropertyCallableArg{{Source: "Present"}},
+					Args: []config.PropertyCallableContextArg{{Source: "Present"}},
 				}},
 			}}},
 		})
 
-		assertFatalDiagnosticMessages(t, root.Diagnostics, `cannot map string to github.com/seeruk/morph/testdata/planner/to.Contextual[int]: configured property callable "github.com/seeruk/morph/testdata/planner/from.StringToContextualIntWithStringPresence" is not compatible; expected callable to accept string, 1 extra source argument(s), optional mapper function arguments, and return github.com/seeruk/morph/testdata/planner/to.Contextual[int]`)
+		assertFatalDiagnosticMessages(t, root.Diagnostics, `cannot map string to github.com/seeruk/morph/testdata/planner/to.Contextual[int]: configured property callable "github.com/seeruk/morph/testdata/planner/from.StringToContextualIntWithStringPresence" is not compatible; expected callable to accept string, 1 context source argument(s), optional mapper function arguments, and return github.com/seeruk/morph/testdata/planner/to.Contextual[int]`)
 	})
 
-	t.Run("plans higher order callables after extra args", func(t *testing.T) {
+	t.Run("plans higher order callables after context args", func(t *testing.T) {
 		root := planPlannerRoot(t, config.Type{
 			Name: "ContextualHigherOrderContainer",
 			Struct: &config.Struct{Properties: []config.Property{{
 				Name: "Maybe",
-				Callable: &config.PropertyCallable{Forward: &config.PropertyCallableInvocation{
+				Callable: &config.DirectionalPropertyCallables{Forward: &config.PropertyCallableInvocation{
 					Ref: spec.CallableRef{
 						ImportPath: plannerFromPackage,
 						Name:       "MapOptionalContext",
 					},
-					Args: []config.PropertyCallableArg{{Source: "Present"}},
+					Args: []config.PropertyCallableContextArg{{Source: "Present"}},
 				}},
 			}}},
 		})
 
 		maybe := requirePlanProperty(t, root.StructPlan, "Maybe")
-		require.Len(t, maybe.Mapping.CallableExtraArgs, 1)
-		require.Len(t, maybe.Mapping.CallableArgs, 1)
-		assert.Equal(t, plan.OperationStruct, maybe.Mapping.CallableArgs[0].Mapping.Operation)
+		require.Len(t, maybe.Mapping.CallableContextArgs, 1)
+		require.Len(t, maybe.Mapping.CallableMapperArgs, 1)
+		assert.Equal(t, plan.OperationStruct, maybe.Mapping.CallableMapperArgs[0].Mapping.Operation)
 	})
 }
 
@@ -889,7 +889,7 @@ func TestPlannerPlanOutputScopedVariants(t *testing.T) {
 				Target: "github.com/seeruk/morph/lab/planner/to",
 				Types: []config.Type{{
 					Name: "Single",
-					Mappers: &config.MappersDefaults{
+					Mappers: &config.DirectionalMapperDefaults{
 						Forward: &config.MapperDefaults{Name: new("MapSingleInMapping")},
 					},
 				}},
@@ -900,7 +900,7 @@ func TestPlannerPlanOutputScopedVariants(t *testing.T) {
 				Output: config.Output{Strategy: new(spec.OutputStrategySourcePackage)},
 				Types: []config.Type{{
 					Name: "Single",
-					Mappers: &config.MappersDefaults{
+					Mappers: &config.DirectionalMapperDefaults{
 						Forward: &config.MapperDefaults{Name: new("MapSingleInSource")},
 					},
 				}},
@@ -961,7 +961,7 @@ func TestPlannerPlanPackageOwnedNestedStructsInSameOutputPackage(t *testing.T) {
 				Output: config.Output{Filename: "a.morph.go"},
 				Types: []config.Type{{
 					Name: "Container",
-					Mappers: &config.MappersDefaults{
+					Mappers: &config.DirectionalMapperDefaults{
 						Forward: &config.MapperDefaults{Name: new("MapContainerA")},
 					},
 				}},
@@ -972,7 +972,7 @@ func TestPlannerPlanPackageOwnedNestedStructsInSameOutputPackage(t *testing.T) {
 				Output: config.Output{Filename: "b.morph.go"},
 				Types: []config.Type{{
 					Name: "Container",
-					Mappers: &config.MappersDefaults{
+					Mappers: &config.DirectionalMapperDefaults{
 						Forward: &config.MapperDefaults{Name: new("MapContainerB")},
 					},
 				}},
@@ -1010,13 +1010,13 @@ func TestPlannerPlanPackageOwnedNestedStructsSeparateOutputPackages(t *testing.T
 				Types: []config.Type{
 					{
 						Name: "Node",
-						Mappers: &config.MappersDefaults{
+						Mappers: &config.DirectionalMapperDefaults{
 							Forward: &config.MapperDefaults{Name: new("MapNodeA")},
 						},
 					},
 					{
 						Name: "NodeBoxContainer",
-						Mappers: &config.MappersDefaults{
+						Mappers: &config.DirectionalMapperDefaults{
 							Forward: &config.MapperDefaults{Name: new("MapNodeBoxContainerA")},
 						},
 					},
@@ -1029,13 +1029,13 @@ func TestPlannerPlanPackageOwnedNestedStructsSeparateOutputPackages(t *testing.T
 				Types: []config.Type{
 					{
 						Name: "Node",
-						Mappers: &config.MappersDefaults{
+						Mappers: &config.DirectionalMapperDefaults{
 							Forward: &config.MapperDefaults{Name: new("MapNodeB")},
 						},
 					},
 					{
 						Name: "NodeBoxContainer",
-						Mappers: &config.MappersDefaults{
+						Mappers: &config.DirectionalMapperDefaults{
 							Forward: &config.MapperDefaults{Name: new("MapNodeBoxContainerB")},
 						},
 					},
@@ -1420,8 +1420,8 @@ func TestPlannerPlanHigherOrderGenericFunction(t *testing.T) {
 
 	maybe := requirePlanProperty(t, root.StructPlan, "Maybe")
 	require.NotNil(t, maybe.Mapping.Callable)
-	require.Len(t, maybe.Mapping.CallableArgs, 1)
-	arg := maybe.Mapping.CallableArgs[0]
+	require.Len(t, maybe.Mapping.CallableMapperArgs, 1)
+	arg := maybe.Mapping.CallableMapperArgs[0]
 	require.NotNil(t, arg.Mapping.Plan)
 	require.NotNil(t, arg.Mapping.Plan.StructPlan)
 
@@ -1495,8 +1495,8 @@ func TestPlannerPlanHigherOrderExplicitCallable(t *testing.T) {
 
 	require.NotNil(t, maybe.Mapping.Callable)
 	assert.Equal(t, "MapOptional", maybe.Mapping.Callable.Name)
-	require.Len(t, maybe.Mapping.CallableArgs, 1)
-	assert.Equal(t, plan.OperationStruct, maybe.Mapping.CallableArgs[0].Mapping.Operation)
+	require.Len(t, maybe.Mapping.CallableMapperArgs, 1)
+	assert.Equal(t, plan.OperationStruct, maybe.Mapping.CallableMapperArgs[0].Mapping.Operation)
 }
 
 func TestPlannerPlanHigherOrderGenericFunctionWithErrors(t *testing.T) {
@@ -1523,8 +1523,8 @@ func TestPlannerPlanHigherOrderGenericFunctionWithErrors(t *testing.T) {
 
 	maybe := requirePlanProperty(t, root.StructPlan, "Maybe")
 	require.NotNil(t, maybe.Mapping.Callable)
-	require.Len(t, maybe.Mapping.CallableArgs, 1)
-	arg := maybe.Mapping.CallableArgs[0]
+	require.Len(t, maybe.Mapping.CallableMapperArgs, 1)
+	arg := maybe.Mapping.CallableMapperArgs[0]
 	require.NotNil(t, arg.Mapping.Callable)
 
 	t.Run("propagates errors to the root and property mapping", func(t *testing.T) {
@@ -1571,13 +1571,13 @@ func TestPlannerPlanHigherOrderGenericFunctionWithMultipleTypeArgs(t *testing.T)
 
 	result := requirePlanProperty(t, root.StructPlan, "Result")
 	require.NotNil(t, result.Mapping.Callable)
-	require.Len(t, result.Mapping.CallableArgs, 2)
+	require.Len(t, result.Mapping.CallableMapperArgs, 2)
 
-	leftArg := result.Mapping.CallableArgs[0]
+	leftArg := result.Mapping.CallableMapperArgs[0]
 	require.NotNil(t, leftArg.Mapping.Plan)
 	require.NotNil(t, leftArg.Mapping.Plan.StructPlan)
 
-	rightArg := result.Mapping.CallableArgs[1]
+	rightArg := result.Mapping.CallableMapperArgs[1]
 	require.NotNil(t, rightArg.Mapping.Plan)
 	require.NotNil(t, rightArg.Mapping.Plan.StructPlan)
 
@@ -1712,12 +1712,12 @@ func requireValueElem(t *testing.T, value plan.Value) *plan.Value {
 	return value.Elem
 }
 
-func requireCallableArg(t *testing.T, value plan.Value, index int) plan.CallableArg {
+func requireCallableMapperArg(t *testing.T, value plan.Value, index int) plan.CallableMapperArg {
 	t.Helper()
 
 	require.NotNil(t, value.Callable)
-	require.Greater(t, len(value.CallableArgs), index)
-	return value.CallableArgs[index]
+	require.Greater(t, len(value.CallableMapperArgs), index)
+	return value.CallableMapperArgs[index]
 }
 
 func pointerErrorOptionalityDefaults() *config.OptionalityDefaults {
