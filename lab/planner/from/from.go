@@ -23,6 +23,10 @@ type Recipe struct {
 	Servings int32
 }
 
+func (r Recipe) NotAProperty() bool {
+	return true
+}
+
 type Either[L, R any] struct {
 	Left  L
 	Right R

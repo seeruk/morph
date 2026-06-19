@@ -7,16 +7,6 @@ import (
 	"github.com/seeruk/morph/runtime/value"
 )
 
-func MapFromMonsterToToMonster(source from.Monster) to.Monster {
-	var target to.Monster
-	return target
-}
-
-func MapToMonsterFromFromMonster(source to.Monster) from.Monster {
-	var target from.Monster
-	return target
-}
-
 func MapFromRecipeToToRecipe(source *from.Recipe) to.Recipe {
 	if source == nil {
 		return to.Recipe{}

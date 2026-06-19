@@ -68,6 +68,24 @@ packages:
   output:
     strategy: source_package
   types:
+  - name: Recipe
+    mappers:
+      forward:
+        name: ToTo
+        kind: method
+        signature:
+          accepts: pointer
+    struct:
+      properties:
+      - source: RecipeId
+        target: ID
+        accessors:
+          forward:
+            read: RecipeId
+            write: SetID
+      omit:
+        target:
+        - Glorp
   - name: Single
   - name: Explicit
     struct:

@@ -186,6 +186,9 @@ func (p *attemptPlanner) planStruct(typ *plan.Type) {
 		if _, used := usedTargetProperties[targetName]; used {
 			continue
 		}
+		if !warnForUnmappedMember(targetMembers[targetName]) {
+			continue
+		}
 		if omissions.hasTargetOmission(targetName) {
 			continue
 		}
@@ -199,6 +202,9 @@ func (p *attemptPlanner) planStruct(typ *plan.Type) {
 
 	for _, sourceName := range sortedMemberNames(sourceMembers) {
 		if _, used := usedSourceProperties[sourceName]; used {
+			continue
+		}
+		if !warnForUnmappedMember(sourceMembers[sourceName]) {
 			continue
 		}
 		if omissions.hasSourceOmission(sourceName) {
@@ -221,6 +227,10 @@ func (p *attemptPlanner) planStruct(typ *plan.Type) {
 	}
 
 	typ.StructPlan = &structPlan
+}
+
+func warnForUnmappedMember(member plan.Member) bool {
+	return member.Kind == plan.MemberKindField
 }
 
 func structMembersForType(typ *plan.Type, outputImportPath string) structMemberSets {

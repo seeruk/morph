@@ -6,6 +6,25 @@ import (
 	"github.com/seeruk/morph/runtime/value"
 )
 
+func (source *Recipe) ToTo() to.Recipe {
+	if source == nil {
+		return to.Recipe{}
+	}
+	var target to.Recipe
+	target.SetID(to.RecipeID(source.RecipeId))
+	target.Name = source.Name
+	target.Servings = int(source.Servings)
+	return target
+}
+
+func MapToRecipeFromFromRecipe(source to.Recipe) Recipe {
+	var target Recipe
+	target.RecipeId = string(source.ID)
+	target.Name = source.Name
+	target.Servings = int32(source.Servings)
+	return target
+}
+
 func MapFromSingleToToSingle(source Single) to.Single {
 	var target to.Single
 	mapValue := func(source string) to.Stringy {

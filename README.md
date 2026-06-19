@@ -499,6 +499,10 @@ Morph will try to match logical struct properties by name, including case-insens
 property is usually backed by a Go field, but can also be backed by getter and setter methods. If
 property names don't match clearly, you can map them explicitly:
 
+When `inferMethods` is enabled, Morph can use getter and setter-shaped methods as mapping
+candidates, but unused inferred methods do not produce unmapped-property warnings. Coverage
+warnings are reserved for field-backed properties.
+
 ```yaml
 packages:
 - source: example.com/foodplanner/foodpb

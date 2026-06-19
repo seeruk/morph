@@ -354,7 +354,7 @@
       "properties": {
         "inferMethods": {
           "type": "boolean",
-          "description": "Whether Morph may infer getter and setter method accessors for struct properties.",
+          "description": "Whether Morph may infer getter and setter method accessors for struct properties. Inferred methods can be used as mapping candidates, but unused inferred methods do not produce unmapped-property warnings.",
           "default": true
         },
         "properties": {

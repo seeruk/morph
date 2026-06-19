@@ -633,14 +633,15 @@ func TestPlannerPlanStructMethodAccessors(t *testing.T) {
 		assert.Equal(t, plan.OperationAssign, name.Mapping.Operation)
 	})
 
-	t.Run("does not infer method-to-method mappings without a target setter", func(t *testing.T) {
+	t.Run("does not infer method-to-method mappings without a target setter or coverage warnings", func(t *testing.T) {
 		root := planPlannerRoot(t, config.Type{Name: "ReadMethodOnlyContainer"})
 
 		require.NotNil(t, root.StructPlan)
 		assert.False(t, plan.HasFatalDiagnostics(root.Diagnostics))
 		assert.Contains(t, planPropertyTargetNames(root.StructPlan), "Kept")
 		assert.NotContains(t, planPropertyTargetNames(root.StructPlan), "Name")
-		assert.Contains(t, diagnosticsMessages(root.Diagnostics), `no target property found for source property "Name"; configure struct.properties to map it explicitly or struct.omit.source to omit it`)
+		assert.NotContains(t, diagnosticsMessages(root.Diagnostics), `no target property found for source property "Name"; configure struct.properties to map it explicitly or struct.omit.source to omit it`)
+		assert.NotContains(t, diagnosticsMessages(root.Diagnostics), `no source property found for target property "Name"; configure struct.properties to map it explicitly or struct.omit.target to omit it`)
 	})
 
 	t.Run("requires configured properties for accessor-only mappings", func(t *testing.T) {
