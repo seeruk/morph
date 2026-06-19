@@ -39,6 +39,7 @@ var defaultTypesDefaults = TypesDefaults{
 	Optionality: &OptionalityDefaults{
 		OnNilSourcePointer: new(spec.PointerOptionalityZero),
 		OnZeroSourceValue:  new(spec.ValueOptionalityNil),
+		UseIsZeroMethod:    new(true),
 	},
 	Conversions: &ConversionsDefaults{
 		Enabled: new(true),
@@ -706,6 +707,7 @@ func mergeOptionalityDefaults(
 	return &OptionalityDefaults{
 		OnNilSourcePointer: cmp.Or(overrides.OnNilSourcePointer, fallback.OnNilSourcePointer),
 		OnZeroSourceValue:  cmp.Or(overrides.OnZeroSourceValue, fallback.OnZeroSourceValue),
+		UseIsZeroMethod:    cmp.Or(overrides.UseIsZeroMethod, fallback.UseIsZeroMethod),
 	}
 }
 
@@ -719,6 +721,9 @@ func optionalityFromOverrides(overrides *OptionalityDefaults, fallback spec.Opti
 	if overrides.OnZeroSourceValue != nil {
 		fallback.OnZeroSourceValue = *overrides.OnZeroSourceValue
 	}
+	if overrides.UseIsZeroMethod != nil {
+		fallback.UseIsZeroMethod = *overrides.UseIsZeroMethod
+	}
 	return fallback
 }
 
@@ -730,6 +735,7 @@ func defaultOptionality() spec.Optionality {
 	return spec.Optionality{
 		OnNilSourcePointer: spec.PointerOptionalityZero,
 		OnZeroSourceValue:  spec.ValueOptionalityNil,
+		UseIsZeroMethod:    true,
 	}
 }
 

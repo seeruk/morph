@@ -13,6 +13,7 @@ func defaultOptionality() spec.Optionality {
 	return spec.Optionality{
 		OnNilSourcePointer: spec.PointerOptionalityZero,
 		OnZeroSourceValue:  spec.ValueOptionalityNil,
+		UseIsZeroMethod:    true,
 	}
 }
 

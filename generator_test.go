@@ -114,6 +114,38 @@ func TestGeneratorGenerate(t *testing.T) {
 		golden.Assert(t, "comparable_struct_zero_check", files[0].Source)
 	})
 
+	t.Run("generates IsZero method zero checks for comparable values", func(t *testing.T) {
+		files, err := NewGenerator().Generate(generatorPlan(generatorIsZeroComparableRoot()))
+
+		require.NoError(t, err)
+		require.Len(t, files, 1)
+		golden.Assert(t, "is_zero_comparable_zero_check", files[0].Source)
+	})
+
+	t.Run("generates IsZero method zero checks for non-comparable values", func(t *testing.T) {
+		files, err := NewGenerator().Generate(generatorPlan(generatorIsZeroNonComparableRoot()))
+
+		require.NoError(t, err)
+		require.Len(t, files, 1)
+		golden.Assert(t, "is_zero_non_comparable_zero_check", files[0].Source)
+	})
+
+	t.Run("falls back when IsZero method zero checks are disabled", func(t *testing.T) {
+		files, err := NewGenerator().Generate(generatorPlan(generatorDisabledIsZeroRoot()))
+
+		require.NoError(t, err)
+		require.Len(t, files, 1)
+		golden.Assert(t, "disabled_is_zero_zero_check", files[0].Source)
+	})
+
+	t.Run("falls back for invalid IsZero method signatures", func(t *testing.T) {
+		files, err := NewGenerator().Generate(generatorPlan(generatorInvalidIsZeroRoot()))
+
+		require.NoError(t, err)
+		require.Len(t, files, 1)
+		golden.Assert(t, "invalid_is_zero_zero_check", files[0].Source)
+	})
+
 	t.Run("generates multiple output groups", func(t *testing.T) {
 		files, err := NewGenerator().Generate(Plan{OutputGroups: []plan.OutputGroup{
 			{
@@ -797,6 +829,102 @@ func generatorComparableZeroRoot() *plan.Type {
 	return root
 }
 
+func generatorIsZeroComparableRoot() *plan.Type {
+	valueType := generatorTypeWithIsZero(generatorNamedComparableStructType("module.test/from", "ComparableWithIsZero"))
+	sourceDecl := generatorStructDecl("module.test/from", "IsZeroComparableSource", map[string]types.Field{
+		"Value": generatorField("Value", valueType),
+	})
+	targetDecl := generatorStructDecl("module.test/to", "IsZeroComparableTarget", map[string]types.Field{
+		"Value": generatorField("Value", pointerTestType(valueType)),
+	})
+
+	root := generatorRoot("MapIsZeroComparable", sourceDecl, targetDecl)
+	root.StructPlan = &plan.Struct{Properties: []plan.Property{
+		generatorPlanField(sourceDecl, targetDecl, "Value", plan.Value{
+			Operation:         plan.OperationAssign,
+			Source:            valueType,
+			Target:            pointerTestType(valueType),
+			TargetAdaptations: []plan.ValueAdaptation{plan.ValueAdaptationAddress},
+			Optionality:       defaultOptionality(),
+		}),
+	}}
+	return root
+}
+
+func generatorIsZeroNonComparableRoot() *plan.Type {
+	valueType := generatorTypeWithIsZero(generatorNamedSliceStructType("module.test/from", "NonComparableWithIsZero"))
+	sourceDecl := generatorStructDecl("module.test/from", "IsZeroNonComparableSource", map[string]types.Field{
+		"Value": generatorField("Value", valueType),
+	})
+	targetDecl := generatorStructDecl("module.test/to", "IsZeroNonComparableTarget", map[string]types.Field{
+		"Value": generatorField("Value", pointerTestType(valueType)),
+	})
+
+	root := generatorRoot("MapIsZeroNonComparable", sourceDecl, targetDecl)
+	root.StructPlan = &plan.Struct{Properties: []plan.Property{
+		generatorPlanField(sourceDecl, targetDecl, "Value", plan.Value{
+			Operation:         plan.OperationAssign,
+			Source:            valueType,
+			Target:            pointerTestType(valueType),
+			TargetAdaptations: []plan.ValueAdaptation{plan.ValueAdaptationAddress},
+			Optionality:       defaultOptionality(),
+		}),
+	}}
+	return root
+}
+
+func generatorDisabledIsZeroRoot() *plan.Type {
+	valueType := generatorTypeWithIsZero(generatorNamedComparableStructType("module.test/from", "DisabledIsZero"))
+	sourceDecl := generatorStructDecl("module.test/from", "DisabledIsZeroSource", map[string]types.Field{
+		"Value": generatorField("Value", valueType),
+	})
+	targetDecl := generatorStructDecl("module.test/to", "DisabledIsZeroTarget", map[string]types.Field{
+		"Value": generatorField("Value", pointerTestType(valueType)),
+	})
+	optionality := defaultOptionality()
+	optionality.UseIsZeroMethod = false
+
+	root := generatorRoot("MapDisabledIsZero", sourceDecl, targetDecl)
+	root.StructPlan = &plan.Struct{Properties: []plan.Property{
+		generatorPlanField(sourceDecl, targetDecl, "Value", plan.Value{
+			Operation:         plan.OperationAssign,
+			Source:            valueType,
+			Target:            pointerTestType(valueType),
+			TargetAdaptations: []plan.ValueAdaptation{plan.ValueAdaptationAddress},
+			Optionality:       optionality,
+		}),
+	}}
+	return root
+}
+
+func generatorInvalidIsZeroRoot() *plan.Type {
+	valueType := generatorNamedComparableStructType("module.test/from", "InvalidIsZero")
+	valueType.Methods = map[string]types.Method{
+		"IsZero": {
+			Name:    "IsZero",
+			Results: []types.Parameter{{Type: basicTestType("int")}},
+		},
+	}
+	sourceDecl := generatorStructDecl("module.test/from", "InvalidIsZeroSource", map[string]types.Field{
+		"Value": generatorField("Value", valueType),
+	})
+	targetDecl := generatorStructDecl("module.test/to", "InvalidIsZeroTarget", map[string]types.Field{
+		"Value": generatorField("Value", pointerTestType(valueType)),
+	})
+
+	root := generatorRoot("MapInvalidIsZero", sourceDecl, targetDecl)
+	root.StructPlan = &plan.Struct{Properties: []plan.Property{
+		generatorPlanField(sourceDecl, targetDecl, "Value", plan.Value{
+			Operation:         plan.OperationAssign,
+			Source:            valueType,
+			Target:            pointerTestType(valueType),
+			TargetAdaptations: []plan.ValueAdaptation{plan.ValueAdaptationAddress},
+			Optionality:       defaultOptionality(),
+		}),
+	}}
+	return root
+}
+
 func generatorRoot(functionName string, sourceDecl, targetDecl types.TypeDecl) *plan.Type {
 	return &plan.Type{
 		Source:       plan.TypeRefFromTypeDecl(sourceDecl),
@@ -941,6 +1069,16 @@ func generatorNamedComparableStructType(importPath, name string) types.Type {
 			"Age":  generatorField("Age", basicTestType("int")),
 		},
 		String: "struct{ Name string; Age int }",
+	}
+	return typ
+}
+
+func generatorTypeWithIsZero(typ types.Type) types.Type {
+	typ.Methods = map[string]types.Method{
+		"IsZero": {
+			Name:    "IsZero",
+			Results: []types.Parameter{{Type: basicTestType("bool")}},
+		},
 	}
 	return typ
 }

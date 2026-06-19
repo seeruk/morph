@@ -454,7 +454,7 @@ func (g *fileGenerator) renderTargetAdaptations(scope *renderScope, source strin
 			target := scope.Names.Next(name.Base("mapped"))
 			if value.Optionality.OnZeroSourceValue == spec.ValueOptionalityNil {
 				g.writer.Line("var %s %s", target, renderType(g.imports, targetType))
-				g.writer.Line("if %s {", renderNonZeroCheck(g.imports, targetValue, exprType))
+				g.writer.Line("if %s {", renderNonZeroCheck(g.imports, targetValue, exprType, value.Optionality))
 				g.writer.Indent(func() {
 					g.writer.Line("%s = &%s", target, targetValue)
 				})
@@ -1115,9 +1115,12 @@ func derefPointerType(typ types.Type) types.Type {
 	return typ
 }
 
-func renderNonZeroCheck(imports *importNamer, expr string, typ types.Type) string {
-	typ = types.UnwrapAlias(typ)
+func renderNonZeroCheck(imports *importNamer, expr string, typ types.Type, optionality spec.Optionality) string {
+	if optionality.UseIsZeroMethod && hasUsableIsZeroMethod(typ) {
+		return renderIsZeroMethodNonZeroCheck(expr, typ)
+	}
 
+	typ = types.UnwrapAlias(typ)
 	switch typ.Kind {
 	case types.TypeKindBasic:
 		return renderBasicNonZeroCheck(expr, typ.Name)
@@ -1133,6 +1136,58 @@ func renderNonZeroCheck(imports *importNamer, expr string, typ types.Type) strin
 	}
 
 	return renderIncomparableNonZeroCheck(imports, expr)
+}
+
+func renderIsZeroMethodNonZeroCheck(expr string, typ types.Type) string {
+	if canCompareNil(typ) {
+		return expr + " != nil && !" + expr + ".IsZero()"
+	}
+	return "!" + expr + ".IsZero()"
+}
+
+func hasUsableIsZeroMethod(typ types.Type) bool {
+	method, ok := isZeroMethod(typ)
+	return ok && len(method.TypeParams) == 0 &&
+		!method.IsVariadic &&
+		len(method.Params) == 0 &&
+		len(method.Results) == 1 &&
+		isBoolType(method.Results[0].Type)
+}
+
+func isZeroMethod(typ types.Type) (types.Method, bool) {
+	typ = types.UnwrapAlias(typ)
+	if typ.Kind == types.TypeKindPointer && typ.Elem != nil {
+		typ = types.UnwrapAlias(*typ.Elem)
+	}
+	switch typ.Kind {
+	case types.TypeKindNamed, types.TypeKindInterface:
+		method, ok := typ.Methods["IsZero"]
+		return method, ok
+	default:
+		return types.Method{}, false
+	}
+}
+
+func isBoolType(typ types.Type) bool {
+	typ = types.UnwrapAlias(typ)
+	return typ.Kind == types.TypeKindBasic && typ.Name == "bool"
+}
+
+func canCompareNil(typ types.Type) bool {
+	typ = types.UnwrapAlias(typ)
+	if typ.Kind == types.TypeKindNamed {
+		if typ.Elem == nil {
+			return false
+		}
+		typ = types.UnwrapAlias(*typ.Elem)
+	}
+	switch typ.Kind {
+	case types.TypeKindPointer, types.TypeKindSlice, types.TypeKindMap,
+		types.TypeKindSignature, types.TypeKindInterface, types.TypeKindChan:
+		return true
+	default:
+		return false
+	}
 }
 
 func renderBasicNonZeroCheck(expr, name string) string {

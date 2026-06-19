@@ -78,6 +78,7 @@ func TestPlannerPlanStructPropertiesFromConfig(t *testing.T) {
 	})
 
 	t.Run("applies property optionality overrides", func(t *testing.T) {
+		optionality := pointerErrorOptionalityDefaults()
 		out := planWithConfig(t, ".", config.Config{
 			Packages: []config.Package{{
 				Source: plannerFromPackage,
@@ -85,7 +86,11 @@ func TestPlannerPlanStructPropertiesFromConfig(t *testing.T) {
 				Types: []config.Type{{
 					Name: "Node",
 					Struct: &config.Struct{Properties: []config.Property{
-						{Name: "Required", Optionality: pointerErrorOptionalityDefaults()},
+						{Name: "Required", Optionality: &config.OptionalityDefaults{
+							OnNilSourcePointer: optionality.OnNilSourcePointer,
+							OnZeroSourceValue:  optionality.OnZeroSourceValue,
+							UseIsZeroMethod:    new(false),
+						}},
 					}},
 				}},
 			}},
@@ -96,6 +101,7 @@ func TestPlannerPlanStructPropertiesFromConfig(t *testing.T) {
 
 		assert.True(t, root.CanError)
 		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationDeref}, required.Mapping.SourceAdaptations)
+		assert.False(t, required.Mapping.Optionality.UseIsZeroMethod)
 		assert.True(t, required.Mapping.CanError)
 	})
 }

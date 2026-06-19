@@ -584,6 +584,11 @@
         "onZeroSourceValue": {
           "$ref": "#/$defs/valueOptionality",
           "description": "Behavior when a source value maps to a target pointer."
+        },
+        "useIsZeroMethod": {
+          "type": "boolean",
+          "description": "Whether generated zero checks should prefer an IsZero() bool method when present.",
+          "default": true
         }
       }
     },

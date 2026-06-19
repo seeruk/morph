@@ -242,6 +242,7 @@ func (k ParameterKind) String() string {
 type Optionality struct {
 	OnNilSourcePointer PointerOptionality
 	OnZeroSourceValue  ValueOptionality
+	UseIsZeroMethod    bool
 }
 
 type PointerOptionality uint

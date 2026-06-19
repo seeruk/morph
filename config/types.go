@@ -65,6 +65,7 @@ type MapperSignatureDefaults struct {
 type OptionalityDefaults struct {
 	OnNilSourcePointer *spec.PointerOptionality `json:"onNilSourcePointer"`
 	OnZeroSourceValue  *spec.ValueOptionality   `json:"onZeroSourceValue"`
+	UseIsZeroMethod    *bool                    `json:"useIsZeroMethod"`
 }
 
 // ConversionsDefaults configures scoped conversion policy defaults.

@@ -12,6 +12,7 @@ defaults:
       optionality:
         onNilSourcePointer: zero # or error
         onZeroSourceValue: address # or nil
+        useIsZeroMethod: true # Prefer IsZero() bool over generated zero checks
     output:
       strategy: target_package    # Or source_package, or single_package
       path: internal/mapping      # Only relevant for single_package strategy
@@ -93,3 +94,4 @@ presets:
     optionality:
       onNilSourcePointer: zero
       onZeroSourceValue: address
+      useIsZeroMethod: true

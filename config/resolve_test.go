@@ -17,6 +17,7 @@ func TestResolve_DefaultPrecedence(t *testing.T) {
 		assert.Equal(t, "DefaultForward", got.Defaults.Types.Mappers.Forward.Name)
 		assert.Equal(t, spec.PointerOptionalityError, got.Defaults.Types.Optionality.OnNilSourcePointer)
 		assert.Equal(t, spec.ValueOptionalityNil, got.Defaults.Types.Optionality.OnZeroSourceValue)
+		assert.False(t, got.Defaults.Types.Optionality.UseIsZeroMethod)
 	})
 
 	t.Run("uses package output over top-level output", func(t *testing.T) {
@@ -56,6 +57,7 @@ func TestResolve_DefaultPrecedence(t *testing.T) {
 
 		assert.Equal(t, spec.PointerOptionalityZero, typ.Optionality.OnNilSourcePointer)
 		assert.Equal(t, spec.ValueOptionalityAddress, typ.Optionality.OnZeroSourceValue)
+		assert.False(t, typ.Optionality.UseIsZeroMethod)
 	})
 
 	t.Run("resolves property optionality from type defaults and property overrides", func(t *testing.T) {
@@ -68,6 +70,7 @@ func TestResolve_DefaultPrecedence(t *testing.T) {
 			Optionality: spec.Optionality{
 				OnNilSourcePointer: spec.PointerOptionalityError,
 				OnZeroSourceValue:  spec.ValueOptionalityAddress,
+				UseIsZeroMethod:    true,
 			},
 			Conversions: spec.ConversionsPolicy{
 				Enabled: true,
@@ -327,6 +330,18 @@ func TestResolve_DefaultOptionalityUsesNilForZeroSourceValues(t *testing.T) {
 
 		assert.Equal(t, spec.ValueOptionalityNil, typ.Optionality.OnZeroSourceValue)
 	})
+
+	t.Run("resolved defaults use IsZero methods", func(t *testing.T) {
+		got := resolveConfig(t, minimalConfig())
+
+		assert.True(t, got.Defaults.Types.Optionality.UseIsZeroMethod)
+	})
+
+	t.Run("resolved explicit type optionality uses IsZero methods", func(t *testing.T) {
+		typ := singleResolvedType(t, minimalConfig())
+
+		assert.True(t, typ.Optionality.UseIsZeroMethod)
+	})
 }
 
 func TestResolve_Conversions(t *testing.T) {
@@ -467,6 +482,20 @@ func TestResolve_Presets(t *testing.T) {
 		typ := singleResolvedType(t, presetConfig())
 
 		assert.Equal(t, "MapDB", typ.Mapper.Name)
+	})
+
+	t.Run("type preset overrides package preset optionality", func(t *testing.T) {
+		cfg := minimalConfig()
+		cfg.Presets = map[string]config.Preset{
+			"package": {Optionality: &config.OptionalityDefaults{UseIsZeroMethod: new(false)}},
+			"type":    {Optionality: &config.OptionalityDefaults{UseIsZeroMethod: new(true)}},
+		}
+		cfg.Packages[0].Preset = "package"
+		cfg.Packages[0].Types[0].Preset = "type"
+
+		typ := singleResolvedType(t, cfg)
+
+		assert.True(t, typ.Optionality.UseIsZeroMethod)
 	})
 
 	t.Run("name expands to matching source and target type names", func(t *testing.T) {
@@ -695,6 +724,7 @@ func precedenceConfig() config.Config {
 					Optionality: &config.OptionalityDefaults{
 						OnNilSourcePointer: new(spec.PointerOptionalityError),
 						OnZeroSourceValue:  new(spec.ValueOptionalityNil),
+						UseIsZeroMethod:    new(false),
 					},
 				},
 				Output: config.Output{
@@ -724,6 +754,7 @@ func precedenceConfig() config.Config {
 			},
 			Optionality: &config.OptionalityDefaults{
 				OnNilSourcePointer: new(spec.PointerOptionalityZero),
+				UseIsZeroMethod:    new(true),
 			},
 			Types: []config.Type{{
 				Source: "SourceUser",
@@ -737,6 +768,7 @@ func precedenceConfig() config.Config {
 						Target: "DisplayName",
 						Optionality: &config.OptionalityDefaults{
 							OnNilSourcePointer: new(spec.PointerOptionalityError),
+							UseIsZeroMethod:    new(true),
 						},
 					}},
 				},
@@ -750,6 +782,7 @@ func precedenceConfig() config.Config {
 				},
 				Optionality: &config.OptionalityDefaults{
 					OnZeroSourceValue: new(spec.ValueOptionalityAddress),
+					UseIsZeroMethod:   new(false),
 				},
 			}},
 		}},
