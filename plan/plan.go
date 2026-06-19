@@ -35,7 +35,9 @@ type Type struct {
 	SourceType types.Type
 	TargetType types.Type
 	// Function information
-	FunctionName string
+	FunctionName   string
+	MapperKindSpec spec.MapperKind
+	MapperKind     MapperKind
 	// Location is the output location that owns this generated mapper.
 	Location   OutputLocation
 	TypeParams []types.TypeParam
@@ -53,6 +55,14 @@ type Type struct {
 	// Debugging information
 	Diagnostics []Diagnostic
 }
+
+// MapperKind describes the concrete declaration kind chosen by the planner.
+type MapperKind string
+
+const (
+	MapperKindFunction MapperKind = "function"
+	MapperKindMethod   MapperKind = "method"
+)
 
 type Enum struct {
 	FailureMode   spec.EnumFailureMode

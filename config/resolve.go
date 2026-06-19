@@ -630,6 +630,7 @@ func mergeMapperDefaults(overrides *MapperDefaults, fallback *MapperDefaults) *M
 	overrides = cmp.Or(overrides, new(MapperDefaults))
 	fallback = cmp.Or(fallback, new(MapperDefaults))
 	return &MapperDefaults{
+		Kind:      cmp.Or(overrides.Kind, fallback.Kind),
 		Name:      cmp.Or(overrides.Name, fallback.Name),
 		Signature: mergeMapperSignatureDefaults(overrides.Signature, fallback.Signature),
 	}
@@ -666,6 +667,7 @@ func mapperDefaults(mappers *DirectionalMapperDefaults, forward bool) *MapperDef
 
 func defaultMapper(name string) spec.Mapper {
 	return spec.Mapper{
+		Kind:      spec.MapperKindFunction,
 		Name:      name,
 		Signature: defaultMapperSignature,
 	}
@@ -677,6 +679,9 @@ func resolveMapper(mapper *MapperDefaults, fallback spec.Mapper) spec.Mapper {
 	}
 	if mapper.Name != nil {
 		fallback.Name = *mapper.Name
+	}
+	if mapper.Kind != nil {
+		fallback.Kind = *mapper.Kind
 	}
 	fallback.Signature = resolveMapperSignature(mapper.Signature, fallback.Signature)
 	return fallback

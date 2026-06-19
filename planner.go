@@ -127,6 +127,8 @@ type attemptPlanner struct {
 	// generatedFunctionsByCallable reserves all function names Morph plans to generate within
 	// their output package, including roots and nested helpers.
 	generatedFunctionsByCallable map[spec.CallableRef]string
+	// generatedMethodsByReceiver reserves all method names Morph plans to generate per receiver.
+	generatedMethodsByReceiver map[generatedMethodRef]string
 	// callableBans contains callable selections that were invalidated by final errorability
 	// checks and should be skipped by later planning attempts.
 	callableBans map[callableBan]struct{}
@@ -172,6 +174,7 @@ func newAttemptPlanner(
 		rootVariantsByTypePair:       make(map[string][]*rootVariant),
 		rootVariantsByCallable:       make(map[spec.CallableRef]*rootVariant),
 		generatedFunctionsByCallable: make(map[spec.CallableRef]string),
+		generatedMethodsByReceiver:   make(map[generatedMethodRef]string),
 		mappings:                     make(map[string]*plan.Type),
 		nestedMappersByPackage:       make(map[string]map[string]*plan.Type),
 		plannedOutputFiles:           make(map[string]struct{}),
@@ -540,25 +543,86 @@ func (p *attemptPlanner) shallowRootPlan(
 	}
 
 	root := &plan.Type{
-		Source:       plan.TypeRefFromTypeDecl(sourceDecl),
-		Target:       plan.TypeRefFromTypeDecl(targetDecl),
-		SourceDecl:   sourceDecl,
-		TargetDecl:   targetDecl,
-		SourceType:   sourceDecl.Type,
-		TargetType:   targetDecl.Type,
-		FunctionName: functionName,
-		Location:     location,
-		Signature:    typeSpec.Mapper.Signature,
-		EnumSpec:     typeSpec.Enum,
-		Callables:    typeSpec.Callables,
-		StructSpec:   typeSpec.Struct,
-		Optionality:  typeSpec.Optionality,
-		Conversions:  typeSpec.Conversions,
+		Source:         plan.TypeRefFromTypeDecl(sourceDecl),
+		Target:         plan.TypeRefFromTypeDecl(targetDecl),
+		SourceDecl:     sourceDecl,
+		TargetDecl:     targetDecl,
+		SourceType:     sourceDecl.Type,
+		TargetType:     targetDecl.Type,
+		FunctionName:   functionName,
+		MapperKindSpec: typeSpec.Mapper.Kind,
+		Location:       location,
+		Signature:      typeSpec.Mapper.Signature,
+		EnumSpec:       typeSpec.Enum,
+		Callables:      typeSpec.Callables,
+		StructSpec:     typeSpec.Struct,
+		Optionality:    typeSpec.Optionality,
+		Conversions:    typeSpec.Conversions,
 	}
 
+	kind, diagnostics := p.concreteMapperKind(location, sourceDecl, root.FunctionName, typeSpec.Mapper.Kind)
+	root.MapperKind = kind
+	root.Diagnostics = appendDiagnostic(root.Diagnostics, diagnostics...)
 	root.Diagnostics = appendDiagnostic(root.Diagnostics, validateGenericRoot(root)...)
 
 	return root, nil
+}
+
+func (p *attemptPlanner) concreteMapperKind(
+	location plan.OutputLocation,
+	sourceDecl types.TypeDecl,
+	methodName string,
+	kind spec.MapperKind,
+) (plan.MapperKind, []plan.Diagnostic) {
+	if kind == spec.MapperKindFunction {
+		return plan.MapperKindFunction, nil
+	}
+
+	diagnostic, ok := methodEligibilityDiagnostic(location, sourceDecl, methodName)
+	if ok {
+		if kind == spec.MapperKindMethod {
+			return plan.MapperKindFunction, []plan.Diagnostic{diagnostic}
+		}
+		return plan.MapperKindFunction, nil
+	}
+
+	return plan.MapperKindMethod, nil
+}
+
+func methodEligibilityDiagnostic(
+	location plan.OutputLocation,
+	sourceDecl types.TypeDecl,
+	methodName string,
+) (plan.Diagnostic, bool) {
+	message := ""
+	switch {
+	case location.ImportPath != sourceDecl.Package.ImportPath:
+		message = fmt.Sprintf(
+			"mapper kind %q requires output package %q to match source type package %q",
+			spec.MapperKindMethod.String(),
+			location.ImportPath,
+			sourceDecl.Package.ImportPath,
+		)
+	case sourceDecl.IsAlias:
+		message = fmt.Sprintf("mapper kind %q requires source type %q not to be an alias", spec.MapperKindMethod.String(), sourceDecl.Name)
+	case sourceDecl.Type.Kind != types.TypeKindNamed:
+		message = fmt.Sprintf("mapper kind %q requires source type %q to be a named type", spec.MapperKindMethod.String(), sourceDecl.Name)
+	case sourceDecl.Type.Package.ImportPath != sourceDecl.Package.ImportPath:
+		message = fmt.Sprintf("mapper kind %q requires source type %q to be declared in package %q", spec.MapperKindMethod.String(), sourceDecl.Name, sourceDecl.Package.ImportPath)
+	default:
+		method, exists := sourceDecl.Methods[methodName]
+		if exists && !method.IsInMorphFile {
+			message = fmt.Sprintf("mapper kind %q would overwrite existing method %s.%s", spec.MapperKindMethod.String(), sourceDecl.Name, methodName)
+		}
+	}
+	if message == "" {
+		return plan.Diagnostic{}, false
+	}
+	return plan.Diagnostic{
+		Level:   plan.DiagnosticLevelFatal,
+		Path:    types.TypeKey(sourceDecl.Type),
+		Message: message,
+	}, true
 }
 
 func validateGenericRoot(typ *plan.Type) []plan.Diagnostic {
@@ -599,7 +663,6 @@ func (p *attemptPlanner) addRoot(
 ) error {
 	mapperKey := plan.TypeMapperKey(root.Source, root.Target, root.Signature)
 	pairKey := plan.TypePairKey(root.Source, root.Target)
-	variantKey := rootVariantKey(location, root)
 
 	root.Location = location
 
@@ -607,23 +670,43 @@ func (p *attemptPlanner) addRoot(
 		return err
 	}
 
-	ref := spec.CallableRef{ImportPath: location.ImportPath, Name: root.FunctionName}
-	if existing, ok := p.rootVariantsByCallable[ref]; ok {
-		existingMapperKey := plan.TypeMapperKey(existing.Root.Source, existing.Root.Target, existing.Root.Signature)
-		if existing.Key != variantKey {
-			return fmt.Errorf("function name %q is planned for both %s and %s", root.FunctionName, existingMapperKey, mapperKey)
+	if root.MapperKind == plan.MapperKindMethod {
+		methodVariantKey := rootVariantKey(location, root)
+		if existing, ok := p.generatedMethod(root); ok && existing != methodVariantKey {
+			message := fmt.Sprintf("method name %q is planned for receiver %s by both %s and %s", root.FunctionName, types.TypeKey(root.SourceType), existing, methodVariantKey)
+			if root.MapperKindSpec == spec.MapperKindMethod {
+				root.Diagnostics = appendDiagnostic(root.Diagnostics, plan.Diagnostic{
+					Level:   plan.DiagnosticLevelFatal,
+					Path:    plan.TypesPath(root.SourceType, root.TargetType),
+					Message: message,
+				})
+			}
+			root.MapperKind = plan.MapperKindFunction
+		} else {
+			p.reserveGeneratedMethod(root, methodVariantKey)
 		}
-		if existing.Location != location {
-			return fmt.Errorf("function name %q is planned in multiple output files within package %q", root.FunctionName, location.ImportPath)
-		}
-		if !isSameRootPlanningConfig(existing.Root, root) {
-			return fmt.Errorf("conflicting mapper configuration for %s", mapperKey)
-		}
-		return nil
 	}
 
-	if err := p.reserveGeneratedFunction(location, root.FunctionName, variantKey); err != nil {
-		return err
+	variantKey := rootVariantKey(location, root)
+	if root.MapperKind == plan.MapperKindFunction && !plan.HasFatalDiagnostics(root.Diagnostics) {
+		ref := spec.CallableRef{ImportPath: location.ImportPath, Name: root.FunctionName}
+		if existing, ok := p.rootVariantsByCallable[ref]; ok {
+			existingMapperKey := plan.TypeMapperKey(existing.Root.Source, existing.Root.Target, existing.Root.Signature)
+			if existing.Key != variantKey {
+				return fmt.Errorf("function name %q is planned for both %s and %s", root.FunctionName, existingMapperKey, mapperKey)
+			}
+			if existing.Location != location {
+				return fmt.Errorf("function name %q is planned in multiple output files within package %q", root.FunctionName, location.ImportPath)
+			}
+			if !isSameRootPlanningConfig(existing.Root, root) {
+				return fmt.Errorf("conflicting mapper configuration for %s", mapperKey)
+			}
+			return nil
+		}
+
+		if err := p.reserveGeneratedFunction(location, root.FunctionName, variantKey); err != nil {
+			return err
+		}
 	}
 
 	variant := &rootVariant{
@@ -632,7 +715,10 @@ func (p *attemptPlanner) addRoot(
 		Root:     root,
 	}
 
-	p.rootVariantsByCallable[ref] = variant
+	if root.MapperKind == plan.MapperKindFunction && !plan.HasFatalDiagnostics(root.Diagnostics) {
+		ref := spec.CallableRef{ImportPath: location.ImportPath, Name: root.FunctionName}
+		p.rootVariantsByCallable[ref] = variant
+	}
 	p.rootVariantsByTypePair[pairKey] = append(p.rootVariantsByTypePair[pairKey], variant)
 	p.mappings[variantKey] = root
 	p.shallowMappings[variantKey] = struct{}{}
@@ -684,11 +770,37 @@ func (p *attemptPlanner) reserveGeneratedFunction(
 	return nil
 }
 
+type generatedMethodRef struct {
+	ImportPath string
+	Receiver   string
+	Name       string
+}
+
+func (p *attemptPlanner) generatedMethod(root *plan.Type) (string, bool) {
+	ref := generatedMethodRef{
+		ImportPath: root.Location.ImportPath,
+		Receiver:   types.TypeKey(root.SourceType),
+		Name:       root.FunctionName,
+	}
+	existing, ok := p.generatedMethodsByReceiver[ref]
+	return existing, ok
+}
+
+func (p *attemptPlanner) reserveGeneratedMethod(root *plan.Type, key string) {
+	ref := generatedMethodRef{
+		ImportPath: root.Location.ImportPath,
+		Receiver:   types.TypeKey(root.SourceType),
+		Name:       root.FunctionName,
+	}
+	p.generatedMethodsByReceiver[ref] = key
+}
+
 func rootVariantKey(location plan.OutputLocation, root *plan.Type) string {
 	return strings.Join([]string{
 		plan.TypeMapperKey(root.Source, root.Target, root.Signature),
 		location.ImportPath,
 		root.FunctionName,
+		string(root.MapperKind),
 	}, "|")
 }
 
@@ -728,6 +840,7 @@ func isSameRootPlanningConfig(a, b *plan.Type) bool {
 	return isSameEnumSpec(a.EnumSpec, b.EnumSpec) &&
 		isSamePrioritizedCallables(a.Callables, b.Callables) &&
 		isSameStructSpec(a.StructSpec, b.StructSpec) &&
+		a.MapperKind == b.MapperKind &&
 		a.Optionality == b.Optionality &&
 		a.Conversions == b.Conversions
 }

@@ -50,6 +50,7 @@ func TestResolve_DefaultPrecedence(t *testing.T) {
 		assert.Equal(t, "MapUser", typ.Mapper.Name)
 		assert.Equal(t, spec.ParameterKindValue, typ.Mapper.Signature.Accepts)
 		assert.Equal(t, spec.ParameterKindValue, typ.Mapper.Signature.Returns)
+		assert.Equal(t, spec.MapperKindMethod, typ.Mapper.Kind)
 	})
 
 	t.Run("merges package optionality defaults with type optionality overrides", func(t *testing.T) {
@@ -506,6 +507,39 @@ func TestResolve_Presets(t *testing.T) {
 	})
 }
 
+func TestResolve_MapperKind(t *testing.T) {
+	t.Run("defaults to function", func(t *testing.T) {
+		typ := singleResolvedType(t, minimalConfig())
+
+		assert.Equal(t, spec.MapperKindFunction, typ.Mapper.Kind)
+	})
+
+	t.Run("uses configured defaults", func(t *testing.T) {
+		cfg := minimalConfig()
+		cfg.Defaults.Packages.Types.Mappers = &config.DirectionalMapperDefaults{
+			Forward: &config.MapperDefaults{Kind: new(spec.MapperKindPreferMethod)},
+		}
+
+		typ := singleResolvedType(t, cfg)
+
+		assert.Equal(t, spec.MapperKindPreferMethod, typ.Mapper.Kind)
+	})
+
+	t.Run("type overrides package defaults", func(t *testing.T) {
+		cfg := minimalConfig()
+		cfg.Packages[0].Mappers = &config.DirectionalMapperDefaults{
+			Forward: &config.MapperDefaults{Kind: new(spec.MapperKindPreferMethod)},
+		}
+		cfg.Packages[0].Types[0].Mappers = &config.DirectionalMapperDefaults{
+			Forward: &config.MapperDefaults{Kind: new(spec.MapperKindMethod)},
+		}
+
+		typ := singleResolvedType(t, cfg)
+
+		assert.Equal(t, spec.MapperKindMethod, typ.Mapper.Kind)
+	})
+}
+
 func TestResolve_Callables(t *testing.T) {
 	t.Run("resolves scoped callables in priority order", func(t *testing.T) {
 		got := singleResolvedType(t, callableConfig())
@@ -714,6 +748,7 @@ func precedenceConfig() config.Config {
 					},
 					Mappers: &config.DirectionalMapperDefaults{
 						Forward: &config.MapperDefaults{
+							Kind: new(spec.MapperKindPreferMethod),
 							Name: new("DefaultForward"),
 							Signature: &config.MapperSignatureDefaults{
 								Accepts: new(spec.ParameterKindPointer),
@@ -750,6 +785,7 @@ func precedenceConfig() config.Config {
 					Signature: &config.MapperSignatureDefaults{
 						Accepts: new(spec.ParameterKindValue),
 					},
+					Kind: new(spec.MapperKindMethod),
 				},
 			},
 			Optionality: &config.OptionalityDefaults{

@@ -114,6 +114,9 @@ type Method struct {
 	Results    []Parameter
 	IsExported bool
 	IsVariadic bool
+
+	SourceFile    string
+	IsInMorphFile bool
 }
 
 // OwnerType returns the named type the method is declared on.

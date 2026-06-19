@@ -167,7 +167,7 @@ func (g *fileGenerator) renderStructMapper(typ *plan.Type) error {
 		ZeroValue:    g.renderMapperReturnZeroValue(typ),
 	})
 
-	g.writer.Line("func %s(source %s) %s {", typ.FunctionName, sourceType, g.renderMapperResults(typ))
+	g.writer.Line("%s {", g.renderMapperDeclaration(typ, sourceType))
 	g.writer.Indent(func() {
 		g.renderMapperNilSourceGuard(scope, typ)
 		g.writer.Line("var target %s", targetType)
@@ -208,7 +208,7 @@ func (g *fileGenerator) renderEnumMapper(typ *plan.Type) error {
 		ZeroValue:    g.renderMapperReturnZeroValue(typ),
 	})
 
-	g.writer.Line("func %s(source %s) %s {", typ.FunctionName, g.renderMapperSourceType(typ), g.renderMapperResults(typ))
+	g.writer.Line("%s {", g.renderMapperDeclaration(typ, g.renderMapperSourceType(typ)))
 	g.writer.Indent(func() {
 		g.renderMapperNilSourceGuard(scope, typ)
 		source := "source"
@@ -250,6 +250,13 @@ func (g *fileGenerator) renderMapperSourceType(typ *plan.Type) string {
 		return "*" + sourceType
 	}
 	return sourceType
+}
+
+func (g *fileGenerator) renderMapperDeclaration(typ *plan.Type, sourceType string) string {
+	if typ.MapperKind == plan.MapperKindMethod {
+		return fmt.Sprintf("func (source %s) %s() %s", sourceType, typ.FunctionName, g.renderMapperResults(typ))
+	}
+	return fmt.Sprintf("func %s(source %s) %s", typ.FunctionName, sourceType, g.renderMapperResults(typ))
 }
 
 func (g *fileGenerator) renderMapperReturnType(typ *plan.Type) string {
@@ -614,12 +621,19 @@ func (g *fileGenerator) renderGeneratedMapperCall(scope *renderScope, source str
 		return "", fmt.Errorf("cannot generate generated mapper call without a mapper plan")
 	}
 
-	call := fmt.Sprintf("%s(%s)", g.renderGeneratedMapperName(value.Plan), source)
+	call := g.renderGeneratedMapperCallExpr(source, value.Plan)
 	if !value.Plan.CanError {
 		return call, nil
 	}
 
 	return g.renderErroringCall(scope, name, call), nil
+}
+
+func (g *fileGenerator) renderGeneratedMapperCallExpr(source string, mapper *plan.Type) string {
+	if mapper.MapperKind == plan.MapperKindMethod {
+		return fmt.Sprintf("%s.%s()", source, mapper.FunctionName)
+	}
+	return fmt.Sprintf("%s(%s)", g.renderGeneratedMapperName(mapper), source)
 }
 
 func (g *fileGenerator) renderErroringCall(scope *renderScope, name renderName, call string) string {

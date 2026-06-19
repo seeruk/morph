@@ -122,7 +122,7 @@ func (l *Loader) loadPackage(pkg *packages.Package) Package {
 			fn := l.loadFunction(obj, out.AsRef(), pkg, morphFiles)
 			out.Functions[fn.Name] = fn
 		case *types.TypeName:
-			t := l.loadType(obj, out.AsRef())
+			t := l.loadType(obj, out.AsRef(), pkg, morphFiles)
 			out.Types[t.Name] = t
 		}
 	}
@@ -210,7 +210,7 @@ func (l *Loader) loadFunction(obj *types.Func, pkgRef PackageRef, pkg *packages.
 }
 
 // loadType loads a type declaration from the given types.TypeName.
-func (l *Loader) loadType(obj *types.TypeName, pkg PackageRef) TypeDecl {
+func (l *Loader) loadType(obj *types.TypeName, pkg PackageRef, loadedPkg *packages.Package, morphFiles map[string]bool) TypeDecl {
 	typ := obj.Type()
 
 	out := TypeDecl{
@@ -220,7 +220,7 @@ func (l *Loader) loadType(obj *types.TypeName, pkg PackageRef) TypeDecl {
 		Type:       loadType(typ),
 		Underlying: loadType(typ.Underlying()),
 		Fields:     loadStructFields(typeAsStruct(typ)),
-		Methods:    loadTypeMethods(typ),
+		Methods:    loadTypeMethods(typ, loadedPkg, morphFiles),
 		// NOTE: Constants are assigned after all package declarations have been loaded.
 	}
 
@@ -409,7 +409,7 @@ func (s *typeLoadState) LoadParameter(param *types.Var) Parameter {
 	}
 }
 
-func loadTypeMethods(typ types.Type) map[string]Method {
+func loadTypeMethods(typ types.Type, pkg *packages.Package, morphFiles map[string]bool) map[string]Method {
 	named, ok := types.Unalias(typ).(*types.Named)
 	if !ok {
 		return nil
@@ -418,7 +418,7 @@ func loadTypeMethods(typ types.Type) map[string]Method {
 	methods := make(map[string]Method, named.NumMethods())
 	for fn := range named.Methods() {
 		sig := fn.Type().(*types.Signature)
-		methods[fn.Name()] = Method{
+		method := Method{
 			Owner:      loadType(named),
 			Name:       fn.Name(),
 			IsExported: fn.Exported(),
@@ -428,6 +428,11 @@ func loadTypeMethods(typ types.Type) map[string]Method {
 			Results:    loadParameters(sig.Results()),
 			IsVariadic: sig.Variadic(),
 		}
+		if filename, ok := filenameForObject(pkg, fn); ok {
+			method.SourceFile = filename
+			method.IsInMorphFile = morphFiles[filename]
+		}
+		methods[fn.Name()] = method
 	}
 
 	return methods

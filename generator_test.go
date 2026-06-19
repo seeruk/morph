@@ -64,6 +64,39 @@ func TestGeneratorGenerate(t *testing.T) {
 		golden.Assert(t, "pointer_mapper_signatures", files[0].Source)
 	})
 
+	t.Run("generates struct mapper methods", func(t *testing.T) {
+		files, err := NewGenerator().Generate(generatorSourcePackagePlan(generatorMethodStructRoot()))
+
+		require.NoError(t, err)
+		require.Len(t, files, 1)
+		golden.Assert(t, "struct_mapper_method", files[0].Source)
+	})
+
+	t.Run("generates pointer receiver mapper methods", func(t *testing.T) {
+		files, err := NewGenerator().Generate(generatorSourcePackagePlan(generatorPointerMethodStructRoot()))
+
+		require.NoError(t, err)
+		require.Len(t, files, 1)
+		golden.Assert(t, "pointer_receiver_mapper_method", files[0].Source)
+	})
+
+	t.Run("generates enum mapper methods", func(t *testing.T) {
+		files, err := NewGenerator().Generate(generatorSourcePackagePlan(generatorMethodEnumRoot()))
+
+		require.NoError(t, err)
+		require.Len(t, files, 1)
+		golden.Assert(t, "enum_mapper_method", files[0].Source)
+	})
+
+	t.Run("generates method calls for generated mapper methods", func(t *testing.T) {
+		parent, child := generatorGeneratedMethodCallRoots()
+		files, err := NewGenerator().Generate(generatorSourcePackagePlan(parent, child))
+
+		require.NoError(t, err)
+		require.Len(t, files, 1)
+		golden.Assert(t, "generated_mapper_method_call", files[0].Source)
+	})
+
 	t.Run("generates generated mapper calls and higher order arguments", func(t *testing.T) {
 		root, nested := generatorHigherOrderRoot()
 		files, err := NewGenerator().Generate(Plan{OutputGroups: []plan.OutputGroup{{
@@ -451,11 +484,30 @@ func generatorPlan(roots ...*plan.Type) Plan {
 	}}}
 }
 
+func generatorSourcePackagePlan(roots ...*plan.Type) Plan {
+	location := generatorSourceLocation()
+	for _, root := range roots {
+		root.Location = location
+	}
+	return Plan{OutputGroups: []plan.OutputGroup{{
+		Location: location,
+		Roots:    roots,
+	}}}
+}
+
 func generatorLocation() plan.OutputLocation {
 	return plan.OutputLocation{
 		LogicalPath: "/repo/out/morph.gen.go",
 		ImportPath:  "module.test/out",
 		PackageName: "out",
+	}
+}
+
+func generatorSourceLocation() plan.OutputLocation {
+	return plan.OutputLocation{
+		LogicalPath: "/repo/from/morph.gen.go",
+		ImportPath:  "module.test/from",
+		PackageName: "from",
 	}
 }
 
@@ -485,6 +537,19 @@ func generatorSimpleStructRoot() *plan.Type {
 	return root
 }
 
+func generatorMethodStructRoot() *plan.Type {
+	root := generatorSimpleStructRoot()
+	root.MapperKind = plan.MapperKindMethod
+	return root
+}
+
+func generatorPointerMethodStructRoot() *plan.Type {
+	root := generatorSimpleStructRoot()
+	root.MapperKind = plan.MapperKindMethod
+	root.Signature.Accepts = spec.ParameterKindPointer
+	return root
+}
+
 func generatorEnumRoot(functionName string, failureMode spec.EnumFailureMode) *plan.Type {
 	sourceDecl := generatorEnumDecl(
 		"module.test/from", "Status",
@@ -510,6 +575,49 @@ func generatorEnumRoot(functionName string, failureMode spec.EnumFailureMode) *p
 		root.EnumPlan.FallbackValue = targetDecl.Constants["StatusReady"]
 	}
 	return root
+}
+
+func generatorMethodEnumRoot() *plan.Type {
+	root := generatorEnumRoot("MapStatus", spec.EnumFailureModeError)
+	root.MapperKind = plan.MapperKindMethod
+	return root
+}
+
+func generatorGeneratedMethodCallRoots() (*plan.Type, *plan.Type) {
+	childSourceType := generatorNamedStructType("module.test/from", "Child")
+	childSourceDecl := generatorStructDecl("module.test/from", "Child", map[string]types.Field{
+		"Name": generatorField("Name", basicTestType("string")),
+	})
+	childTargetDecl := generatorStructDecl("module.test/to", "Child", map[string]types.Field{
+		"Name": generatorField("Name", basicTestType("string")),
+	})
+	childRoot := generatorRoot("MapChild", childSourceDecl, childTargetDecl)
+	childRoot.MapperKind = plan.MapperKindMethod
+	childRoot.StructPlan = &plan.Struct{Properties: []plan.Property{
+		generatorPlanField(childSourceDecl, childTargetDecl, "Name", plan.Value{
+			Operation: plan.OperationAssign,
+			Source:    basicTestType("string"),
+			Target:    basicTestType("string"),
+		}),
+	}}
+
+	parentSourceDecl := generatorStructDecl("module.test/from", "Parent", map[string]types.Field{
+		"Child": generatorField("Child", childSourceType),
+	})
+	parentTargetDecl := generatorStructDecl("module.test/to", "Parent", map[string]types.Field{
+		"Child": generatorField("Child", childTargetDecl.Type),
+	})
+	parentRoot := generatorRoot("MapParent", parentSourceDecl, parentTargetDecl)
+	parentRoot.StructPlan = &plan.Struct{Properties: []plan.Property{
+		generatorPlanField(parentSourceDecl, parentTargetDecl, "Child", plan.Value{
+			Operation: plan.OperationStruct,
+			Source:    childSourceType,
+			Target:    childTargetDecl.Type,
+			Plan:      childRoot,
+		}),
+	}}
+
+	return parentRoot, childRoot
 }
 
 func generatorContainerRoot() *plan.Type {

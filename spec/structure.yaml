@@ -82,11 +82,13 @@ presets:
         target: "{{ .Type.Pascal }}{{ .Value.Pascal }}"
     mappers:
       forward:
+        kind: function # or prefer_method, or method
         name: Map{{ .Target.Package }}{{ .Target.Type }}FromProto
         signature:
           accepts: pointer
           returns: value
       inverse:
+        kind: function
         name: Map{{ .Target.Package }}{{ .Target.Type }}ToProto
         signature:
           accepts: value

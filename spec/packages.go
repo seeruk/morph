@@ -185,8 +185,52 @@ type Mappers struct {
 
 // Mapper represents resolved configuration for how a mapper function should be generated.
 type Mapper struct {
+	Kind      MapperKind
 	Name      string
 	Signature MapperSignature
+}
+
+// MapperKind controls the declaration style Morph should use for a generated mapper.
+type MapperKind uint
+
+const (
+	MapperKindFunction MapperKind = iota
+	MapperKindPreferMethod
+	MapperKindMethod
+	mapperKindMax
+)
+
+var mapperKindNames = map[MapperKind]string{
+	MapperKindFunction:     "function",
+	MapperKindPreferMethod: "prefer_method",
+	MapperKindMethod:       "method",
+}
+
+var mapperKindsByName = mapsx.Invert(mapperKindNames)
+
+func (k MapperKind) MarshalText() ([]byte, error) {
+	value, ok := mapperKindNames[k]
+	if !ok {
+		return nil, fmt.Errorf("unknown mapper kind: %s", k.String())
+	}
+	return []byte(value), nil
+}
+
+func (k *MapperKind) UnmarshalText(data []byte) error {
+	value, ok := mapperKindsByName[strings.ToLower(string(data))]
+	if !ok {
+		return fmt.Errorf("unknown mapper kind: %q", string(data))
+	}
+
+	*k = value
+	return nil
+}
+
+func (k MapperKind) String() string {
+	if value, ok := mapperKindNames[k]; ok {
+		return value
+	}
+	return fmt.Sprintf("MapperKind(%d)", k)
 }
 
 // MapperSignature configures the resolved signature of a generated mapper function.

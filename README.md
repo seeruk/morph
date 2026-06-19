@@ -439,6 +439,34 @@ uppercased, and the signature values are rendered as `Value` or `Pointer`.
 </details>
 
 <details>
+<summary>Customizing Mapper Kind</summary>
+
+#### Customizing Mapper Kind
+
+By default, Morph generates plain functions. You can ask Morph to generate source-type methods
+instead:
+
+```yaml
+packages:
+- source: example.com/foodplanner/foodpb
+  target: example.com/foodplanner/food
+  output:
+    strategy: source_package
+  mappers:
+    forward:
+      kind: prefer_method
+  types:
+  - name: Recipe
+```
+
+* `kind: function` preserves the default function output.
+* `kind: prefer_method` emits a method when the generated file is in the source type's package, and 
+  otherwise falls back to a function.
+* `kind: method` will emit a fatal diagnostic if Morph can't generate a method.
+
+</details>
+
+<details>
 <summary>Customizing Mapper Signatures</summary>
 
 #### Customizing Mapper Signatures

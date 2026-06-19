@@ -12,6 +12,7 @@
         ],
         "mappers": {
           "forward": {
+            "kind": null,
             "name": "Map{{ .Source.Type }}To{{ .Target.Type }}",
             "signature": {
               "accepts": "value",
@@ -19,6 +20,7 @@
             }
           },
           "inverse": {
+            "kind": null,
             "name": "Map{{ .Target.Type }}To{{ .Source.Type }}",
             "signature": {
               "accepts": "pointer",
@@ -126,6 +128,7 @@
           },
           "mappers": {
             "forward": {
+              "kind": null,
               "name": "MapSourceUserToTargetUser",
               "signature": {
                 "accepts": "pointer",
@@ -133,6 +136,7 @@
               }
             },
             "inverse": {
+              "kind": null,
               "name": "MapTargetUserToSourceUser",
               "signature": {
                 "accepts": "value",
@@ -243,6 +247,7 @@
       "callables": null,
       "mappers": {
         "forward": {
+          "kind": null,
           "name": "Map{{ .Target.Package }}{{ .Target.Type }}FromAPI",
           "signature": {
             "accepts": "pointer",
@@ -250,6 +255,7 @@
           }
         },
         "inverse": {
+          "kind": null,
           "name": "Map{{ .Target.Package}}{{ .Target.Type }}ToAPI",
           "signature": {
             "accepts": "value",

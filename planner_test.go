@@ -12,6 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	plannerProtoFromPackage = "github.com/seeruk/morph/testdata/planner/proto/from"
+	plannerProtoToPackage   = "github.com/seeruk/morph/testdata/planner/proto/to"
+)
+
 func TestPlannerPlanStructPropertiesFromConfig(t *testing.T) {
 	t.Run("uses explicit property mappings", func(t *testing.T) {
 		out := planWithConfig(t, "lab/planner", config.Config{
@@ -232,6 +237,176 @@ func TestPlannerPlanCallableSelectionFromConfig(t *testing.T) {
 
 		assert.Equal(t, plan.OperationFunction, foo.Mapping.Operation)
 		assert.Equal(t, []plan.ValueAdaptation{plan.ValueAdaptationAddress}, foo.Mapping.SourceAdaptations)
+	})
+}
+
+func TestPlannerPlanMapperKind(t *testing.T) {
+	t.Run("plans function style by default", func(t *testing.T) {
+		out := planWithConfig(t, ".", config.Config{
+			Packages: []config.Package{{
+				Source: plannerFromPackage,
+				Target: plannerToPackage,
+				Output: config.Output{Strategy: new(spec.OutputStrategySourcePackage)},
+				Types:  []config.Type{{Name: "Container"}},
+			}},
+		})
+
+		root := requireSingleRoot(t, out)
+
+		assert.Equal(t, spec.MapperKindFunction, root.MapperKindSpec)
+		assert.Equal(t, plan.MapperKindFunction, root.MapperKind)
+	})
+
+	t.Run("plans preferred method style when eligible", func(t *testing.T) {
+		out := planWithConfig(t, ".", config.Config{
+			Packages: []config.Package{{
+				Source: plannerFromPackage,
+				Target: plannerToPackage,
+				Output: config.Output{Strategy: new(spec.OutputStrategySourcePackage)},
+				Types: []config.Type{{
+					Name: "Container",
+					Mappers: &config.DirectionalMapperDefaults{Forward: &config.MapperDefaults{
+						Kind: new(spec.MapperKindPreferMethod),
+					}},
+				}},
+			}},
+		})
+
+		root := requireSingleRoot(t, out)
+
+		assert.Equal(t, spec.MapperKindPreferMethod, root.MapperKindSpec)
+		assert.Equal(t, plan.MapperKindMethod, root.MapperKind)
+		assert.False(t, out.HasFatalDiagnostics())
+	})
+
+	t.Run("falls back from preferred method style when ineligible", func(t *testing.T) {
+		out := planWithConfig(t, ".", config.Config{
+			Presets: protobufPresetConfig(),
+			Packages: []config.Package{{
+				Source: plannerProtoFromPackage,
+				Target: plannerProtoToPackage,
+				Preset: "protobuf",
+				Output: config.Output{Strategy: new(spec.OutputStrategyTargetPackage)},
+				Types: []config.Type{{
+					Name: "Difficulty",
+					Mappers: &config.DirectionalMapperDefaults{Forward: &config.MapperDefaults{
+						Kind: new(spec.MapperKindPreferMethod),
+					}},
+				}},
+			}},
+		})
+
+		root := requireSingleRoot(t, out)
+
+		assert.Equal(t, spec.MapperKindPreferMethod, root.MapperKindSpec)
+		assert.Equal(t, plan.MapperKindFunction, root.MapperKind)
+		assert.False(t, out.HasFatalDiagnostics())
+	})
+
+	t.Run("plans target package inverse as method when eligible", func(t *testing.T) {
+		out := planWithConfig(t, ".", config.Config{
+			Presets: protobufPresetConfig(),
+			Packages: []config.Package{{
+				Source:        plannerProtoFromPackage,
+				Target:        plannerProtoToPackage,
+				Preset:        "protobuf",
+				Output:        config.Output{Strategy: new(spec.OutputStrategyTargetPackage)},
+				Bidirectional: new(true),
+				Types: []config.Type{{
+					Name: "Difficulty",
+					Mappers: &config.DirectionalMapperDefaults{Inverse: &config.MapperDefaults{
+						Kind: new(spec.MapperKindPreferMethod),
+					}},
+				}},
+			}},
+		})
+
+		require.Len(t, out.OutputGroups, 1)
+		require.Len(t, out.OutputGroups[0].Roots, 2)
+		forward := requireRootBySourcePackage(t, out.OutputGroups[0].Roots, plannerProtoFromPackage)
+		inverse := requireRootBySourcePackage(t, out.OutputGroups[0].Roots, plannerProtoToPackage)
+
+		assert.Equal(t, plan.MapperKindFunction, forward.MapperKind)
+		assert.Equal(t, plan.MapperKindMethod, inverse.MapperKind)
+	})
+
+	t.Run("reports strict method style when ineligible", func(t *testing.T) {
+		out := planWithConfig(t, ".", config.Config{
+			Presets: protobufPresetConfig(),
+			Packages: []config.Package{{
+				Source: plannerProtoFromPackage,
+				Target: plannerProtoToPackage,
+				Preset: "protobuf",
+				Output: config.Output{Strategy: new(spec.OutputStrategyTargetPackage)},
+				Types: []config.Type{{
+					Name: "Difficulty",
+					Mappers: &config.DirectionalMapperDefaults{Forward: &config.MapperDefaults{
+						Kind: new(spec.MapperKindMethod),
+					}},
+				}},
+			}},
+		})
+
+		root := requireSingleRoot(t, out)
+
+		assert.Equal(t, plan.MapperKindFunction, root.MapperKind)
+		assertFatalDiagnosticMessages(t, root.Diagnostics, `mapper kind "method" requires output package "github.com/seeruk/morph/testdata/planner/proto/to" to match source type package "github.com/seeruk/morph/testdata/planner/proto/from"`)
+	})
+
+	t.Run("reports strict method style when receiver method exists", func(t *testing.T) {
+		out := planWithConfig(t, ".", config.Config{
+			Packages: []config.Package{{
+				Source: plannerFromPackage,
+				Target: plannerToPackage,
+				Output: config.Output{Strategy: new(spec.OutputStrategySourcePackage)},
+				Types: []config.Type{{
+					Name: "ContextualCallableContainer",
+					Mappers: &config.DirectionalMapperDefaults{Forward: &config.MapperDefaults{
+						Kind: new(spec.MapperKindMethod),
+						Name: new("HasValue"),
+					}},
+				}},
+			}},
+		})
+
+		root := requireSingleRoot(t, out)
+
+		assert.Equal(t, plan.MapperKindFunction, root.MapperKind)
+		assertFatalDiagnosticMessages(t, root.Diagnostics, `mapper kind "method" would overwrite existing method ContextualCallableContainer.HasValue`)
+	})
+
+	t.Run("falls back from preferred method style when planned receiver method exists", func(t *testing.T) {
+		out := planWithConfig(t, ".", config.Config{
+			Packages: []config.Package{{
+				Source: plannerFromPackage,
+				Target: plannerToPackage,
+				Output: config.Output{Strategy: new(spec.OutputStrategySourcePackage)},
+				Types: []config.Type{
+					{
+						Source: "Container",
+						Target: "Container",
+						Mappers: &config.DirectionalMapperDefaults{Forward: &config.MapperDefaults{
+							Kind: new(spec.MapperKindPreferMethod),
+							Name: new("Map"),
+						}},
+					},
+					{
+						Source: "Container",
+						Target: "Node",
+						Mappers: &config.DirectionalMapperDefaults{Forward: &config.MapperDefaults{
+							Kind: new(spec.MapperKindPreferMethod),
+							Name: new("Map"),
+						}},
+					},
+				},
+			}},
+		})
+
+		require.Len(t, out.OutputGroups, 1)
+		require.Len(t, out.OutputGroups[0].Roots, 2)
+
+		assert.Equal(t, plan.MapperKindMethod, out.OutputGroups[0].Roots[0].MapperKind)
+		assert.Equal(t, plan.MapperKindFunction, out.OutputGroups[0].Roots[1].MapperKind)
 	})
 }
 
@@ -637,6 +812,17 @@ func resolveTestConfig(t *testing.T, cfg config.Config) Spec {
 	resolved, err := ResolveConfig(cfg)
 	require.NoError(t, err)
 	return resolved
+}
+
+func protobufPresetConfig() map[string]config.Preset {
+	return map[string]config.Preset{
+		"protobuf": {
+			Enum: &config.EnumDefaults{Patterns: &config.EnumPatterns{
+				Source: "{{ .Type.Pascal }}_{{ .Type.Screaming }}_{{ .Value.Screaming }}",
+				Target: "{{ .Type.Pascal }}{{ .Value.Pascal }}",
+			}},
+		},
+	}
 }
 
 func requireSingleRoot(t *testing.T, out Plan) *plan.Type {

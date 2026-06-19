@@ -152,6 +152,71 @@ func TestParameterKind_UnmarshalText(t *testing.T) {
 	}
 }
 
+func TestMapperKind_UnmarshalText(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want MapperKind
+		errs bool
+	}{
+		{name: "function", in: "function", want: MapperKindFunction},
+		{name: "prefer method", in: "prefer_method", want: MapperKindPreferMethod},
+		{name: "method", in: "method", want: MapperKindMethod},
+		{name: "case insensitive", in: "METHOD", want: MapperKindMethod},
+		{name: "invalid", in: "callable", errs: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var kind MapperKind
+			err := kind.UnmarshalText([]byte(tt.in))
+			if tt.errs {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, kind)
+		})
+	}
+}
+
+func TestMapperKind_String(t *testing.T) {
+	tests := []struct {
+		name string
+		kind MapperKind
+		want string
+	}{
+		{name: "function", kind: MapperKindFunction, want: "function"},
+		{name: "prefer method", kind: MapperKindPreferMethod, want: "prefer_method"},
+		{name: "method", kind: MapperKindMethod, want: "method"},
+		{name: "invalid", kind: MapperKind(99), want: "MapperKind(99)"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.kind.String())
+		})
+	}
+}
+
+func TestMapperKind_MarshalText(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		got, err := MapperKindPreferMethod.MarshalText()
+
+		require.NoError(t, err)
+		assert.Equal(t, []byte("prefer_method"), got)
+	})
+
+	t.Run("invalid", func(t *testing.T) {
+		got, err := MapperKind(99).MarshalText()
+
+		require.Error(t, err)
+		assert.Nil(t, got)
+		assert.ErrorContains(t, err, "unknown mapper kind: MapperKind(99)")
+	})
+}
+
 func TestParameterKind_String(t *testing.T) {
 	tests := []struct {
 		name string

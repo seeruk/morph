@@ -51,6 +51,7 @@ type DirectionalMapperDefaults struct {
 
 // MapperDefaults represents partial configuration for how a mapper function should be generated.
 type MapperDefaults struct {
+	Kind      *spec.MapperKind         `json:"kind"`
 	Name      *string                  `json:"name"`
 	Signature *MapperSignatureDefaults `json:"signature"`
 }

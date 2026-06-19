@@ -548,6 +548,10 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "kind": {
+          "$ref": "#/$defs/mapperKind",
+          "description": "Whether the generated mapper should be emitted as a function, prefer a source method, or require a source method."
+        },
         "name": {
           "type": "string",
           "minLength": 1,
@@ -648,6 +652,12 @@
       "enum": ["value", "pointer"],
       "description": "Whether a mapper parameter or return is a value or pointer.",
       "default": "value"
+    },
+    "mapperKind": {
+      "type": "string",
+      "enum": ["function", "prefer_method", "method"],
+      "description": "function emits a plain mapper function; prefer_method emits a source method when legal and falls back to a function; method requires a source method.",
+      "default": "function"
     },
     "pointerOptionality": {
       "type": "string",
