@@ -16,7 +16,7 @@ const (
 	defaultInverseMapperName = "Map{{ .Source.Package }}{{ .Source.Type }}From{{ .Target.Package }}{{ .Target.Type }}"
 )
 
-var defaultTypesDefaults = TypesDefaults{
+var builtInTypeDefaults = TypesDefaults{
 	Enum: &EnumDefaults{
 		FailureMode: new(spec.EnumFailureModeError),
 	},
@@ -47,8 +47,7 @@ var defaultTypesDefaults = TypesDefaults{
 	Bidirectional: new(false),
 }
 
-// TODO: Revise?
-var defaultOutput = Output{
+var builtInOutputDefaults = Output{
 	Strategy: new(spec.OutputStrategySinglePackage),
 	Package:  "mapping",
 	Path:     "mapping",
@@ -62,8 +61,8 @@ var defaultMapperSignature = spec.MapperSignature{
 
 // Resolve turns user-written config into a fully resolved planner-ready spec.
 func Resolve(cfg Config) (spec.Spec, error) {
-	defaultOutput := mergeOutput(cfg.Defaults.Packages.Output, defaultOutput)
-	defaultTypes := mergeTypeDefaults(cfg.Defaults.Packages.Types, defaultTypesDefaults)
+	outputDefaults := mergeOutput(cfg.Defaults.Packages.Output, builtInOutputDefaults)
+	typeDefaults := mergeTypeDefaults(cfg.Defaults.Packages.Types, builtInTypeDefaults)
 	conversions, err := resolveConversions(cfg.Conversions)
 	if err != nil {
 		return spec.Spec{}, err
@@ -71,21 +70,21 @@ func Resolve(cfg Config) (spec.Spec, error) {
 
 	out := spec.Spec{
 		Defaults: spec.Defaults{
-			Types: resolvedTypeDefaults(defaultTypes),
+			Types: resolvedTypeDefaults(typeDefaults),
 		},
 		Discovery:   resolveDiscovery(cfg.Discovery),
 		Conversions: conversions,
 	}
 
 	callables := makeCallablePriorities()
-	callables.Add(spec.CallablePriorityDefaults, defaultTypes.Callables)
+	callables.Add(spec.CallablePriorityDefaults, typeDefaults.Callables)
 
 	for i, pkg := range cfg.Packages {
 		if len(pkg.Types) == 0 {
 			continue
 		}
 
-		resolved, err := resolvePackage(pkg, defaultOutput, defaultTypes, callables, cfg.Presets, i)
+		resolved, err := resolvePackage(pkg, outputDefaults, typeDefaults, callables, cfg.Presets, i)
 		if err != nil {
 			return spec.Spec{}, err
 		}

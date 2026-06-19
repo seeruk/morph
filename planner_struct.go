@@ -321,30 +321,16 @@ func (p *attemptPlanner) planValue(
 
 	switch {
 	case sourceType.Kind == types.TypeKindSlice && targetType.Kind == types.TypeKindSlice:
-		elemPlan := p.planValue(
-			*sourceType.Elem,
-			*targetType.Elem,
-			path+"[]",
+		return p.planSequenceValue(
+			sourceType,
+			targetType,
+			path,
 			optionality,
 			conversion,
 			callables,
+			plan.OperationSlice,
+			deferredDiagnostics,
 		)
-
-		operation := plan.OperationSlice
-		if hasValueMappingFailed(elemPlan) {
-			operation = plan.OperationUnsupported
-		}
-
-		value := plan.Value{
-			Operation:   operation,
-			Source:      sourceType,
-			Target:      targetType,
-			Elem:        &elemPlan,
-			Optionality: optionality,
-			CanError:    elemPlan.CanError,
-			Diagnostics: valueDiagnostics(elemPlan),
-		}
-		return appendDiagnosticsOnFailure(value, deferredDiagnostics...)
 
 	case sourceType.Kind == types.TypeKindArray && targetType.Kind == types.TypeKindArray:
 		if sourceType.Len != targetType.Len {
@@ -356,68 +342,27 @@ func (p *attemptPlanner) planValue(
 			), deferredDiagnostics...)
 		}
 
-		elemPlan := p.planValue(
-			*sourceType.Elem,
-			*targetType.Elem,
-			path+"[]",
+		return p.planSequenceValue(
+			sourceType,
+			targetType,
+			path,
 			optionality,
 			conversion,
 			callables,
+			plan.OperationArray,
+			deferredDiagnostics,
 		)
-
-		operation := plan.OperationArray
-		if hasValueMappingFailed(elemPlan) {
-			operation = plan.OperationUnsupported
-		}
-
-		value := plan.Value{
-			Operation:   operation,
-			Source:      sourceType,
-			Target:      targetType,
-			Elem:        &elemPlan,
-			Optionality: optionality,
-			CanError:    elemPlan.CanError,
-			Diagnostics: valueDiagnostics(elemPlan),
-		}
-		return appendDiagnosticsOnFailure(value, deferredDiagnostics...)
 
 	case sourceType.Kind == types.TypeKindMap && targetType.Kind == types.TypeKindMap:
-		key := p.planValue(
-			*sourceType.Key,
-			*targetType.Key,
-			path+"[key]",
+		return p.planMapValue(
+			sourceType,
+			targetType,
+			path,
 			optionality,
 			conversion,
 			callables,
+			deferredDiagnostics,
 		)
-		value := p.planValue(
-			*sourceType.Value,
-			*targetType.Value,
-			path+"[value]",
-			optionality,
-			conversion,
-			callables,
-		)
-
-		diagnostics := valueDiagnostics(key)
-		diagnostics = appendDiagnostic(diagnostics, valueDiagnostics(value)...)
-
-		operation := plan.OperationMap
-		if hasValueMappingFailed(key) || hasValueMappingFailed(value) {
-			operation = plan.OperationUnsupported
-		}
-
-		valuePlan := plan.Value{
-			Operation:   operation,
-			Source:      sourceType,
-			Target:      targetType,
-			Key:         &key,
-			Value:       &value,
-			Optionality: optionality,
-			CanError:    key.CanError || value.CanError,
-			Diagnostics: diagnostics,
-		}
-		return appendDiagnosticsOnFailure(valuePlan, deferredDiagnostics...)
 	}
 
 	if isSameType(sourceType, targetType) {
@@ -449,6 +394,86 @@ func (p *attemptPlanner) planValue(
 		path,
 		"no mapping strategy found; configure a callable, explicit mapper, discovery package, or registered conversion",
 	), deferredDiagnostics...)
+}
+
+func (p *attemptPlanner) planSequenceValue(
+	sourceType, targetType types.Type,
+	path string,
+	optionality spec.Optionality,
+	conversion spec.ConversionsPolicy,
+	callables []spec.PrioritizedCallables,
+	operation plan.Operation,
+	deferredDiagnostics []plan.Diagnostic,
+) plan.Value {
+	elemPlan := p.planValue(
+		*sourceType.Elem,
+		*targetType.Elem,
+		path+"[]",
+		optionality,
+		conversion,
+		callables,
+	)
+
+	if hasValueMappingFailed(elemPlan) {
+		operation = plan.OperationUnsupported
+	}
+
+	value := plan.Value{
+		Operation:   operation,
+		Source:      sourceType,
+		Target:      targetType,
+		Elem:        &elemPlan,
+		Optionality: optionality,
+		CanError:    elemPlan.CanError,
+		Diagnostics: valueDiagnostics(elemPlan),
+	}
+	return appendDiagnosticsOnFailure(value, deferredDiagnostics...)
+}
+
+func (p *attemptPlanner) planMapValue(
+	sourceType, targetType types.Type,
+	path string,
+	optionality spec.Optionality,
+	conversion spec.ConversionsPolicy,
+	callables []spec.PrioritizedCallables,
+	deferredDiagnostics []plan.Diagnostic,
+) plan.Value {
+	key := p.planValue(
+		*sourceType.Key,
+		*targetType.Key,
+		path+"[key]",
+		optionality,
+		conversion,
+		callables,
+	)
+	value := p.planValue(
+		*sourceType.Value,
+		*targetType.Value,
+		path+"[value]",
+		optionality,
+		conversion,
+		callables,
+	)
+
+	diagnostics := valueDiagnostics(key)
+	diagnostics = appendDiagnostic(diagnostics, valueDiagnostics(value)...)
+
+	operation := plan.OperationMap
+	if hasValueMappingFailed(key) || hasValueMappingFailed(value) {
+		operation = plan.OperationUnsupported
+	}
+
+	valuePlan := plan.Value{
+		Operation:   operation,
+		Source:      sourceType,
+		Target:      targetType,
+		Key:         &key,
+		Value:       &value,
+		Optionality: optionality,
+		CanError:    key.CanError || value.CanError,
+		Diagnostics: diagnostics,
+	}
+	return appendDiagnosticsOnFailure(valuePlan, deferredDiagnostics...)
 }
 
 func (p *attemptPlanner) planPropertyCallableInvocation(
