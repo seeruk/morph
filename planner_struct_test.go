@@ -706,6 +706,43 @@ func TestPlannerPlanStructMethodAccessors(t *testing.T) {
 		assert.Equal(t, plan.MemberKindField, name.Target.Kind)
 	})
 
+	t.Run("plans explicit accessors from protobuf-like recursive source types", func(t *testing.T) {
+		inferMethods := false
+		out := planWithConfig(t, ".", config.Config{
+			Packages: []config.Package{{
+				Source: "github.com/seeruk/morph/types/testdata/protolike",
+				Target: plannerToPackage,
+				Types: []config.Type{{
+					Source: "Message",
+					Target: "ProtolikeMessage",
+					Struct: &config.Struct{
+						InferMethods: &inferMethods,
+						Omit: config.StructOmissions{
+							Source: []string{"Id", "Child"},
+						},
+						Properties: []config.Property{{
+							Name: "ID",
+							Accessors: config.DirectionalPropertyAccessors{
+								Forward: config.PropertyAccessors{Read: "GetId"},
+							},
+						}},
+					},
+				}},
+			}},
+		})
+
+		root := requireSingleRoot(t, out)
+		require.NotNil(t, root.StructPlan)
+		assert.False(t, plan.HasFatalDiagnostics(root.Diagnostics))
+
+		id := requirePlanProperty(t, root.StructPlan, "ID")
+		assert.Equal(t, plan.MemberKindMethod, id.Source.Kind)
+		assert.Equal(t, "GetId", id.Source.Accessor)
+		assert.Equal(t, plan.MemberKindField, id.Target.Kind)
+		assert.Equal(t, "ID", id.Target.Accessor)
+		assert.Equal(t, plan.OperationAssign, id.Mapping.Operation)
+	})
+
 	t.Run("uses configured forward and inverse accessors directionally", func(t *testing.T) {
 		out := planWithConfig(t, ".", config.Config{
 			Packages: []config.Package{{

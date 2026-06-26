@@ -383,8 +383,8 @@ func TestLoader_Load(t *testing.T) {
 			{name: "should load send-only channel fields", field: "SendOnly", kind: types.TypeKindChan, elemKind: types.TypeKindBasic, chanDir: gotypes.SendOnly},
 			{name: "should load receive-only channel fields", field: "RecvOnly", kind: types.TypeKindChan, elemKind: types.TypeKindBasic, chanDir: gotypes.RecvOnly},
 			{name: "should load bidirectional channel fields", field: "Both", kind: types.TypeKindChan, elemKind: types.TypeKindBasic, chanDir: gotypes.SendRecv},
-			{name: "should load named interface fields", field: "Reader", kind: types.TypeKindNamed, elemKind: types.TypeKindInterface},
-			{name: "should load named function fields", field: "Handler", kind: types.TypeKindNamed, elemKind: types.TypeKindSignature},
+			{name: "should load named interface fields as shallow references", field: "Reader", kind: types.TypeKindNamed},
+			{name: "should load named function fields as shallow references", field: "Handler", kind: types.TypeKindNamed},
 		}
 
 		for _, tt := range tests {
@@ -414,6 +414,81 @@ func TestLoader_Load(t *testing.T) {
 		}
 	})
 
+	t.Run("should keep referenced named types shallow while loading declarations", func(t *testing.T) {
+		pkg := loadAlphaPackage(t)
+		complexType := findType(t, pkg, "Complex")
+
+		readerField := findField(t, complexType, "Reader")
+		assert.Equal(t, types.TypeKindNamed, readerField.Type.Kind)
+		assert.Equal(t, "Reader", readerField.Type.Name)
+		assert.Nil(t, readerField.Type.Elem)
+
+		readerDecl := findType(t, pkg, "Reader")
+		require.NotNil(t, readerDecl.Type.Elem)
+		assert.Equal(t, types.TypeKindInterface, readerDecl.Type.Elem.Kind)
+		assert.Contains(t, readerDecl.Type.Elem.Methods, "Read")
+
+		handlerField := findField(t, complexType, "Handler")
+		assert.Equal(t, types.TypeKindNamed, handlerField.Type.Kind)
+		assert.Equal(t, "FuncType", handlerField.Type.Name)
+		assert.Nil(t, handlerField.Type.Elem)
+
+		handlerDecl := findType(t, pkg, "FuncType")
+		require.NotNil(t, handlerDecl.Type.Elem)
+		assert.Equal(t, types.TypeKindSignature, handlerDecl.Type.Elem.Kind)
+	})
+
+	t.Run("should load protobuf-like recursive reflection packages with shallow references", func(t *testing.T) {
+		pkg := loadProtolikePackage(t)
+		message := findType(t, pkg, "Message")
+
+		state := findField(t, message, "state")
+		assert.False(t, state.IsExported)
+		assert.Equal(t, types.TypeKindNamed, state.Type.Kind)
+		assert.Equal(t, "messageState", state.Type.Name)
+		assert.Nil(t, state.Type.Elem)
+
+		unknownFields := findField(t, message, "unknownFields")
+		assert.False(t, unknownFields.IsExported)
+		assert.Equal(t, types.TypeKindNamed, unknownFields.Type.Kind)
+		assert.Equal(t, "unknownFields", unknownFields.Type.Name)
+		assert.Nil(t, unknownFields.Type.Elem)
+
+		protoReflect := findMethod(t, message, "ProtoReflect")
+		require.Len(t, protoReflect.Results, 1)
+		assert.Equal(t, types.TypeKindNamed, protoReflect.Results[0].Type.Kind)
+		assert.Equal(t, "ReflectMessage", protoReflect.Results[0].Type.Name)
+		assert.Nil(t, protoReflect.Results[0].Type.Elem)
+
+		messageState := findType(t, pkg, "messageState")
+		messageField := findField(t, messageState, "message")
+		assert.Equal(t, types.TypeKindNamed, messageField.Type.Kind)
+		assert.Equal(t, "ReflectMessage", messageField.Type.Name)
+		assert.Nil(t, messageField.Type.Elem)
+
+		reflectMessage := findType(t, pkg, "ReflectMessage")
+		require.NotNil(t, reflectMessage.Type.Elem)
+		assert.Equal(t, types.TypeKindInterface, reflectMessage.Type.Elem.Kind)
+		assert.ElementsMatch(t, []string{"Descriptor", "New", "Range"}, slices.Collect(maps.Keys(reflectMessage.Type.Elem.Methods)))
+
+		descriptor := reflectMessage.Type.Elem.Methods["Descriptor"]
+		require.Len(t, descriptor.Results, 1)
+		assert.Equal(t, types.TypeKindNamed, descriptor.Results[0].Type.Kind)
+		assert.Equal(t, "MessageDescriptor", descriptor.Results[0].Type.Name)
+		assert.Nil(t, descriptor.Results[0].Type.Elem)
+
+		unknownFieldsDecl := findType(t, pkg, "unknownFields")
+		fields := findField(t, unknownFieldsDecl, "fields")
+		require.NotNil(t, fields.Type.Key)
+		assert.Equal(t, types.TypeKindNamed, fields.Type.Key.Kind)
+		assert.Equal(t, "FieldDescriptor", fields.Type.Key.Name)
+		assert.Nil(t, fields.Type.Key.Elem)
+		require.NotNil(t, fields.Type.Value)
+		assert.Equal(t, types.TypeKindNamed, fields.Type.Value.Kind)
+		assert.Equal(t, "Value", fields.Type.Value.Name)
+		assert.Nil(t, fields.Type.Value.Elem)
+	})
+
 	t.Run("should mark Morph generated functions", func(t *testing.T) {
 		pkg := loadAlphaPackage(t)
 
@@ -441,6 +516,12 @@ func loadAlphaPackage(t *testing.T) types.Package {
 	t.Helper()
 
 	return findPackage(t, loadFixture(t, "./alpha").Packages(), "github.com/seeruk/morph/types/testdata/alpha")
+}
+
+func loadProtolikePackage(t *testing.T) types.Package {
+	t.Helper()
+
+	return findPackage(t, loadFixture(t, "./protolike").Packages(), "github.com/seeruk/morph/types/testdata/protolike")
 }
 
 func findPackage(t *testing.T, pkgs map[string]types.Package, importPath string) types.Package {

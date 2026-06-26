@@ -152,6 +152,10 @@ func (e *ErrorAccessorContainer) SetName(name string) error {
 	return nil
 }
 
+type ProtolikeMessage struct {
+	ID string
+}
+
 type CaseInsensitivePropertyContainer struct {
 	RecipeId string
 }
